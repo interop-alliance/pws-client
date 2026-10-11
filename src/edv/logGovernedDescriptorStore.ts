@@ -365,7 +365,8 @@ export function logGovernedDescriptorStore({
        * store instance verified: a rotation that just appended carries a
        * version past the removal, so the sweep resolves noop with no
        * re-fetch, and a stale view is safe (sealResourceLog's append path
-       * re-reads before writing).
+       * re-reads before writing). The hint carries no validator here, since a
+       * confirmed append returns none, so the append path reads for itself.
        */
       const { sealed, verified } = await sealResourceLog({
         store: log,
@@ -374,7 +375,9 @@ export function logGovernedDescriptorStore({
         pinStore,
         logId,
         signer: logSigner,
-        ...(lastVerified === null ? {} : { verified: lastVerified })
+        ...(lastVerified === null
+          ? {}
+          : { current: { verified: lastVerified } })
       })
       // The sweep hands back the caller's own view untouched when it had
       // nothing to write; only a log it read or appended was verified under

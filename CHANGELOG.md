@@ -1,5 +1,13 @@
 # @interop/was-client Changelog
 
+## 0.95.0 - TBD
+
+### Changed
+
+- Depend on `@interop/vh-resource-log` 0.8.0: the log-governed descriptor
+  store's `seal()` passes its last verified view as `sealResourceLog`'s
+  `current` hint (formerly `verified`).
+
 ## 0.94.0 - 2026-10-10
 
 ### Added
