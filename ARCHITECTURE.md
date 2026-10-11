@@ -26,7 +26,8 @@ external deps       @interop/ezcap, @interop/storage-core,
 
 src/identity/*.ts   Data-identity subpath (sibling, opt-in)
   agents (agentsFromSecret, agentsFromSeed, agentsFromKeyAgent,
-  ProfileAgents, BOOTSTRAP_HANDLE, BOOTSTRAP_KEY_NAME), keyResolver
+  ProfileAgents, ProfileKeyAgreementKey, BOOTSTRAP_HANDLE,
+  BOOTSTRAP_KEY_NAME), keyResolver
   (singleKeyResolver)
   The did:key data-identity derivation: a controller secret or 32-byte seed
   to a did:key CapabilityAgent, a ZcapClient (built through

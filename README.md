@@ -170,7 +170,9 @@ The derivation is deterministic and permanent: the same secret, on any client,
 derives the same `did:key` and joins the same account. `agents.keyAgreementKey`
 and `agents.keyResolver` are the key-agreement key and resolver the `./edv`
 cipher takes, so a caller building an encrypted collection has both halves from
-one call.
+one call. The key is a `ProfileKeyAgreementKey`, which also carries its
+`publicKeyMultibase`, the value a caller publishes as the key's verification
+method.
 
 ### The delegation-proof suite
 

@@ -16,5 +16,5 @@ export {
   agentsFromSecret,
   agentsFromSeed
 } from './agents.js'
-export type { ProfileAgents } from './agents.js'
+export type { ProfileAgents, ProfileKeyAgreementKey } from './agents.js'
 export { singleKeyResolver } from './keyResolver.js'

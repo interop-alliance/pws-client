@@ -1,5 +1,14 @@
 # @interop/was-client Changelog
 
+## 0.96.0 - TBD
+
+### Added
+
+- `ProfileKeyAgreementKey` (`./identity`): the type of `ProfileAgents`'
+  `keyAgreementKey`, an `IKeyAgreementKey` that also carries its
+  `publicKeyMultibase`, so a consumer publishing the key's verification method
+  reads the multibase with no cast.
+
 ## 0.95.0 - 2026-10-11
 
 ### Changed

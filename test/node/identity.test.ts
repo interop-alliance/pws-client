@@ -49,6 +49,7 @@ describe('agentsFromSecret', () => {
     expect(agents.controllerDid).toBe(SECRET_DID)
     expect(agents.keyAgent.id).toBe(SECRET_DID)
     expect(agents.keyAgreementKey.id).toBe(`${SECRET_DID}#${SECRET_KAK_PUB}`)
+    expect(agents.keyAgreementKey.publicKeyMultibase).toBe(SECRET_KAK_PUB)
   })
 
   it('is deterministic across calls', async () => {

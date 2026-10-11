@@ -36,6 +36,16 @@ export const BOOTSTRAP_HANDLE = 'bootstrap'
 export const BOOTSTRAP_KEY_NAME = 'bootstrap-key'
 
 /**
+ * The key-agreement key a profile derivation hands out: the EDV cipher's
+ * `IKeyAgreementKey` contract plus the X25519 public key multibase
+ * (`z6LS...`) a caller publishes as the key's verification method, so a
+ * consumer reads the multibase off the key with no cast.
+ */
+export type ProfileKeyAgreementKey = IKeyAgreementKey & {
+  publicKeyMultibase: string
+}
+
+/**
  * The agents derived from a controller secret or seed: the signing
  * CapabilityAgent / did:key, a ZcapClient for signing storage requests, and
  * the X25519 key agreement key (KAK) + resolver used by the EDV DocCipher.
@@ -44,7 +54,7 @@ export interface ProfileAgents {
   controllerDid: string
   keyAgent: CapabilityAgent
   zcapClient: ZcapClient
-  keyAgreementKey: IKeyAgreementKey
+  keyAgreementKey: ProfileKeyAgreementKey
   keyResolver: IKeyResolver
 }
 
@@ -147,8 +157,9 @@ export function agentsFromKeyAgent({
     keyAgent,
     zcapClient,
     // `id` is always set on the KAK here (a controller was supplied at
-    // derivation), so it satisfies IKeyAgreementKey's required `id`.
-    keyAgreementKey: keyAgreementKey as IKeyAgreementKey,
+    // derivation), so it satisfies IKeyAgreementKey's required `id`; the
+    // conversion always sets `publicKeyMultibase`.
+    keyAgreementKey: keyAgreementKey as ProfileKeyAgreementKey,
     keyResolver
   }
 }
