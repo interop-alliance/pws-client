@@ -193,12 +193,14 @@ its export list, so the two entries cannot drift.
 **no network I/O**; requests happen only when a method is called.
 
 All handles share one `ClientContext` by reference (`src/internal/request.ts`):
-`{ serverUrl, zcapClient, controllerDid, encryption?, service }`. `service` is
-the client's memoized service discovery (see Service discovery). `controllerDid`
-is a lazy getter over the wrapped client's invocation signer, so a client that
-holds only a delegation signer can still build handles and `grant()`; it throws
-only where it is read (`createSpace`'s controller default and `rootCapability`'s
-client-side controller). Per-handle state on top of that:
+`{ baseUrl, zcapClient, controllerDid, encryption?, service }`. `baseUrl` is the
+server root every Space path is built beneath, the parent of the client's
+`serverUrl` (its Spaces Repository URL). `service` is the client's memoized
+service discovery (see Service discovery). `controllerDid` is a lazy getter over
+the wrapped client's invocation signer, so a client that holds only a delegation
+signer can still build handles and `grant()`; it throws only where it is read
+(`createSpace`'s controller default and `rootCapability`'s client-side
+controller). Per-handle state on top of that:
 
 - A bound `capability` (delegated zcap) flows from parent to child as the
   default (`options.capability ?? this.#capability`). A per-handle `encryption`
@@ -222,9 +224,11 @@ client-side controller). Per-handle state on top of that:
 `src/internal/service.ts` implements the spec's Service Description section. The
 server-level URL graph is rooted in one document, the service description, found
 by following the `Link: <...>; rel="service"` header on the response to an
-unsigned `HEAD` of `serverUrl`. The spec reserves no path for it, so the client
-assumes none. The linked document is read with an unsigned `GET` and parsed as
-storage-core's `ServiceDescription`.
+unsigned `HEAD` of `serverUrl`, the Spaces Repository URL. The WAS server itself
+answers that URL. The server root need not be, since a deployment often serves a
+landing page there with no `service` link. The spec reserves no path for the
+document, so the client assumes none. The linked document is read with an
+unsigned `GET` and parsed as storage-core's `ServiceDescription`.
 
 `selectServiceVersion` applies the spec's client rules. It ignores `specs` keys
 other than `https://w3id.org/pws` (compared as opaque strings) and entries
@@ -244,18 +248,23 @@ Failure classes:
 - `IncompatibleServerError` -- no `service` link on the probe response (a server
   that predates v0.5; the client does not fall back to v0.4), a non-2xx or
   non-JSON document, a document without `url` or `specs`, no understood version,
-  or a malformed `spaces` / `features` on the chosen entry. `send()`'s
-  null-on-404 read translation applies only to raw transport errors, so a
-  discovery refusal still rejects instead of reading as `null`.
+  a malformed `spaces` / `features` on the chosen entry, or a `spaces` member
+  whose base URL differs from the client's `baseUrl` (the client would otherwise
+  build every Space path beneath the wrong mount). The comparison is in
+  canonical base-URL form, so host case, a default port, or a trailing slash on
+  the advertised value does not count as a difference. `send()`'s null-on-404
+  read translation applies only to raw transport errors, so a discovery refusal
+  still rejects instead of reading as `null`.
 - The mapped transport error -- a network failure, or a 5xx/429 that comes
   without the link. These say nothing about the protocol.
 
 No failure is memoized, so the next request retries discovery.
 
-The Spaces Repository has no path builder. `createSpace` and `listSpaces`
-address `info.spacesUrl`, and throw `NotSupportedError` before any request when
-the chosen entry has no `spaces` member. Space-scoped paths are still built from
-`serverUrl`.
+`createSpace` and `listSpaces` address `info.spacesUrl` (which discovery has
+checked equals `serverUrl`), and throw `NotSupportedError` before any request
+when the chosen entry has no `spaces` member. Space-scoped paths are built from
+`baseUrl`; `spacesUrl({ baseUrl })` and `baseUrlOfSpacesUrl(url)` on the
+`./paths` entry convert between the two forms.
 
 ## Lifecycle of an authenticated request
 
@@ -997,7 +1006,7 @@ it, and otherwise cover the client-side concepts this file names.
   state: not replicated, not exported. Its runtime state is the separate replica
   status (`replicaStatus`). Avoid: sync peer, subscription, mirror.
 - **`ClientContext`** -- the single
-  `{ serverUrl, zcapClient, controllerDid, encryption?, service }` record every
+  `{ baseUrl, zcapClient, controllerDid, encryption?, service }` record every
   handle shares by reference (`src/internal/request.ts`). See The handle model.
 - **Service description** -- the server-wide JSON document naming the
   specification versions a server speaks and its server-level URLs, found

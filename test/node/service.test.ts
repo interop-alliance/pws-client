@@ -15,6 +15,7 @@ import type { HttpResponse } from '@interop/http-client'
 import {
   IncompatibleServerError,
   NotSupportedError,
+  ValidationError,
   WasClient,
   WasServerError
 } from '../../src/index.js'
@@ -27,7 +28,7 @@ import {
 import type { RequestArgs } from '../helpers/stubClient.js'
 import { jsonResponse } from '../helpers/stubClient.js'
 
-const SERVER_URL = 'https://host.example/was/'
+const SERVER_URL = 'https://host.example/was/spaces/'
 const SERVICE_URL = 'https://host.example/was/service'
 
 /**
@@ -430,6 +431,79 @@ describe('WasClient.service()', () => {
     await expect(was.service()).rejects.toThrow(IncompatibleServerError)
     expect(calls).toEqual([])
   })
+
+  it('refuses a description whose Spaces Repository is not serverUrl', async () => {
+    const { was } = client({
+      serviceDescription: {
+        url: SERVICE_URL,
+        specs: {
+          [PWS_SPEC_ID]: [
+            { version: '0.5', spaces: 'https://repo.example/tenants/' }
+          ]
+        }
+      }
+    })
+    await expect(was.service()).rejects.toThrow(IncompatibleServerError)
+    const sibling = client({
+      serviceDescription: {
+        url: SERVICE_URL,
+        specs: {
+          [PWS_SPEC_ID]: [
+            { version: '0.5', spaces: 'https://host.example/other/spaces/' }
+          ]
+        }
+      }
+    })
+    await expect(sibling.was.service()).rejects.toThrow(IncompatibleServerError)
+  })
+
+  it('accepts an advertised Spaces Repository that differs only in serialization', async () => {
+    for (const spaces of [
+      'https://HOST.example:443/was/spaces',
+      'https://host.example/was/spaces//'
+    ]) {
+      const { was, signed } = client({
+        serviceDescription: {
+          url: SERVICE_URL,
+          specs: { [PWS_SPEC_ID]: [{ version: '0.5', spaces }] }
+        }
+      })
+      expect((await was.service()).spacesUrl).toBe(spaces)
+      // createSpace addresses the client's canonical serverUrl, not the
+      // server's own serialization of it.
+      await was.createSpace({ name: 'Home' })
+      expect(signed[0]?.url).toBe(SERVER_URL)
+    }
+  })
+})
+
+describe('WasClient construction', () => {
+  it('refuses a serverUrl that is not a Spaces Repository URL', () => {
+    const zcapClient = client().was.zcapClient
+    for (const serverUrl of [
+      'https://was.example',
+      'https://was.example/',
+      'https://was.example/space/s/',
+      'file:///spaces/',
+      'https://was.example//spaces/',
+      'https://was.example/spaces/?tenant=acme',
+      '/spaces/'
+    ]) {
+      expect(() => new WasClient({ serverUrl, zcapClient })).toThrow(
+        ValidationError
+      )
+    }
+  })
+
+  it('canonicalizes serverUrl and derives baseUrl as its parent', () => {
+    const zcapClient = client().was.zcapClient
+    const was = new WasClient({
+      serverUrl: 'https://HOST.example:443/was/spaces//',
+      zcapClient
+    })
+    expect(was.serverUrl).toBe(SERVER_URL)
+    expect(was.baseUrl).toBe('https://host.example/was')
+  })
 })
 
 describe('the discovery gate on signed requests', () => {
@@ -460,18 +534,16 @@ describe('the discovery gate on signed requests', () => {
 })
 
 describe('the Spaces Repository URL', () => {
-  it('createSpace and listSpaces use the advertised spaces URL', async () => {
+  it('createSpace and listSpaces address the Spaces Repository URL', async () => {
     const description: ServiceDescription = {
       url: SERVICE_URL,
       specs: {
-        [PWS_SPEC_ID]: [
-          { version: '0.5', spaces: 'https://repo.example/tenants/' }
-        ]
+        [PWS_SPEC_ID]: [{ version: '0.5', spaces: SERVER_URL }]
       }
     }
     const { was, signed } = client({ serviceDescription: description })
     await was.createSpace({ name: 'Home' })
-    expect(signed[0]?.url).toBe('https://repo.example/tenants/')
+    expect(signed[0]?.url).toBe(SERVER_URL)
     expect(signed[0]?.method).toBe('POST')
     expect(signed[0]?.json).not.toHaveProperty('type')
 
@@ -486,11 +558,11 @@ describe('the Spaces Repository URL', () => {
     })
 
     const listing = client({
-      data: { url: 'https://repo.example/tenants/', totalItems: 0, items: [] },
+      data: { url: SERVER_URL, totalItems: 0, items: [] },
       serviceDescription: description
     })
     await listing.was.listSpaces()
-    expect(listing.signed[0]?.url).toBe('https://repo.example/tenants/')
+    expect(listing.signed[0]?.url).toBe(SERVER_URL)
     expect(listing.signed[0]?.method).toBe('GET')
   })
 

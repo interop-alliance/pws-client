@@ -14,7 +14,9 @@
  * re-deriving rules that must match the server's `allowedTarget` byte for byte.
  * Exporting the builders instead is what keeps that from happening. A
  * container's description lives at its `meta` segment (`spaceMeta`,
- * `collectionMeta`) instead of at the container URL.
+ * `collectionMeta`) instead of at the container URL. `spacesUrl` forms the
+ * Spaces Repository URL a `WasClient` is constructed with from a server base
+ * URL, and `baseUrlOfSpacesUrl` is its inverse.
  *
  * `parseSpacePath` / `parseSpaceTarget` / `parseAbsoluteSpaceTarget` are the
  * inverse grammar (a pathname, an absolute URL on a known server, or an
@@ -41,6 +43,8 @@ export {
   resourcePath,
   resourceMeta,
   toUrl,
+  spacesUrl,
+  baseUrlOfSpacesUrl,
   parseSpacePath,
   parseSpaceTarget,
   parseAbsoluteSpaceTarget

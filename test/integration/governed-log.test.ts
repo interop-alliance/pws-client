@@ -141,7 +141,7 @@ describeLive('governing history log (live server)', () => {
       history: {
         method: RESOURCE_LOG_METHOD,
         resource: toUrl({
-          serverUrl: serverUrl!,
+          baseUrl: owner.baseUrl,
           path: collectionLog(space.id, collectionId)
         })
       }

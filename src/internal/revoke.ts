@@ -89,14 +89,14 @@ export function rootCapability({
  */
 export function spaceIdOf(context: ClientContext, zcap: IZcap): string {
   const parsed = parseSpaceTarget({
-    serverUrl: context.serverUrl,
+    baseUrl: context.baseUrl,
     target: zcap.invocationTarget
   })
   if (parsed === null) {
     throw new ValidationError(
       `Cannot derive a Space from invocationTarget ` +
         `"${zcap.invocationTarget}": it does not address a Space on ` +
-        `"${context.serverUrl}". Revocation is scoped to one Space.`
+        `"${context.baseUrl}". Revocation is scoped to one Space.`
     )
   }
   return parsed.spaceId
@@ -127,7 +127,7 @@ export async function submitRevocation(
     )
   }
   const url = toUrl({
-    serverUrl: context.serverUrl,
+    baseUrl: context.baseUrl,
     path: spaceRevocation(spaceId, zcap.id)
   })
   await send(context, {

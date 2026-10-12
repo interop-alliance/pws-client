@@ -109,7 +109,10 @@ const zcapClient = new ZcapClient({
 })
 
 // 3. Wrap it.
-const was = new WasClient({ serverUrl: 'https://was.example', zcapClient })
+const was = new WasClient({
+  serverUrl: 'https://was.example/spaces/',
+  zcapClient
+})
 ```
 
 If you already have a single signer, `WasClient.fromSigner()` builds the
@@ -127,7 +130,7 @@ keyPair.controller = `did:key:${keyPair.fingerprint()}`
 keyPair.id = `${keyPair.controller}#${keyPair.fingerprint()}`
 
 const was = WasClient.fromSigner({
-  serverUrl: 'https://was.example',
+  serverUrl: 'https://was.example/spaces/',
   signer: keyPair.signer()
 })
 ```
@@ -136,9 +139,15 @@ The `seed` is where a passphrase-, stored-secret-, or KMS-derived key plugs in:
 deriving the same 32-byte seed yields the same DID, and therefore access to the
 same spaces.
 
-`serverUrl` is the base for both URL building and zcap `invocationTarget`s, so
-the "server URL must equal the invocation target host:port" constraint holds by
-construction.
+`serverUrl` is the server's Spaces Repository URL (`https://host/spaces/`, or
+`https://host/was/spaces/` on a sub-path mount). The reserved `spaces` segment
+sits at the server root, so the client derives the base URL for Space paths and
+zcap `invocationTarget`s as its parent, exposed as `was.baseUrl`. A value that
+is not an absolute URL ending in a `spaces` segment is refused with
+`ValidationError`. The `./paths` entry exports `spacesUrl({ baseUrl })` and
+`baseUrlOfSpacesUrl(url)` for a consumer that holds one form and needs the other
+(a Collection URL from a capability, say, goes through
+`parseAbsoluteSpaceTarget` and then `spacesUrl`).
 
 #### Deriving a client from a secret or seed (`./identity`)
 
@@ -153,7 +162,7 @@ import { WasClient } from '@interop/was-client'
 const agents = await agentsFromSecret({ secret: 'the account secret' })
 
 const was = WasClient.fromSigner({
-  serverUrl: 'https://was.example',
+  serverUrl: 'https://was.example/spaces/',
   signer: agents.keyAgent.getSigner()
 })
 ```
@@ -194,10 +203,15 @@ own pace produces.
 ### Service discovery
 
 Before its first signed request, the client reads the server's service
-description. It sends an unsigned `HEAD` to `serverUrl` and follows the
-`Link: <...>; rel="service"` header on the response, whatever its status. Then
-it reads the linked document with an unsigned `GET`. The spec fixes no path for
-the document, so the client assumes none.
+description. It sends an unsigned `HEAD` to `serverUrl`, the Spaces Repository
+URL, and follows the `Link: <...>; rel="service"` header on the response,
+whatever its status. The WAS server itself answers that URL. The server root is
+often a landing page served by something else, with no `service` link. Then it
+reads the linked document with an unsigned `GET`. The spec fixes no path for the
+document, so the client assumes none. A server that advertises its Spaces
+Repository at a URL other than `serverUrl` is refused with
+`IncompatibleServerError`, since every Space path would otherwise be addressed
+at the wrong mount.
 
 From the document the client selects the WAS specification version it speaks.
 This client speaks only v0.5. It ignores `specs` keys other than

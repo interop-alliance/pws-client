@@ -21,7 +21,7 @@ test('WasClient builds lazy handles in the browser', async ({ page }) => {
       invocationSigner: { id: 'did:example:1#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const was = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       zcapClient: stubZcapClient
     })
     const resource = was.space('s').collection('c').resource('r')

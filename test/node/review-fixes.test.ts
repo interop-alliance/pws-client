@@ -23,6 +23,7 @@ import {
   NotSupportedError,
   PreconditionFailedError
 } from '../../src/index.js'
+import { spacesUrl } from '../../src/paths.js'
 import type { CollectionEncryption, IZcap } from '../../src/index.js'
 import { Space } from '../../src/Space.js'
 import { Collection } from '../../src/Collection.js'
@@ -47,17 +48,18 @@ import {
  * Builds a `WasClient` over a stub `ZcapClient` (no signer, no I/O -- only the
  * `invocationSigner.id` `fromCapability` needs for its context).
  *
- * @param serverUrl {string}
+ * @param baseUrl {string}   the server base URL (the Spaces Repository URL is
+ *   formed beneath it)
  * @returns {WasClient}
  */
-function clientFor(serverUrl: string): WasClient {
+function clientFor(baseUrl: string): WasClient {
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   return new WasClient({
-    serverUrl,
+    serverUrl: spacesUrl({ baseUrl }),
     zcapClient,
-    serviceDescription: serviceDescriptionFor(serverUrl)
+    serviceDescription: serviceDescriptionFor(baseUrl)
   })
 }
 

@@ -616,7 +616,7 @@ export class Space {
   async #collectionsWalk(): Promise<PageWalk<CollectionsList> | null> {
     return signedPageWalk<CollectionsList>(this.#context, {
       firstUrl: toUrl({
-        serverUrl: this.#context.serverUrl,
+        baseUrl: this.#context.baseUrl,
         path: this.#path
       }),
       capability: this.#capability

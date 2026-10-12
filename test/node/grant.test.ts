@@ -42,7 +42,7 @@ function clientWithDelegateSpy(): {
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serverUrl: 'https://was.example',
+    serverUrl: 'https://was.example/spaces/',
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })
@@ -168,7 +168,7 @@ describe('grant rooting (revocability)', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://host.example/was/',
+      serverUrl: 'https://host.example/was/spaces/',
       serviceDescription: serviceDescriptionFor('https://host.example/was/'),
       zcapClient
     })
@@ -242,7 +242,7 @@ describe('was.grant input validation', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })

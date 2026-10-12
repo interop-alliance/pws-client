@@ -328,7 +328,7 @@ function serverFor({
   const provider = createEdvEncryption({ resolveKeys: async () => keys })
   let decodes = 0
   const client = new WasClient({
-    serverUrl: 'https://was.example',
+    serverUrl: 'https://was.example/spaces/',
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     // Count every metadata decrypt without disturbing the real codec: the

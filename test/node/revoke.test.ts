@@ -243,7 +243,7 @@ describe('was.revoke (space derived from the capability)', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://host.example/was/',
+      serverUrl: 'https://host.example/was/spaces/',
       serviceDescription: serviceDescriptionFor('https://host.example/was/'),
       zcapClient
     })

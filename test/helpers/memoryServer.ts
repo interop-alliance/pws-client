@@ -166,7 +166,7 @@ export function memoryServer(): {
     idDerivation?: 'random' | 'content'
   }): WasClient =>
     new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient: {
         invocationSigner: { id: 'did:example:alice#key-1' },

@@ -375,29 +375,87 @@ export function resourceChunkPath(
 }
 
 /**
+ * The Spaces Repository URL beneath a server base URL: the reserved `spaces`
+ * segment at the server root, in canonical trailing-slash form. This is the
+ * URL a `WasClient` is constructed with (its `serverUrl`), so a consumer that
+ * holds only a Space or Collection URL forms the client's `serverUrl` from the
+ * base `parseAbsoluteSpaceTarget` reads off it.
+ *
+ * @param options {object}
+ * @param options.baseUrl {string}   the server base URL
+ * @returns {string}
+ */
+export function spacesUrl({ baseUrl }: { baseUrl: string }): string {
+  return toUrl({ baseUrl, path: '/spaces/' })
+}
+
+/**
+ * The server base URL a Spaces Repository URL sits beneath: everything before
+ * its final `spaces` segment, without a trailing slash, so
+ * `https://host/was/spaces/` yields `https://host/was` and
+ * `https://host/spaces/` yields `https://host`. A trailing run of slashes is
+ * collapsed first, so `https://host/spaces` and `https://host/spaces//` read
+ * the same. The result is in `URL` canonical form (lower-case host, default
+ * port dropped), so two serializations of one URL compare equal.
+ *
+ * Returns `null` when `url` is not an absolute `http(s)` URL, its last path
+ * segment is not `spaces`, it has an empty path segment (`https://host//spaces`),
+ * or it carries a query or fragment; the caller chooses the error.
+ *
+ * @param url {string}   a Spaces Repository URL
+ * @returns {string | null}
+ */
+export function baseUrlOfSpacesUrl(url: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (
+    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  ) {
+    return null
+  }
+  // Drop the leading empty segment of the pathname; any other empty segment
+  // is a doubled slash, which would leave the base with a trailing slash.
+  const segments = parsed.pathname.replace(/\/+$/, '').split('/').slice(1)
+  if (
+    segments.some(segment => segment === '') ||
+    segments.at(-1) !== 'spaces'
+  ) {
+    return null
+  }
+  const basePath = segments.slice(0, -1).join('/')
+  return basePath === '' ? parsed.origin : `${parsed.origin}/${basePath}`
+}
+
+/**
  * Resolves a path against the server base URL, producing an absolute URL
  * string suitable for zcap `invocationTarget`s.
  *
- * The path is joined onto `serverUrl`'s base path rather than its origin, so a
- * WAS deployment mounted under a sub-path (e.g. `https://host/was/`) keeps that
- * prefix. A bare-origin `serverUrl` behaves as before.
+ * The path is joined onto `baseUrl`'s path rather than its origin, so a WAS
+ * deployment mounted under a sub-path (e.g. `https://host/was`) keeps that
+ * prefix. A bare-origin `baseUrl` behaves as before.
  *
  * @param options {object}
- * @param options.serverUrl {string}   the server base URL
+ * @param options.baseUrl {string}   the server base URL
  * @param options.path {string}        a leading-slash path (e.g. `/space/x`)
  * @returns {string}
  */
 export function toUrl({
-  serverUrl,
+  baseUrl,
   path
 }: {
-  serverUrl: string
+  baseUrl: string
   path: string
 }): string {
   // A leading-slash `path` is origin-absolute to `new URL`, which would drop
-  // any base-path prefix on `serverUrl`. Ensure the base ends in a slash and
+  // any base-path prefix on `baseUrl`. Ensure the base ends in a slash and
   // make the path relative so the prefix is preserved.
-  const base = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
+  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
   const relative = path.startsWith('/') ? path.slice(1) : path
   return new URL(relative, base).toString()
 }
@@ -435,27 +493,27 @@ export type ParsedSpacePath =
 
 /**
  * Classifies an absolute `target` URL that is expected to live on this server,
- * relative to `serverUrl`'s base path -- so a WAS mounted under a sub-path (e.g.
+ * relative to `baseUrl`'s base path -- so a WAS mounted under a sub-path (e.g.
  * `https://host/was/`) resolves just as a bare-origin deployment does, which
  * `parseSpacePath` alone cannot do (it would see a leading `was` segment).
  *
- * Returns `null` when `target` is not beneath `serverUrl` (another origin, or
+ * Returns `null` when `target` is not beneath `baseUrl` (another origin, or
  * another base path) or addresses something outside the `/space` tree (e.g.
  * `/kms`). The caller chooses whether that is an error.
  *
  * @param options {object}
- * @param options.serverUrl {string}   the client's server base URL
+ * @param options.baseUrl {string}   the client's server base URL
  * @param options.target {string}      an absolute URL on that server
  * @returns {ParsedSpacePath | null}
  */
 export function parseSpaceTarget({
-  serverUrl,
+  baseUrl,
   target
 }: {
-  serverUrl: string
+  baseUrl: string
   target: string
 }): ParsedSpacePath | null {
-  const base = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
+  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
   if (!target.startsWith(base)) {
     return null
   }
@@ -483,12 +541,12 @@ export function parseSpaceTarget({
  * The caller chooses whether that is an error.
  *
  * @param target {string}   an absolute WAS URL
- * @returns {{ serverUrl: string; path: ParsedSpacePath } | null}   the server
+ * @returns {{ baseUrl: string; path: ParsedSpacePath } | null}   the server
  *   base URL (no trailing slash) and the parsed target beneath it
  */
 export function parseAbsoluteSpaceTarget(
   target: string
-): { serverUrl: string; path: ParsedSpacePath } | null {
+): { baseUrl: string; path: ParsedSpacePath } | null {
   let url: URL
   try {
     url = new URL(target)
@@ -505,7 +563,7 @@ export function parseAbsoluteSpaceTarget(
     return null
   }
   const basePath = segments.slice(0, spaceIndex).join('/')
-  return { serverUrl: `${url.origin}${basePath}`, path }
+  return { baseUrl: `${url.origin}${basePath}`, path }
 }
 
 /**

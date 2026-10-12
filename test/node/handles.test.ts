@@ -37,7 +37,7 @@ function stubClient(signerId = 'did:example:alice#key-1'): WasClient {
     invocationSigner: { id: signerId }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   return new WasClient({
-    serverUrl: 'https://was.example',
+    serverUrl: 'https://was.example/spaces/',
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })
@@ -70,7 +70,7 @@ describe('lazy handles', () => {
       invocationSigner: {}
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
@@ -237,7 +237,7 @@ describe('space() encryption default', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['encryption']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       zcapClient,
       encryption,
       serviceDescription: serviceDescriptionFor()
@@ -290,7 +290,7 @@ describe('createCollection', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       zcapClient,
       serviceDescription: serviceDescriptionFor()
     })
@@ -318,7 +318,7 @@ describe('createCollection', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['encryption']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       zcapClient,
       encryption,
       serviceDescription: serviceDescriptionFor()

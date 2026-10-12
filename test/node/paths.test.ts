@@ -39,6 +39,8 @@ import {
   resourceMeta,
   resourceChunkPath,
   toUrl,
+  spacesUrl,
+  baseUrlOfSpacesUrl,
   parseSpacePath,
   parseAbsoluteSpaceTarget
 } from '../../src/internal/paths.js'
@@ -323,7 +325,7 @@ describe('parseSpacePath', () => {
 describe('parseAbsoluteSpaceTarget', () => {
   it('reads the server base URL and the path off a bare-origin target', () => {
     expect(parseAbsoluteSpaceTarget('https://was.example/space/s/c/')).toEqual({
-      serverUrl: 'https://was.example',
+      baseUrl: 'https://was.example',
       path: { kind: 'collection', spaceId: 's', collectionId: 'c' }
     })
   })
@@ -332,7 +334,7 @@ describe('parseAbsoluteSpaceTarget', () => {
     expect(
       parseAbsoluteSpaceTarget('http://localhost:9787/was/v1/space/s/c/r')
     ).toEqual({
-      serverUrl: 'http://localhost:9787/was/v1',
+      baseUrl: 'http://localhost:9787/was/v1',
       path: {
         kind: 'resource',
         spaceId: 's',
@@ -346,7 +348,7 @@ describe('parseAbsoluteSpaceTarget', () => {
     expect(
       parseAbsoluteSpaceTarget('https://was.example/space/space/c')
     ).toEqual({
-      serverUrl: 'https://was.example',
+      baseUrl: 'https://was.example',
       path: { kind: 'collection', spaceId: 'space', collectionId: 'c' }
     })
   })
@@ -363,27 +365,71 @@ describe('parseAbsoluteSpaceTarget', () => {
   })
 })
 
+describe('spacesUrl / baseUrlOfSpacesUrl', () => {
+  it('forms the Spaces Repository URL beneath a base URL', () => {
+    expect(spacesUrl({ baseUrl: 'https://was.example' })).toBe(
+      'https://was.example/spaces/'
+    )
+    expect(spacesUrl({ baseUrl: 'https://host/was' })).toBe(
+      'https://host/was/spaces/'
+    )
+  })
+
+  it('reads the base URL back off a Spaces Repository URL', () => {
+    expect(baseUrlOfSpacesUrl('https://was.example/spaces/')).toBe(
+      'https://was.example'
+    )
+    expect(baseUrlOfSpacesUrl('https://host/was/spaces')).toBe(
+      'https://host/was'
+    )
+    expect(baseUrlOfSpacesUrl('http://localhost:9787/spaces//')).toBe(
+      'http://localhost:9787'
+    )
+  })
+
+  it('canonicalizes the host and default port', () => {
+    expect(baseUrlOfSpacesUrl('https://Host.example:443/spaces/')).toBe(
+      'https://host.example'
+    )
+  })
+
+  it('returns null for a URL that is not a Spaces Repository URL', () => {
+    expect(baseUrlOfSpacesUrl('https://was.example')).toBeNull()
+    expect(baseUrlOfSpacesUrl('https://was.example/')).toBeNull()
+    expect(baseUrlOfSpacesUrl('https://was.example/space/s/')).toBeNull()
+    expect(baseUrlOfSpacesUrl('/spaces/')).toBeNull()
+  })
+
+  it('returns null for an opaque origin, a doubled slash, a query, or a fragment', () => {
+    expect(baseUrlOfSpacesUrl('file:///spaces/')).toBeNull()
+    expect(baseUrlOfSpacesUrl('https://host//spaces/')).toBeNull()
+    expect(baseUrlOfSpacesUrl('https://host/was//spaces/')).toBeNull()
+    expect(baseUrlOfSpacesUrl('https://host/spaces/?tenant=acme')).toBeNull()
+    expect(baseUrlOfSpacesUrl('https://host/spaces/#top')).toBeNull()
+  })
+})
+
 describe('toUrl', () => {
   it('resolves a leading-slash path against the server base URL', () => {
-    expect(toUrl({ serverUrl: 'https://was.example', path: '/space/x' })).toBe(
+    expect(toUrl({ baseUrl: 'https://was.example', path: '/space/x' })).toBe(
       'https://was.example/space/x'
     )
   })
 
   it('preserves an explicit port', () => {
-    expect(
-      toUrl({ serverUrl: 'http://localhost:9787', path: '/spaces/' })
-    ).toBe('http://localhost:9787/spaces/')
+    expect(toUrl({ baseUrl: 'http://localhost:9787', path: '/spaces/' })).toBe(
+      'http://localhost:9787/spaces/'
+    )
   })
 
   it('preserves a base-path prefix on the server URL', () => {
-    expect(toUrl({ serverUrl: 'https://host/was/', path: '/space/x' })).toBe(
+    expect(toUrl({ baseUrl: 'https://host/was/', path: '/space/x' })).toBe(
       'https://host/was/space/x'
     )
   })
 
   it('preserves a base-path prefix without a trailing slash', () => {
-    expect(toUrl({ serverUrl: 'https://host/was', path: '/space/x' })).toBe(
+    expect(toUrl({ baseUrl: 'https://host/was', path: '/space/x' })).toBe(
       'https://host/was/space/x'
     )
   })
@@ -402,6 +448,7 @@ describe('the ./paths subpath barrel', () => {
         'isReservedCollectionId',
         'isReservedResourceId',
         'parseAbsoluteSpaceTarget',
+        'baseUrlOfSpacesUrl',
         'parseSpacePath',
         'parseSpaceTarget',
         'resourceMeta',
@@ -410,6 +457,7 @@ describe('the ./paths subpath barrel', () => {
         'rootCapabilityId',
         'spaceMeta',
         'spacePath',
+        'spacesUrl',
         'toUrl'
       ].sort()
     )

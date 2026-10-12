@@ -47,11 +47,9 @@ describeLive('service discovery (live server)', () => {
   it('discovers from a 404 on a URL the client holds', async () => {
     // Discovery probes whatever URL the client has, which may be a resource
     // that does not exist: the `rel="service"` link rides on the 404 too.
+    const { baseUrl } = await freshWasClient()
     const info = await discoverService({
-      url: new URL(
-        'space/no-such-space/c/r',
-        `${serverUrl!.replace(/\/?$/, '/')}`
-      ).toString()
+      url: `${baseUrl}/space/no-such-space/c/r`
     })
     expect(info.version).toBe('0.5')
     expect(new URL(info.description.url).origin).toBe(

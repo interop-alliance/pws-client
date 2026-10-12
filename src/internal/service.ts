@@ -6,9 +6,11 @@
  * `Link: <...>; rel="service"` header its responses carry, reads the document
  * without a capability invocation, and selects the WAS specification version
  * this client speaks. The spec reserves no path for the document, so nothing
- * here assumes one. The client speaks only v0.5, so a server whose responses
- * carry no `service` link (one that predates v0.5) is refused rather than
- * spoken to in the v0.4 layout.
+ * here assumes one. The probe is sent to a URL the WAS server itself answers
+ * (the client's `serverUrl`, its Spaces Repository URL) rather than to the
+ * server root, which a deployment often serves as something else. The client
+ * speaks only v0.5, so a server whose responses carry no `service` link (one
+ * that predates v0.5) is refused rather than spoken to in the v0.4 layout.
  */
 import type {
   PwsVersionEntry,
@@ -274,6 +276,7 @@ function refuse({
  *
  * @param options {object}
  * @param options.url {string}   any WAS URL, typically the client's `serverUrl`
+ *   (its Spaces Repository URL)
  * @returns {Promise<ServiceInfo>}
  * @throws {IncompatibleServerError}   when the response carries no `service`
  *   link, the linked document cannot be read or parsed, or version selection

@@ -3,7 +3,7 @@
  */
 /**
  * The load-bearing transport layer: wraps `zcapClient.request(...)`, resolving
- * paths against the server URL and defaulting the capability `action` to the
+ * paths against the server base URL and defaulting the capability `action` to the
  * HTTP method (never ezcap's `read`/`write`). `send()` adds the typed-error
  * mapping and the null-on-404 read translation; `rawRequest()` is the
  * unmapped escape hatch used by `was.request()`. Every signed request first
@@ -34,7 +34,7 @@ import type { IZcap, RequestInput, ServiceInfo } from '../types.js'
  * controller) rather than at construction.
  */
 export interface ClientContext {
-  serverUrl: string
+  baseUrl: string
   zcapClient: ZcapClient
   controllerDid: string
   encryption?: EncryptionProvider
@@ -43,7 +43,7 @@ export interface ClientContext {
 
 /**
  * A single signed request: the public `RequestInput` shape (either `path`,
- * resolved against `serverUrl`, or an absolute `url` must be given) plus the
+ * resolved against `baseUrl`, or an absolute `url` must be given) plus the
  * `send()`-level 404 translations.
  */
 export interface SendInput extends RequestInput {
@@ -65,7 +65,7 @@ function resolveRequestUrl(context: ClientContext, input: SendInput): string {
   if (input.path === undefined) {
     throw new TypeError('Either "path" or "url" is required.')
   }
-  return toUrl({ serverUrl: context.serverUrl, path: input.path })
+  return toUrl({ baseUrl: context.baseUrl, path: input.path })
 }
 
 /**

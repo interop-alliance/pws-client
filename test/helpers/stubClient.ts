@@ -10,26 +10,26 @@
 import type { HttpResponse } from '@interop/http-client'
 import type { ServiceDescription } from '../../src/index.js'
 import { WasClient } from '../../src/index.js'
+import { spacesUrl, toUrl } from '../../src/paths.js'
 
 /**
- * A v0.5 service description for a stub server at `serverUrl`, with the Spaces
- * Repository at `spaces/` under it. Passing it to the `WasClient` constructor
- * lets a stubbed client skip network discovery.
+ * A v0.5 service description for a stub server whose base URL is `baseUrl`,
+ * with the Spaces Repository at `spaces/` under it. Passing it to the
+ * `WasClient` constructor lets a stubbed client skip network discovery.
  *
- * @param [serverUrl] {string}   defaults to `https://was.example`
+ * @param [baseUrl] {string}   defaults to `https://was.example`
  * @returns {ServiceDescription}
  */
 export function serviceDescriptionFor(
-  serverUrl = 'https://was.example'
+  baseUrl = 'https://was.example'
 ): ServiceDescription {
-  const base = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`
   return {
-    url: new URL('service', base).toString(),
+    url: toUrl({ baseUrl, path: '/service' }),
     specs: {
       'https://w3id.org/pws': [
         {
           version: '0.5',
-          spaces: new URL('spaces/', base).toString(),
+          spaces: spacesUrl({ baseUrl }),
           features: ['listing', 'collection-management', 'space-management']
         }
       ]
@@ -71,7 +71,7 @@ export function clientWithStub(
     request
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   return new WasClient({
-    serverUrl: 'https://was.example',
+    serverUrl: 'https://was.example/spaces/',
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })

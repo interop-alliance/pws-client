@@ -1,5 +1,28 @@
 # @interop/was-client Changelog
 
+## 0.97.0 - TBD
+
+### Changed
+
+- `WasClient`'s `serverUrl` is now the server's Spaces Repository URL
+  (`https://host/spaces/`), not the server root. The client derives the root for
+  Space paths and zcap `invocationTarget`s as its parent (`was.baseUrl`). It
+  refuses, with `ValidationError`, a `serverUrl` that is not an absolute
+  `http(s)` URL ending in a `spaces` segment, or one with a doubled slash, a
+  query, or a fragment. Service discovery `HEAD`s `serverUrl`, a URL the WAS
+  server itself answers; the root is often a landing page with no `service`
+  link. A server that advertises its Spaces Repository at another base URL is
+  refused with `IncompatibleServerError`; the comparison is in canonical form,
+  so host case, a default port, or a trailing slash is not a difference.
+  `createSpace` and `listSpaces` address the canonical `serverUrl`.
+- `./paths`: `toUrl` and `parseSpaceTarget` take `baseUrl` (formerly
+  `serverUrl`), and `parseAbsoluteSpaceTarget` returns `baseUrl`.
+
+### Added
+
+- `./paths`: `spacesUrl({ baseUrl })` and `baseUrlOfSpacesUrl(url)` convert
+  between a server base URL and its Spaces Repository URL.
+
 ## 0.96.0 - 2026-10-11
 
 ### Added

@@ -315,7 +315,7 @@ describe('publicListCollection() pagination', () => {
       invocationSigner: { id: 'did:example:alice#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
@@ -346,7 +346,7 @@ describe('publicListCollection() pagination', () => {
       invocationSigner: { id: 'did:example:alice#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
@@ -504,7 +504,7 @@ function publicClientWithPages(pages: Record<string, object>): {
     invocationSigner: { id: 'did:example:alice#key-1' }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serverUrl: 'https://was.example',
+    serverUrl: 'https://was.example/spaces/',
     serviceDescription: serviceDescriptionFor(),
     zcapClient
   })

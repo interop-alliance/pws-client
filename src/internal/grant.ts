@@ -32,22 +32,22 @@ import type { GrantOptions, IDelegatedZcap, IZcap } from '../types.js'
  * target -- hence the object form in `revoke.ts`.)
  *
  * @param options {object}
- * @param options.serverUrl {string}   the client's server base URL
+ * @param options.baseUrl {string}   the client's server base URL
  * @param options.target {string}      the absolute grant target URL
  * @returns {string | undefined}
  */
 function spaceRootCapabilityId({
-  serverUrl,
+  baseUrl,
   target
 }: {
-  serverUrl: string
+  baseUrl: string
   target: string
 }): string | undefined {
-  const parsed = parseSpaceTarget({ serverUrl, target })
+  const parsed = parseSpaceTarget({ baseUrl, target })
   if (parsed === null) {
     return undefined
   }
-  const spaceUrl = toUrl({ serverUrl, path: spacePath(parsed.spaceId) })
+  const spaceUrl = toUrl({ baseUrl, path: spacePath(parsed.spaceId) })
   return rootCapabilityId(spaceUrl)
 }
 
@@ -81,7 +81,7 @@ export async function delegateGrant(
     capability ??
     (target === undefined
       ? undefined
-      : spaceRootCapabilityId({ serverUrl: context.serverUrl, target }))
+      : spaceRootCapabilityId({ baseUrl: context.baseUrl, target }))
   return context.zcapClient.delegate({
     controller: to,
     invocationTarget: target,
@@ -145,7 +145,7 @@ export async function delegateGrantAt(
 ): Promise<IDelegatedZcap> {
   return delegateGrant(context, {
     ...options,
-    target: options.target ?? toUrl({ serverUrl: context.serverUrl, path }),
+    target: options.target ?? toUrl({ baseUrl: context.baseUrl, path }),
     capability: options.capability ?? capability
   })
 }

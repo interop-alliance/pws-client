@@ -241,7 +241,7 @@ export class Collection {
 
   /**
    * @param options {object}
-   * @param options.context {ClientContext} - Shared context (serverUrl, ezcap
+   * @param options.context {ClientContext} - Shared context (baseUrl, ezcap
    *   client, controllerDid)
    * @param options.spaceId {string}
    * @param options.collectionId {string}
@@ -1102,7 +1102,7 @@ export class Collection {
    * @returns {string}
    */
   get historyLogUrl(): string {
-    return toUrl({ serverUrl: this.#context.serverUrl, path: this.#logPath })
+    return toUrl({ baseUrl: this.#context.baseUrl, path: this.#logPath })
   }
 
   /**
@@ -1552,7 +1552,7 @@ export class Collection {
     if (outcome.chunked === true) {
       return {
         id: outcome.id,
-        url: toUrl({ serverUrl: this.#context.serverUrl, path: outcome.path }),
+        url: toUrl({ baseUrl: this.#context.baseUrl, path: outcome.path }),
         contentType: outcome.contentType,
         etag: outcome.etag
       }
@@ -1567,7 +1567,7 @@ export class Collection {
     if (encoded.id !== undefined) {
       return {
         id: encoded.id,
-        url: toUrl({ serverUrl: this.#context.serverUrl, path }),
+        url: toUrl({ baseUrl: this.#context.baseUrl, path }),
         // Report the plaintext resource type when the codec resolved one (the
         // EDV codec's `resourceContentType`); otherwise the wire `contentType`,
         // which for the identity codec already is the resource type.
@@ -1590,10 +1590,10 @@ export class Collection {
       url: location
         ? new URL(
             location,
-            toUrl({ serverUrl: this.#context.serverUrl, path: itemsPath })
+            toUrl({ baseUrl: this.#context.baseUrl, path: itemsPath })
           ).toString()
         : toUrl({
-            serverUrl: this.#context.serverUrl,
+            baseUrl: this.#context.baseUrl,
             path: resourcePath(this.spaceId, this.id, id)
           }),
       contentType:
@@ -1671,7 +1671,7 @@ export class Collection {
   async #listWalk(): Promise<PageWalk | null> {
     return signedPageWalk(this.#context, {
       firstUrl: toUrl({
-        serverUrl: this.#context.serverUrl,
+        baseUrl: this.#context.baseUrl,
         path: this.#path
       }),
       capability: this.#capability

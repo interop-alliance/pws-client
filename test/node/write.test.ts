@@ -70,7 +70,7 @@ function contextWithStatuses({
 } {
   const calls: SendInput[] = []
   const context = {
-    serverUrl: 'https://was.example',
+    baseUrl: 'https://was.example',
     controllerDid: 'did:example:alice',
     service: async () => selectServiceVersion(serviceDescriptionFor()),
     zcapClient: {

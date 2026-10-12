@@ -196,7 +196,7 @@ describe('rotate-then-write on the same handle', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -347,7 +347,7 @@ describe('createCollection pre-seed consults the provider', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption

@@ -143,7 +143,7 @@ function clientWithRouter({
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serverUrl: 'https://was.example',
+    serverUrl: 'https://was.example/spaces/',
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     encryption
@@ -548,7 +548,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -654,7 +654,7 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example',
+      serverUrl: 'https://was.example/spaces/',
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
