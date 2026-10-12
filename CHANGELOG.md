@@ -1,5 +1,14 @@
 # @interop/was-client Changelog
 
+## 0.98.0 - TBD
+
+### Added
+
+- `isCollectionTombstoneSummary` and the `CollectionTombstoneSummary` type are
+  re-exported from the root entry, beside `CollectionSummary` and
+  `CollectionsList`, so a consumer can tell a tombstone in a `?include=deleted`
+  listing apart without a direct `@interop/storage-core` dependency.
+
 ## 0.97.1 - 2026-10-12
 
 ### Fixed

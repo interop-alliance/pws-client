@@ -54,6 +54,7 @@ export type {
   LinkSet,
   LinkSetEntry,
   CollectionSummary,
+  CollectionTombstoneSummary,
   CollectionsList,
   SpaceSummary,
   SpaceListing,

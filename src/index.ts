@@ -18,10 +18,11 @@ export type { ParsedSpacePath } from './internal/paths.js'
 export { readEtag, writeHeaders } from './internal/conditional.js'
 export { isGovernedDescriptor } from './internal/describe.js'
 // The `changes` feed guards a consumer filters `Collection.changes()` pages
-// with, and the problem-type registry a consumer tells one `ConflictError`
-// kind from another by, so a consumer needs no direct `@interop/storage-core`
-// dependency.
+// with, the List Collections tombstone guard, and the problem-type registry a
+// consumer tells one `ConflictError` kind from another by, so a consumer needs
+// no direct `@interop/storage-core` dependency.
 export {
+  isCollectionTombstoneSummary,
   isJsonResourceChange,
   isResourceChange,
   ProblemTypes
@@ -98,6 +99,7 @@ export type {
   CollectionEncryptionHmac,
   EncryptionWithHmac,
   CollectionSummary,
+  CollectionTombstoneSummary,
   CollectionsList,
   SpaceSummary,
   SpaceListing,
