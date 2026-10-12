@@ -225,6 +225,9 @@ describe('fromSigner delegation proofs', () => {
     }).grant({
       to: 'did:example:carol',
       actions: ['get'],
+      // ezcap defaults `expires` to now + 5 minutes at second precision, so a
+      // child signed across a second boundary would outlive its parent.
+      expires: parent.expires,
       capability: parent,
       target: TARGET_URL
     })
@@ -250,6 +253,7 @@ describe('fromSigner delegation proofs', () => {
     }).grant({
       to: 'did:example:carol',
       actions: ['get'],
+      expires: legacyParent.expires,
       capability: legacyParent,
       target: TARGET_URL
     })
