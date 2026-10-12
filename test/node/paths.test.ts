@@ -10,8 +10,9 @@
  * slash.
  */
 import { describe, it, expect } from 'vitest'
+import type { ZcapClient } from '@interop/ezcap'
 
-import { ValidationError } from '../../src/index.js'
+import { ValidationError, WasClient } from '../../src/index.js'
 import type { IRootZcap } from '../../src/paths.js'
 import {
   spacePath,
@@ -42,7 +43,8 @@ import {
   spacesUrl,
   baseUrlOfSpacesUrl,
   parseSpacePath,
-  parseAbsoluteSpaceTarget
+  parseAbsoluteSpaceTarget,
+  parseSpaceTarget
 } from '../../src/internal/paths.js'
 
 describe('path builders', () => {
@@ -362,6 +364,75 @@ describe('parseAbsoluteSpaceTarget', () => {
   it('returns null when the path beneath the base does not classify', () => {
     expect(parseAbsoluteSpaceTarget('https://was.example/space')).toBeNull()
     expect(parseAbsoluteSpaceTarget('https://was.example/space/%ff')).toBeNull()
+  })
+
+  it('refuses a doubled slash in the base, as baseUrlOfSpacesUrl does', () => {
+    expect(parseAbsoluteSpaceTarget('https://host//was/space/s/')).toBeNull()
+    expect(parseAbsoluteSpaceTarget('https://host//space/s/')).toBeNull()
+    expect(parseAbsoluteSpaceTarget('file:///space/s/')).toBeNull()
+  })
+
+  it('refuses a query or fragment, as baseUrlOfSpacesUrl does', () => {
+    expect(parseAbsoluteSpaceTarget('https://host/was/space/s/?q=1')).toBeNull()
+    expect(parseAbsoluteSpaceTarget('https://host/was/space/s/#f')).toBeNull()
+  })
+
+  it('returns a base URL that survives spacesUrl and the WasClient constructor', () => {
+    const zcapClient = {} as unknown as ZcapClient
+    for (const target of [
+      'https://was.example/space/s/c/',
+      'http://localhost:9787/was/v1/space/s/c/r',
+      'https://Host.example:443/was/space/s/'
+    ]) {
+      const parsed = parseAbsoluteSpaceTarget(target)
+      expect(parsed).not.toBeNull()
+      const { baseUrl } = parsed as { baseUrl: string }
+      const serverUrl = spacesUrl({ baseUrl })
+      expect(baseUrlOfSpacesUrl(serverUrl)).toBe(baseUrl)
+      const client = new WasClient({ serverUrl, zcapClient })
+      expect(client.baseUrl).toBe(baseUrl)
+    }
+  })
+})
+
+describe('parseSpaceTarget', () => {
+  const baseUrl = 'https://host.example/was'
+
+  it('classifies a target beneath the base', () => {
+    expect(
+      parseSpaceTarget({
+        baseUrl,
+        target: 'https://host.example/was/space/s/c/'
+      })
+    ).toEqual({ kind: 'collection', spaceId: 's', collectionId: 'c' })
+  })
+
+  it('matches a target that differs from the canonical base only in serialization', () => {
+    // The constructor canonicalizes baseUrl; a capability minted by the
+    // deployment may still spell the host in upper case or name the default
+    // port.
+    for (const target of [
+      'https://HOST.example/was/space/s/',
+      'https://host.example:443/was/space/s/'
+    ]) {
+      expect(parseSpaceTarget({ baseUrl, target })).toEqual({
+        kind: 'space',
+        spaceId: 's'
+      })
+    }
+  })
+
+  it('refuses another origin, another base path, a query, or a fragment', () => {
+    for (const target of [
+      'https://other.example/was/space/s/',
+      'https://host.example/space/s/',
+      'https://host.example/was2/space/s/',
+      'https://host.example/was/space/s/?q=1',
+      'https://host.example/was/space/s/#f',
+      'not a url'
+    ]) {
+      expect(parseSpaceTarget({ baseUrl, target })).toBeNull()
+    }
   })
 })
 

@@ -83,7 +83,9 @@ export class WasClient {
    *   its parent. Service discovery starts from this URL rather than from the
    *   base, which is often a landing page with no `service` link. The value
    *   is normalized to canonical form; `baseUrlOfSpacesUrl` in `./paths`
-   *   states what is accepted.
+   *   states what is accepted. The client is built from this URL only: a
+   *   server with no Spaces Repository (the spec leaves the endpoint
+   *   optional) has no URL this constructor accepts and is not supported.
    * @param options.zcapClient {ZcapClient}   an ezcap client holding the signer
    * @param [options.encryption] {EncryptionProvider}   the keystore that
    *   supplies keys for collections declared encrypted (by their `encryption`
@@ -191,15 +193,20 @@ export class WasClient {
     // the wrong mount. Refuse it by name rather than misroute. Both sides are
     // compared in canonical base-URL form, so an advertised value that differs
     // only in serialization (host case, default port, trailing slash) passes.
-    if (
-      info.spacesUrl !== undefined &&
-      baseUrlOfSpacesUrl(info.spacesUrl) !== this.baseUrl
-    ) {
-      throw new IncompatibleServerError(
-        `The server advertises its Spaces Repository at ` +
-          `"${info.spacesUrl}", but this client was given "${this.serverUrl}".`,
-        { requestUrl: this.serverUrl }
-      )
+    if (info.spacesUrl !== undefined) {
+      const advertisedBase = baseUrlOfSpacesUrl(info.spacesUrl)
+      if (advertisedBase !== this.baseUrl) {
+        const why =
+          advertisedBase === null
+            ? `which is not a Spaces Repository URL (an absolute http(s) ` +
+              `URL ending in a "spaces" segment, with no query or fragment).`
+            : `but this client was given "${this.serverUrl}".`
+        throw new IncompatibleServerError(
+          `The server advertises its Spaces Repository at ` +
+            `"${info.spacesUrl}", ${why}`,
+          { requestUrl: this.serverUrl }
+        )
+      }
     }
     return info
   })

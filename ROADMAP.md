@@ -1,6 +1,6 @@
 # WAS Client Roadmap (open items)
 
-nextAvailableId: 134
+nextAvailableId: 135
 
 <!-- roadmap-order:index:start -->
 
@@ -85,8 +85,6 @@ Ready:
 - WCL-26 [L] Bare `Error` for `did:key` validation failures in the EDV recipient
   path
 - WCL-14 [L] Upstream: `_updateStream` overrides caller hmac suppression
-- WCL-133 [L] `parseAbsoluteSpaceTarget` accepts a doubled slash that the
-  `WasClient` constructor refuses
 
 **Spec and protocol**
 
@@ -146,6 +144,7 @@ Ready:
 
 Ready:
 
+- WCL-134 [L] Support a server with no Spaces Repository
 - WCL-4 [L] Live Google Drive backend round-trip
 - WCL-29 [L] `codecFor` eagerly unwraps the blinded-index key for read-only
   handles
@@ -1383,33 +1382,6 @@ attributes, so the extra hmac application emits nothing meaningful -- but it
 means the WAS codec cannot fully control `indexed` emission on the chunked path
 without this upstream fix.
 
-### WCL-133: [L] `parseAbsoluteSpaceTarget` accepts a doubled slash that the `WasClient` constructor refuses
-
-- status: todo
-- priority: low
-- labels: paths, correctness, consistency
-- discovered-from: simplify review of the Spaces Repository `serverUrl` change, 2026-10-11
-- acceptance:
-  - [ ] `parseAbsoluteSpaceTarget` and `baseUrlOfSpacesUrl` agree on which base
-        URLs are well formed: a target with an empty path segment before
-        `space` (`https://host//was/space/x`) is rejected by both, or
-        accepted by both
-  - [ ] A `baseUrl` returned by `parseAbsoluteSpaceTarget` always survives
-        `spacesUrl` followed by `new WasClient({ serverUrl })` without a
-        `ValidationError`, and a test asserts the round trip
-  - [ ] The shared rule lives in one place in `src/internal/paths.ts`, not in
-        two segment walks
-
-`baseUrlOfSpacesUrl` rejects an empty path segment, since a doubled slash would
-leave the base with a trailing slash. `parseAbsoluteSpaceTarget` builds its base
-from the raw `pathname` split and does not, so `https://host//was/space/x`
-yields the base `https://host//was`. The `spacesUrl` JSDoc tells a consumer
-holding only a Space URL to form the client's `serverUrl` from exactly that
-base, and the constructor then refuses it. The other canonicalizations agree
-(host case and a default port round-trip cleanly through `URL`). Low priority
-because a doubled slash never appears in a URL the client itself built; it
-only arrives from an external capability target or a hand-typed value.
-
 ## Spec and protocol
 
 Conformance gaps against the spec, and wire-contract changes the client adopts
@@ -2002,6 +1974,27 @@ failure without unwrapping.
 
 Every `draft` item: no actionable done-state yet. A draft states why it is
 parked and gains acceptance criteria when promoted to `todo`.
+
+### WCL-134: [L] Support a server with no Spaces Repository
+
+- status: draft
+- priority: low
+- labels: api, discovery, spec
+- discovered-from: code review of the Spaces Repository `serverUrl` change,
+  2026-10-11
+
+The `WasClient` constructor takes the server's Spaces Repository URL and derives
+`baseUrl` as its parent. The spec leaves the `spaces` endpoint optional, so a
+server without one has no URL the constructor accepts; a consumer would have to
+invent a `/spaces/` URL that does not exist. Parked because no server in this
+ecosystem omits the endpoint and nothing in the client exercises that path.
+Accepting the server root as a second `serverUrl` form is not the answer: it
+reintroduces the ambiguity the Spaces Repository change removed
+(`https://host/spaces` is a legal base for a server mounted under `/spaces`),
+and discovery would have no URL to `HEAD` since the root is often a landing
+page. The likely shape, when a server needs it, is a constructor form that takes
+`baseUrl` plus a caller-supplied `serviceDescription` so no discovery request is
+made.
 
 ### WCL-4: [L] Live Google Drive backend round-trip
 

@@ -17,6 +17,18 @@
   `createSpace` and `listSpaces` address the canonical `serverUrl`.
 - `./paths`: `toUrl` and `parseSpaceTarget` take `baseUrl` (formerly
   `serverUrl`), and `parseAbsoluteSpaceTarget` returns `baseUrl`.
+- `./paths`: `parseAbsoluteSpaceTarget` returns `null` for a target whose base
+  has a doubled slash (`https://host//was/space/x`), is not `http(s)`, or
+  carries a query or fragment, the same rule `baseUrlOfSpacesUrl` applies, so a
+  `baseUrl` it returns always forms a `serverUrl` the `WasClient` constructor
+  accepts.
+- `./paths`: `parseSpaceTarget` compares the target with `baseUrl` in parsed
+  form, so a capability target that differs from the canonical `baseUrl` only in
+  host case or a default port still classifies. It returns `null` for a target
+  with a query or fragment.
+- `IncompatibleServerError` for an advertised Spaces Repository URL that is not
+  one (no `spaces` segment, a query) now names the malformed URL instead of
+  reporting a location mismatch.
 
 ### Added
 

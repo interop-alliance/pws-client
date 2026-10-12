@@ -457,6 +457,23 @@ describe('WasClient.service()', () => {
     await expect(sibling.was.service()).rejects.toThrow(IncompatibleServerError)
   })
 
+  it('names a malformed advertised Spaces Repository URL instead of a mismatch', async () => {
+    for (const spaces of [
+      'https://host.example/was/spaces/?tenant=a',
+      'https://host.example/was/repo/'
+    ]) {
+      const { was } = client({
+        serviceDescription: {
+          url: SERVICE_URL,
+          specs: { [PWS_SPEC_ID]: [{ version: '0.5', spaces }] }
+        }
+      })
+      await expect(was.service()).rejects.toThrow(
+        /is not a Spaces Repository URL/
+      )
+    }
+  })
+
   it('accepts an advertised Spaces Repository that differs only in serialization', async () => {
     for (const spaces of [
       'https://HOST.example:443/was/spaces',

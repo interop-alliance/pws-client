@@ -390,6 +390,67 @@ export function spacesUrl({ baseUrl }: { baseUrl: string }): string {
 }
 
 /**
+ * Splits an absolute WAS URL into the server base URL and the path segments
+ * beneath it. `boundary` picks, from the pathname's segments (split on `/`,
+ * leading empty segment dropped), the index of the first segment that is not
+ * part of the base, or `-1` when there is none. The base is everything before
+ * it, without a trailing slash and in `URL` canonical form (lower-case host,
+ * default port dropped), so two serializations of one URL compare equal:
+ * `https://host/was/x/...` with the index of `x` yields `https://host/was`,
+ * and `https://host/x/...` yields `https://host`.
+ *
+ * This is the one rule for which base URLs are well formed, shared by
+ * `baseUrlOfSpacesUrl` and `parseAbsoluteSpaceTarget` so a base read off a
+ * Space URL always survives `spacesUrl` and the `WasClient` constructor.
+ * Returns `null` when `url` is not an absolute `http(s)` URL, carries a query
+ * or fragment, when `boundary` finds no segment, or when a segment before it
+ * is empty (`https://host//was/x`): a doubled slash would leave the base with
+ * a trailing slash.
+ *
+ * @param options {object}
+ * @param options.url {string}   an absolute URL
+ * @param options.boundary {(segments: string[]) => number}   the index of the
+ *   first segment beneath the base, or `-1`
+ * @returns {{ baseUrl: string; rest: string[] } | null}   the base URL and
+ *   the segments from the boundary on
+ */
+function splitAtBase({
+  url,
+  boundary
+}: {
+  url: string
+  boundary: (segments: string[]) => number
+}): { baseUrl: string; rest: string[] } | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (
+    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  ) {
+    return null
+  }
+  const segments = parsed.pathname.split('/').slice(1)
+  const index = boundary(segments)
+  if (index === -1) {
+    return null
+  }
+  const basePath = segments.slice(0, index)
+  if (basePath.some(segment => segment === '')) {
+    return null
+  }
+  const baseUrl =
+    basePath.length === 0
+      ? parsed.origin
+      : `${parsed.origin}/${basePath.join('/')}`
+  return { baseUrl, rest: segments.slice(index) }
+}
+
+/**
  * The server base URL a Spaces Repository URL sits beneath: everything before
  * its final `spaces` segment, without a trailing slash, so
  * `https://host/was/spaces/` yields `https://host/was` and
@@ -406,30 +467,18 @@ export function spacesUrl({ baseUrl }: { baseUrl: string }): string {
  * @returns {string | null}
  */
 export function baseUrlOfSpacesUrl(url: string): string | null {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return null
-  }
-  if (
-    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
-    parsed.search !== '' ||
-    parsed.hash !== ''
-  ) {
-    return null
-  }
-  // Drop the leading empty segment of the pathname; any other empty segment
-  // is a doubled slash, which would leave the base with a trailing slash.
-  const segments = parsed.pathname.replace(/\/+$/, '').split('/').slice(1)
-  if (
-    segments.some(segment => segment === '') ||
-    segments.at(-1) !== 'spaces'
-  ) {
-    return null
-  }
-  const basePath = segments.slice(0, -1).join('/')
-  return basePath === '' ? parsed.origin : `${parsed.origin}/${basePath}`
+  const split = splitAtBase({
+    url,
+    boundary: segments => {
+      // Trailing empty segments are the collapsed run of slashes.
+      let last = segments.length - 1
+      while (last >= 0 && segments[last] === '') {
+        last -= 1
+      }
+      return segments[last] === 'spaces' ? last : -1
+    }
+  })
+  return split?.baseUrl ?? null
 }
 
 /**
@@ -498,8 +547,9 @@ export type ParsedSpacePath =
  * `parseSpacePath` alone cannot do (it would see a leading `was` segment).
  *
  * Returns `null` when `target` is not beneath `baseUrl` (another origin, or
- * another base path) or addresses something outside the `/space` tree (e.g.
- * `/kms`). The caller chooses whether that is an error.
+ * another base path), carries a query or fragment, or addresses something
+ * outside the `/space` tree (e.g. `/kms`). The caller chooses whether that is
+ * an error.
  *
  * @param options {object}
  * @param options.baseUrl {string}   the client's server base URL
@@ -513,18 +563,26 @@ export function parseSpaceTarget({
   baseUrl: string
   target: string
 }): ParsedSpacePath | null {
-  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-  if (!target.startsWith(base)) {
-    return null
-  }
-  let pathname: string
+  // Compare the parsed forms, not the strings: `baseUrl` is canonical (the
+  // constructor derives it through `URL`) while a target serialized by another
+  // party may write the host in upper case or carry a default port.
+  let url: URL
+  let base: URL
   try {
-    ;({ pathname } = new URL(target))
+    url = new URL(target)
+    base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
   } catch {
     return null
   }
-  const basePathname = new URL(base).pathname
-  return parseSpacePath(`/${pathname.slice(basePathname.length)}`)
+  if (
+    url.search !== '' ||
+    url.hash !== '' ||
+    url.origin !== base.origin ||
+    !url.pathname.startsWith(base.pathname)
+  ) {
+    return null
+  }
+  return parseSpacePath(`/${url.pathname.slice(base.pathname.length)}`)
 }
 
 /**
@@ -536,9 +594,11 @@ export function parseSpaceTarget({
  * beneath any other base). This is the one for a capability received from
  * another party, whose `invocationTarget` may name any host.
  *
- * Returns `null` when `target` is not an absolute URL or has no `space`
- * segment, and `null` from the path grammar for a path it cannot classify.
- * The caller chooses whether that is an error.
+ * Returns `null` when `target` is not an absolute `http(s)` URL, has no
+ * `space` segment, carries a query or fragment, or has an empty segment in
+ * the base before it (`https://host//was/space/x`); these are the rules
+ * `baseUrlOfSpacesUrl` applies too. Also `null` from the path grammar for a
+ * path it cannot classify. The caller chooses whether that is an error.
  *
  * @param target {string}   an absolute WAS URL
  * @returns {{ baseUrl: string; path: ParsedSpacePath } | null}   the server
@@ -547,23 +607,15 @@ export function parseSpaceTarget({
 export function parseAbsoluteSpaceTarget(
   target: string
 ): { baseUrl: string; path: ParsedSpacePath } | null {
-  let url: URL
-  try {
-    url = new URL(target)
-  } catch {
+  const split = splitAtBase({
+    url: target,
+    boundary: segments => segments.indexOf('space')
+  })
+  if (split === null) {
     return null
   }
-  const segments = url.pathname.split('/')
-  const spaceIndex = segments.indexOf('space')
-  if (spaceIndex === -1) {
-    return null
-  }
-  const path = parseSpacePath(`/${segments.slice(spaceIndex).join('/')}`)
-  if (path === null) {
-    return null
-  }
-  const basePath = segments.slice(0, spaceIndex).join('/')
-  return { baseUrl: `${url.origin}${basePath}`, path }
+  const path = parseSpacePath(`/${split.rest.join('/')}`)
+  return path === null ? null : { baseUrl: split.baseUrl, path }
 }
 
 /**

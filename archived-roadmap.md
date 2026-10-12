@@ -3931,3 +3931,30 @@ consumer acts on the invitation today and accepts a server-supplied plaintext
 body as a credential. Closing this needs the doc change plus the consumer edit,
 so the item is not done at the doc alone. discovered-from: whole-codebase
 review, 2026-09-11.
+
+### WCL-133: [L] `parseAbsoluteSpaceTarget` accepts a doubled slash that the `WasClient` constructor refuses
+
+- status: done (2026-10-11)
+- priority: low
+- labels: paths, correctness, consistency
+- discovered-from: simplify review of the Spaces Repository `serverUrl` change,
+  2026-10-11
+- acceptance:
+  - [x] `parseAbsoluteSpaceTarget` and `baseUrlOfSpacesUrl` agree on which base
+        URLs are well formed: a target with an empty path segment before `space`
+        (`https://host//was/space/x`) is rejected by both, or accepted by both
+  - [x] A `baseUrl` returned by `parseAbsoluteSpaceTarget` always survives
+        `spacesUrl` followed by `new WasClient({ serverUrl })` without a
+        `ValidationError`, and a test asserts the round trip
+  - [x] The shared rule lives in one place in `src/internal/paths.ts`, not in
+        two segment walks
+
+`baseUrlOfSpacesUrl` rejects an empty path segment, since a doubled slash would
+leave the base with a trailing slash. `parseAbsoluteSpaceTarget` builds its base
+from the raw `pathname` split and does not, so `https://host//was/space/x`
+yields the base `https://host//was`. The `spacesUrl` JSDoc tells a consumer
+holding only a Space URL to form the client's `serverUrl` from exactly that
+base, and the constructor then refuses it. The other canonicalizations agree
+(host case and a default port round-trip cleanly through `URL`). Low priority
+because a doubled slash never appears in a URL the client itself built; it only
+arrives from an external capability target or a hand-typed value.
