@@ -61,3 +61,14 @@ export async function drain(
 ): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer())
 }
+
+/**
+ * `value` with its first character changed, to corrupt a base64url field (a
+ * ciphertext or a tag) so its AEAD check fails.
+ *
+ * @param value {string}
+ * @returns {string}
+ */
+export function flipFirst(value: string): string {
+  return (value.startsWith('A') ? 'B' : 'A') + value.slice(1)
+}

@@ -2,8 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Portable `Blob` reads, plus the one-way conversion of in-hand bytes to a
- * byte stream.
+ * Portable `Blob` reads and writes: reading a `Blob` to text or bytes,
+ * building a `Blob` from bytes, and the conversions between in-hand bytes and
+ * a byte stream.
  *
  * A `Blob` in a browser or in Node implements `text()` and `arrayBuffer()`, so
  * reading one is a single await. React Native's built-in `Blob` implements
@@ -18,7 +19,12 @@
  * `FileReader` otherwise. The fallback is Promise-wrapped by hand because
  * `FileReader` is event-based: it resolves on `onload` with `reader.result` and
  * rejects on `onerror` with the reader's own error.
+ *
+ * Building a `Blob` has the mirror-image asymmetry: React Native's `Blob`
+ * constructor refuses an `ArrayBuffer` or a typed array, so `bytesToBlob`
+ * falls back to a `data:` URL fetch there.
  */
+import { base64 } from '@scure/base'
 
 /**
  * The subset of the event-based `FileReader` surface the fallback drives,
@@ -181,5 +187,85 @@ export function bytesToStream(
       controller.enqueue(await blobBytes(data))
       controller.close()
     }
+  })
+}
+
+/**
+ * One `Blob` over the given byte chunks, in order, typed `type` where given.
+ * The native constructor does the concatenation. Where it refuses bytes
+ * (React Native), the chunks are concatenated here and fetched back as a
+ * `Blob` from a `data:` URL.
+ *
+ * @param options {object}
+ * @param options.parts {Uint8Array[]}   the chunks, in order
+ * @param [options.type] {string}   the blob's content type
+ * @returns {Promise<Blob>}
+ */
+export async function bytesToBlob({
+  parts,
+  type
+}: {
+  parts: Uint8Array[]
+  type?: string
+}): Promise<Blob> {
+  try {
+    return new Blob(parts as BlobPart[], { type })
+  } catch (err) {
+    if (!(err instanceof TypeError) || typeof fetch !== 'function') {
+      throw err
+    }
+    const total = parts.reduce((sum, part) => sum + part.byteLength, 0)
+    const bytes = new Uint8Array(total)
+    let offset = 0
+    for (const part of parts) {
+      bytes.set(part, offset)
+      offset += part.byteLength
+    }
+    const mediaType = type ?? 'application/octet-stream'
+    const response = await fetch(
+      `data:${mediaType};base64,${base64.encode(bytes)}`
+    )
+    return await response.blob()
+  }
+}
+
+/**
+ * Drains a byte stream into one `Blob` of the given type, through
+ * {@link bytesToBlob}. The stream is read with its own reader, so a stream
+ * that errors rejects with that very error. Draining it through
+ * `new Response(stream).arrayBuffer()` instead would lose the error in
+ * Chromium, which rejects that read with a bare `TypeError: Failed to fetch`.
+ * A chunk that is not bytes rejects with a `TypeError`, as `Response` would.
+ *
+ * @param options {object}
+ * @param options.stream {ReadableStream<Uint8Array>}
+ * @param [options.type] {string}   the blob's content type
+ * @returns {Promise<Blob>}
+ */
+export async function streamToBlob({
+  stream,
+  type
+}: {
+  stream: ReadableStream<Uint8Array>
+  type?: string
+}): Promise<Blob> {
+  const parts: Uint8Array[] = []
+  const reader = stream.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError(
+        'Cannot buffer this stream into a Blob: it yielded a chunk that is ' +
+          'not a Uint8Array.'
+      )
+    }
+    parts.push(value)
+  }
+  return await bytesToBlob({
+    parts,
+    ...(type !== undefined && { type })
   })
 }

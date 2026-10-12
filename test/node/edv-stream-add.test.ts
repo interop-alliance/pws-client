@@ -13,10 +13,14 @@
 import { describe, it, expect } from 'vitest'
 import { EdvClientCore } from '@interop/edv-client'
 
-import { NotFoundError, ValidationError } from '../../src/index.js'
+import {
+  EncryptionError,
+  NotFoundError,
+  ValidationError
+} from '../../src/index.js'
 import type { Collection } from '../../src/index.js'
 import { blobBytes } from '../../src/edv/core.js'
-import { bytesOf, drain, streamOf } from '../helpers/bytes.js'
+import { bytesOf, drain, flipFirst, streamOf } from '../helpers/bytes.js'
 import { memoryServer, readerWithDescriptor } from '../helpers/memoryServer.js'
 
 /**
@@ -250,6 +254,26 @@ describe('getStream() on an encrypted collection', () => {
     const read = await collection.getStream(id)
     await expect(drain(read!.stream)).rejects.toBeInstanceOf(NotFoundError)
     await expect(collection.get(id)).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('errors the stream with a typed EncryptionError when a chunk is tampered with', async () => {
+    const { server, collection } = await encryptedCollection()
+    const bytes = bytesOf(60)
+    const { id } = await collection.add(streamOf({ bytes, pieceSize: 20 }))
+    const path = `/space/s/c/${id}/chunks/1`
+    const chunk = JSON.parse(
+      new TextDecoder().decode(server.store.get(path))
+    ) as { jwe: { ciphertext: string } }
+    chunk.jwe.ciphertext = flipFirst(chunk.jwe.ciphertext)
+    server.store.set(path, new TextEncoder().encode(JSON.stringify(chunk)))
+
+    const read = await collection.getStream(id)
+    const streamed = await drain(read!.stream).catch((err: unknown) => err)
+    expect(streamed).toBeInstanceOf(EncryptionError)
+    expect((streamed as Error).message).toMatch(/failed to decrypt/)
+    const buffered = await collection.get(id).catch((err: unknown) => err)
+    expect(buffered).toBeInstanceOf(EncryptionError)
+    expect((buffered as Error).name).toBe('EncryptionError')
   })
 })
 

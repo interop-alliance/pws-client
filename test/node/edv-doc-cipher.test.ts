@@ -16,7 +16,6 @@
  * `ownerRecipient` and the exports.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { EdvClientCore } from '@interop/edv-client'
 import type {
   IEDVChunk,
@@ -55,81 +54,16 @@ import {
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
 import { mintHmacKey } from '../../src/edv/hmacKey.js'
 import type { SingleWriteCodec } from '../helpers/codec.js'
+import { flipFirst } from '../helpers/bytes.js'
 import { memoryBackend } from '../helpers/codec.js'
-import type {
-  CollectionEncryption,
-  CollectionEncryptionRecipient
-} from '../../src/index.js'
+import {
+  epochDescriptorFor,
+  makeKeys,
+  makeReaderWithDescriptor
+} from '../helpers/readerKeys.js'
+import type { CollectionEncryption } from '../../src/index.js'
 import { isIntegrityError } from '../../src/sync/index.js'
 import type { Json } from '../../src/sync/index.js'
-
-/** A fresh real X25519 key-agreement key plus a resolver that returns it. */
-async function makeKeys(): Promise<{
-  keyAgreementKey: IKeyAgreementKey
-  keyResolver: IKeyResolver
-}> {
-  const kak = await X25519KeyAgreementKey2020.generate({
-    controller: 'did:example:alice'
-  })
-  const keyResolver = (async ({ id }: { id?: string }) => {
-    if (id !== kak.id) {
-      throw new Error(`Unknown key id "${id}".`)
-    }
-    return {
-      id: kak.id,
-      type: kak.type,
-      publicKeyMultibase: kak.publicKeyMultibase
-    }
-  }) as unknown as IKeyResolver
-  return { keyAgreementKey: kak as unknown as IKeyAgreementKey, keyResolver }
-}
-
-/**
- * Builds the single-epoch `edv` descriptor an encrypted collection carries from
- * birth, wrapping one freshly-minted epoch key to every given reader.
- *
- * @param readers {IKeyAgreementKey[]}   the recipients of epoch zero
- * @returns {Promise<CollectionEncryption>}
- */
-async function epochDescriptorFor(
-  readers: IKeyAgreementKey[]
-): Promise<CollectionEncryption> {
-  const { epochId, secret } = await mintEpoch()
-  const recipients: CollectionEncryptionRecipient[] = []
-  for (const keyAgreementKey of readers) {
-    recipients.push(
-      await wrapEpochSecret({
-        epochSecret: secret,
-        recipient: ownerRecipient({ keyAgreementKey })
-      })
-    )
-  }
-  const encryption: CollectionEncryption = {
-    scheme: 'edv',
-    epochs: [{ id: epochId, recipients }],
-    currentEpoch: epochId
-  }
-  return encryption
-}
-
-/**
- * A fresh reader plus the single-epoch descriptor it is recipient zero of --
- * the whole input every cipher in this file is built from.
- *
- * @returns {Promise<{ keyAgreementKey: IKeyAgreementKey;
- *   keyResolver: IKeyResolver; encryption: CollectionEncryption }>}
- */
-async function makeReaderWithDescriptor(): Promise<{
-  keyAgreementKey: IKeyAgreementKey
-  keyResolver: IKeyResolver
-  encryption: CollectionEncryption
-}> {
-  const keys = await makeKeys()
-  return {
-    ...keys,
-    encryption: await epochDescriptorFor([keys.keyAgreementKey])
-  }
-}
 
 const DOC: Json = { greeting: 'hello', subject: { name: 'Alice', n: 42 } }
 
@@ -527,6 +461,35 @@ describe('createEdvDocCipher (chunkSource)', () => {
       .catch((err: unknown) => err)
     expect(failure).toBeInstanceOf(EncryptionError)
     expect((failure as Error).message).toMatch(/chunk 1 .* is not bound/)
+  })
+
+  it('refuses a chunk whose ciphertext was tampered with, as EncryptionError', async () => {
+    // The chunk carries the right binding, so it passes the transport's
+    // check, and only the AEAD tag inside the cipher's decrypt stream tells.
+    // The buffered read surfaces the typed error, not the cipher's raw one.
+    const { backend, cipher, write } = await setup()
+    const { id, envelope } = await write(blob)
+    const { chunkSource } = sourceOver(backend)
+    const tampering: ChunkSource = async request => {
+      const chunk = await chunkSource(request)
+      if (chunk === undefined || request.chunkIndex !== 1) {
+        return chunk
+      }
+      return {
+        ...chunk,
+        jwe: {
+          ...chunk.jwe,
+          ciphertext: flipFirst(chunk.jwe.ciphertext as string)
+        }
+      }
+    }
+    const buffered = await cipher
+      .decrypt({ id, envelope, chunkSource: tampering })
+      .catch((err: unknown) => err)
+    expect(buffered).toBeInstanceOf(EncryptionError)
+    expect((buffered as Error).name).toBe('EncryptionError')
+    expect((buffered as Error).message).toMatch(/failed to decrypt/)
+    expect((buffered as Error).cause).toBeInstanceOf(Error)
   })
 
   it('applies the chunk-binding check on the network path too', async () => {

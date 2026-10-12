@@ -1,6 +1,6 @@
 # WAS Client Roadmap (open items)
 
-nextAvailableId: 135
+nextAvailableId: 136
 
 <!-- roadmap-order:index:start -->
 
@@ -85,6 +85,8 @@ Ready:
 - WCL-26 [L] Bare `Error` for `did:key` validation failures in the EDV recipient
   path
 - WCL-14 [L] Upstream: `_updateStream` overrides caller hmac suppression
+- WCL-135 [L] Upstream: a chunk's AEAD failure reaches the decrypt stream
+  untyped
 
 **Spec and protocol**
 
@@ -1381,6 +1383,37 @@ discovered-from: WCL-2. Harmless today -- routed blobs declare no indexable
 attributes, so the extra hmac application emits nothing meaningful -- but it
 means the WAS codec cannot fully control `indexed` emission on the chunked path
 without this upstream fix.
+
+### WCL-135: [L] Upstream: a chunk's AEAD failure reaches the decrypt stream untyped
+
+- status: todo
+- priority: low
+- labels: encryption, upstream, errors
+- discovered-from: review of the chunked-decrypt error path, 2026-10-12
+- touches:
+  - "@interop/minimal-cipher" -- `DecryptTransformer` lets the content
+    decrypt's raw failure (WebCrypto's `OperationError` in browsers, Node's
+    "unable to authenticate data") propagate as is, while a key miss already
+    has the named `KeyMissError`
+  - "@interop/edv-client" -- `EdvClientCore.getStream` pipes through that
+    transformer with no error mapping, so the raw error is what a consumer sees
+  - was-client: `src/edv/EdvCodec.ts` -- `chunkDecryptErrors` and
+    `isKeyMiss`, which today classify by exclusion
+- acceptance:
+  - [ ] A chunk whose ciphertext fails its AEAD check errors the upstream
+        decrypt stream with an error carrying a stable `name`, matched the way
+        `KeyMissError` is (by name, not `instanceof`)
+  - [ ] `chunkDecryptErrors` maps that name to `EncryptionError` and lets every
+        other error pass through unchanged, instead of relabeling everything
+        that is not a `WasError`
+  - [ ] The non-stream decrypt path classifies an integrity failure by the same
+        name, so both paths share one mapping
+
+The chunked read wraps the decrypt stream and turns any error that is not
+already one of this library's typed errors into `EncryptionError`. That is the
+only option while the AEAD failure has no name of its own, but it also relabels
+a bug or an untyped transport failure as "tampered or wrong key". With a named
+upstream error the mapping becomes a positive match.
 
 ## Spec and protocol
 

@@ -105,9 +105,15 @@ import {
   PreconditionFailedError,
   QuotaExceededError,
   UnknownEpochError,
-  ValidationError
+  ValidationError,
+  WasError
 } from '../errors.js'
-import { blobBytes, bytesToStream } from '../internal/blob.js'
+import {
+  blobBytes,
+  bytesToBlob,
+  bytesToStream,
+  streamToBlob
+} from '../internal/blob.js'
 import { readEtag, writeHeaders } from '../internal/conditional.js'
 import type { WritePrecondition } from '../internal/conditional.js'
 import type { WasTransport } from './WasTransport.js'
@@ -1050,7 +1056,7 @@ export class EdvCodec implements ResourceCodec {
         ...(contentType !== undefined && { type: contentType })
       })
     }
-    return this.#fromDocument(opened.content, opened.meta)
+    return await this.#fromDocument(opened.content, opened.meta)
   }
 
   /**
@@ -1058,10 +1064,13 @@ export class EdvCodec implements ResourceCodec {
    *
    * Opens the envelope exactly as {@link decode} does, with the same checks.
    * A chunked document's decrypt stream is handed back unbuffered, so its
-   * chunks are fetched and decrypted as the caller reads; a chunk that fails
-   * to fetch or verify then errors the stream rather than this call. An
-   * inline document is decoded as {@link decode} decodes it and presented as
-   * a one-value stream. `contentType` is the sealed plaintext type.
+   * chunks are fetched and decrypted as the caller reads. A chunk that fails
+   * to fetch or verify then errors the stream rather than this call, with
+   * `NotFoundError` or `EncryptionError`. A caller that buffers the stream
+   * should do so with `streamToBlob`, which keeps that error where
+   * `new Response(stream)` would not. An inline document is decoded as
+   * {@link decode} decodes it and presented as a one-value stream.
+   * `contentType` is the sealed plaintext type.
    *
    * @param response {ResponseLike}   the stored envelope
    * @param [expectedId] {string}   the resource id the read targeted
@@ -1087,7 +1096,7 @@ export class EdvCodec implements ResourceCodec {
       return this.#chunkedStream(opened.read)
     }
     return decodedStream({
-      value: this.#fromDocument(opened.content, opened.meta),
+      value: await this.#fromDocument(opened.content, opened.meta),
       contentType: sealedContentType(opened.meta)
     })
   }
@@ -1209,7 +1218,10 @@ export class EdvCodec implements ResourceCodec {
    * document envelope. Each chunk must also carry the envelope's own `was`
    * binding in its protected header (the writer seals it into every chunk),
    * so a genuine chunk of another resource, or one sealed under another
-   * epoch, is refused with {@link EncryptionError} before it is decrypted.
+   * epoch, is refused with {@link EncryptionError} before it is decrypted. A
+   * chunk that fails its own AEAD check (tampered ciphertext) errors the
+   * stream with {@link EncryptionError} too, wrapping the cipher's raw error,
+   * so the stream keeps the fail-closed contract {@link decode} documents.
    *
    * @param options {object}
    * @param [options.id] {string}   the AEAD-bound resource id (= WAS resource
@@ -1280,11 +1292,14 @@ export class EdvCodec implements ResourceCodec {
       const network = this.#transportFor(context!)
       fetchChunk = options => network.getChunk(options)
     }
-    const stream = (await this.#edv.getStream({
-      doc: { id, stream: { chunks } } as IEDVDocument,
-      keyAgreementKey,
-      transport: new ChunkReadTransport({ fetchChunk, binding })
-    })) as ReadableStream<Uint8Array>
+    const stream = chunkDecryptErrors({
+      id,
+      stream: (await this.#edv.getStream({
+        doc: { id, stream: { chunks } } as IEDVDocument,
+        keyAgreementKey,
+        transport: new ChunkReadTransport({ fetchChunk, binding })
+      })) as ReadableStream<Uint8Array>
+    })
     const contentType = sealedContentType(meta)
     return { stream, ...(contentType !== undefined && { contentType }) }
   }
@@ -1944,9 +1959,12 @@ export class EdvCodec implements ResourceCodec {
    *
    * @param content {unknown}
    * @param [meta] {Record<string, unknown>}
-   * @returns {Json | Blob}
+   * @returns {Promise<Json | Blob>}
    */
-  #fromDocument(content: unknown, meta?: Record<string, unknown>): Json | Blob {
+  async #fromDocument(
+    content: unknown,
+    meta?: Record<string, unknown>
+  ): Promise<Json | Blob> {
     const encoding = meta?.encoding
     const contentType = sealedContentType(meta)
     if (encoding === 'utf-8') {
@@ -1969,8 +1987,9 @@ export class EdvCodec implements ResourceCodec {
             'content.bytes is not a string.'
         )
       }
-      return new Blob([base64.decode(base64Text) as BlobPart], {
-        type: contentType
+      return await bytesToBlob({
+        parts: [base64.decode(base64Text)],
+        ...(contentType !== undefined && { type: contentType })
       })
     }
     if (encoding !== undefined) {
@@ -2013,23 +2032,51 @@ function sealedContentType(meta?: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Drains a byte stream into one `Blob` of the given type. `Blob` does the
- * concatenation: its parts are the chunks the stream yielded, in order.
+ * The chunked decrypt stream of resource `id`, with the cipher's raw AEAD
+ * failure replaced by an {@link EncryptionError} that carries it as `cause`.
+ * An error that is already typed (the transport's `NotFoundError` for a
+ * missing chunk, or its `EncryptionError` for a chunk of another resource)
+ * passes through as it is. Cancellation is forwarded.
  *
  * @param options {object}
+ * @param options.id {string}   the resource id, for the error message
  * @param options.stream {ReadableStream<Uint8Array>}
- * @param [options.type] {string}   the blob's content type
- * @returns {Promise<Blob>}
+ * @returns {ReadableStream<Uint8Array>}
  */
-async function streamToBlob({
-  stream,
-  type
+function chunkDecryptErrors({
+  id,
+  stream
 }: {
+  id: string
   stream: ReadableStream<Uint8Array>
-  type?: string
-}): Promise<Blob> {
-  const bytes = await new Response(stream).arrayBuffer()
-  return new Blob([bytes], type !== undefined ? { type } : undefined)
+}): ReadableStream<Uint8Array> {
+  const reader = stream.getReader()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let result: ReadableStreamReadResult<Uint8Array>
+      try {
+        result = await reader.read()
+      } catch (err) {
+        if (err instanceof WasError) {
+          throw err
+        }
+        throw new EncryptionError(
+          `Cannot read this resource: a chunk of resource "${id}" failed to ` +
+            'decrypt. It was tampered with in storage or in transit, or ' +
+            'was sealed under a key this reader does not hold.',
+          { cause: err }
+        )
+      }
+      if (result.done) {
+        controller.close()
+        return
+      }
+      controller.enqueue(result.value)
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
+    }
+  })
 }
 
 /**

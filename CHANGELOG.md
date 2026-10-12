@@ -1,5 +1,18 @@
 # @interop/was-client Changelog
 
+## 0.97.1 - TBD
+
+### Fixed
+
+- A chunked decrypt buffered to a `Blob` now surfaces the stream's own
+  `NotFoundError` or `EncryptionError` in browsers. Chromium replaced it with a
+  bare `TypeError: Failed to fetch`.
+- A chunk whose ciphertext fails its AEAD check now errors a chunked read with
+  `EncryptionError` (the cipher's raw error as `cause`), on both the buffered
+  and the streamed path.
+- A binary decrypt builds its `Blob` through a `data:` URL fetch where the
+  `Blob` constructor refuses bytes (React Native).
+
 ## 0.97.0 - 2026-10-11
 
 ### Changed
