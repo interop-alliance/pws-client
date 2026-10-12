@@ -255,22 +255,18 @@ function wasParam({
  * Whether a decrypt error means "this candidate key does not open the envelope"
  * (so the loop should try the next key) rather than an integrity failure. True
  * for the upstream typed key-miss error -- `@interop/minimal-cipher` /
- * `@interop/edv-client` raise a `KeyMissError` (the null-CEK unwrap path and the
- * kid-mismatch path) when a candidate key is simply the wrong or a rotated key,
- * not a corrupted envelope. It is matched by `err.name === 'KeyMissError'`
- * rather than `instanceof`: name-dispatch survives pnpm installing two copies of
- * the cipher package (a second copy's `KeyMissError` is a distinct class but
- * carries the same `name`), so was-client need not import the class at all.
+ * `@interop/edv-client` raise a `KeyMissError` when a candidate key is simply
+ * the wrong or a rotated key, not a corrupted envelope. It is matched by
+ * `err.name === 'KeyMissError'` rather than `instanceof`: name-dispatch
+ * survives pnpm installing two copies of the cipher package (a second copy's
+ * `KeyMissError` is a distinct class but carries the same `name`), so
+ * was-client need not import the class at all.
  *
  * Also true for a {@link KeyUnwrapError} raised by a candidate itself -- a lazy
  * epoch key whose recipient entry turned out corrupt when its first decrypt
  * forced the unwrap (see `lazyEpochKey`): that says nothing about the stored
  * envelope, so the loop must move on to the next candidate rather than report
- * tampering. Every other error means the key DID select a recipient and unwrap,
- * but the content's AEAD tag did not verify -- a data-integrity failure
- * (WebCrypto's `OperationError` in browsers, Node's "unable to authenticate
- * data") -- which must surface as an {@link IntegrityError}, not be masked as a
- * key miss.
+ * tampering.
  *
  * @param err {unknown}
  * @returns {boolean}
@@ -280,6 +276,25 @@ function isKeyMiss(err: unknown): boolean {
     err instanceof KeyUnwrapError ||
     (err instanceof Error && err.name === 'KeyMissError')
   )
+}
+
+/**
+ * Whether a decrypt error means the key DID select a recipient and unwrap the
+ * content key, but the content's AEAD tag did not verify: the stored
+ * ciphertext is corrupt or has been tampered with. `@interop/minimal-cipher`
+ * raises its `IntegrityError` for that (the runtime's raw error as `cause`),
+ * matched by `err.name` for the same reason {@link isKeyMiss} matches by name.
+ * Any other error is neither a key miss nor an integrity failure (a malformed
+ * envelope, a bug) and is not this library's to relabel.
+ *
+ * This library's own {@link IntegrityError} carries the same name, so a
+ * caller that may see both excludes `WasError` first.
+ *
+ * @param err {unknown}
+ * @returns {boolean}
+ */
+function isIntegrityFailure(err: unknown): boolean {
+  return err instanceof Error && err.name === 'IntegrityError'
 }
 
 /**
@@ -1219,9 +1234,10 @@ export class EdvCodec implements ResourceCodec {
    * binding in its protected header (the writer seals it into every chunk),
    * so a genuine chunk of another resource, or one sealed under another
    * epoch, is refused with {@link EncryptionError} before it is decrypted. A
-   * chunk that fails its own AEAD check (tampered ciphertext) errors the
-   * stream with {@link EncryptionError} too, wrapping the cipher's raw error,
-   * so the stream keeps the fail-closed contract {@link decode} documents.
+   * chunk that fails its own AEAD check (tampered ciphertext), or whose
+   * content key this reader's key does not unwrap, errors the stream with
+   * {@link EncryptionError} too, wrapping the cipher's named error, so the
+   * stream keeps the fail-closed contract {@link decode} documents.
    *
    * @param options {object}
    * @param [options.id] {string}   the AEAD-bound resource id (= WAS resource
@@ -1440,12 +1456,14 @@ export class EdvCodec implements ResourceCodec {
           // unwrap its content-encryption key; try the next candidate.
           continue
         }
-        // The candidate DID select a recipient and unwrap the CEK, but the
-        // content's AEAD tag failed to authenticate: the stored ciphertext is
-        // corrupt or has been tampered with. Surface this immediately as an
-        // integrity failure rather than masking it as a membership/key miss by
-        // continuing into `rest` (a real key miss never reaches AEAD, so this
-        // can only be a genuine integrity failure on a key that matched).
+        if (!isIntegrityFailure(err)) {
+          // Neither a key miss nor an AEAD failure: rethrow as is.
+          throw err
+        }
+        // Surface the AEAD failure immediately rather than masking it as a
+        // membership/key miss by continuing into `rest` (a real key miss never
+        // reaches AEAD, so this is a genuine integrity failure on a key that
+        // matched).
         throw new IntegrityError(
           'Cannot decrypt this resource: its ciphertext failed to authenticate ' +
             '(the AEAD integrity tag did not verify). This reader holds a key ' +
@@ -2032,11 +2050,12 @@ function sealedContentType(meta?: Record<string, unknown>): string | undefined {
 }
 
 /**
- * The chunked decrypt stream of resource `id`, with the cipher's raw AEAD
- * failure replaced by an {@link EncryptionError} that carries it as `cause`.
- * An error that is already typed (the transport's `NotFoundError` for a
- * missing chunk, or its `EncryptionError` for a chunk of another resource)
- * passes through as it is. Cancellation is forwarded.
+ * The chunked decrypt stream of resource `id`, with the cipher's integrity
+ * failure (see {@link isIntegrityFailure}) or key miss (see {@link isKeyMiss})
+ * replaced by an {@link EncryptionError} that carries the original as `cause`.
+ * Every other error passes through as it is, this library's own typed errors
+ * included (a chunk source or lazy epoch key may raise one that the two
+ * predicates would match by name). Cancellation is forwarded.
  *
  * @param options {object}
  * @param options.id {string}   the resource id, for the error message
@@ -2058,6 +2077,11 @@ function chunkDecryptErrors({
         result = await reader.read()
       } catch (err) {
         if (err instanceof WasError) {
+          // Already one of this library's errors: not the cipher's.
+          throw err
+        }
+        if (!isIntegrityFailure(err) && !isKeyMiss(err)) {
+          // Neither tampering nor a key the reader lacks: rethrow as is.
           throw err
         }
         throw new EncryptionError(

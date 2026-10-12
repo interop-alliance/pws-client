@@ -194,7 +194,9 @@ export function bytesToStream(
  * One `Blob` over the given byte chunks, in order, typed `type` where given.
  * The native constructor does the concatenation. Where it refuses bytes
  * (React Native), the chunks are concatenated here and fetched back as a
- * `Blob` from a `data:` URL.
+ * `Blob` from a `data:` URL and retyped `type`. That fallback copies the
+ * payload several times over, so a large resource is better read through the
+ * streamed decode there.
  *
  * @param options {object}
  * @param options.parts {Uint8Array[]}   the chunks, in order
@@ -221,11 +223,13 @@ export async function bytesToBlob({
       bytes.set(part, offset)
       offset += part.byteLength
     }
-    const mediaType = type ?? 'application/octet-stream'
+    // The URL names a fixed media type: `type` may carry parameters or other
+    // characters a data: URL header cannot hold, so it is set on the result.
     const response = await fetch(
-      `data:${mediaType};base64,${base64.encode(bytes)}`
+      `data:application/octet-stream;base64,${base64.encode(bytes)}`
     )
-    return await response.blob()
+    const blob = await response.blob()
+    return type === undefined ? blob : new Blob([blob], { type })
   }
 }
 
@@ -235,7 +239,8 @@ export async function bytesToBlob({
  * that errors rejects with that very error. Draining it through
  * `new Response(stream).arrayBuffer()` instead would lose the error in
  * Chromium, which rejects that read with a bare `TypeError: Failed to fetch`.
- * A chunk that is not bytes rejects with a `TypeError`, as `Response` would.
+ * A chunk that is not bytes rejects with a `TypeError`, as `Response` would,
+ * after cancelling the stream so its source is released.
  *
  * @param options {object}
  * @param options.stream {ReadableStream<Uint8Array>}
@@ -257,10 +262,12 @@ export async function streamToBlob({
       break
     }
     if (!(value instanceof Uint8Array)) {
-      throw new TypeError(
+      const err = new TypeError(
         'Cannot buffer this stream into a Blob: it yielded a chunk that is ' +
           'not a Uint8Array.'
       )
+      await reader.cancel(err)
+      throw err
     }
     parts.push(value)
   }

@@ -102,10 +102,34 @@ describe('streamToBlob', () => {
     }) as ReadableStream<Uint8Array>
     await expect(streamToBlob({ stream })).rejects.toBeInstanceOf(TypeError)
   })
+
+  it('cancels the stream before rejecting on a chunk that is not bytes', async () => {
+    const cancel = vi.fn()
+    const stream = new ReadableStream<unknown>({
+      start(controller) {
+        controller.enqueue({ not: 'bytes' })
+      },
+      cancel
+    }) as ReadableStream<Uint8Array>
+    const failure = await streamToBlob({ stream }).catch((err: unknown) => err)
+    expect(failure).toBeInstanceOf(TypeError)
+    expect(cancel).toHaveBeenCalledWith(failure)
+  })
 })
 
 describe('bytesToBlob: a Blob constructor that refuses bytes (React Native)', () => {
   const NativeBlob = globalThis.Blob
+  class RnBlob extends NativeBlob {
+    constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+      if (parts?.some(part => ArrayBuffer.isView(part))) {
+        throw new TypeError(
+          'Creating blobs from ArrayBuffer and ArrayBufferView are not ' +
+            'supported'
+        )
+      }
+      super(parts, options)
+    }
+  }
 
   afterEach(() => {
     globalThis.Blob = NativeBlob
@@ -113,17 +137,6 @@ describe('bytesToBlob: a Blob constructor that refuses bytes (React Native)', ()
   })
 
   it('fetches the bytes back as a Blob from a data: URL', async () => {
-    class RnBlob extends NativeBlob {
-      constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
-        if (parts?.some(part => ArrayBuffer.isView(part))) {
-          throw new TypeError(
-            'Creating blobs from ArrayBuffer and ArrayBufferView are not ' +
-              'supported'
-          )
-        }
-        super(parts, options)
-      }
-    }
     globalThis.Blob = RnBlob
     const fetched: string[] = []
     vi.stubGlobal('fetch', async (url: string) => {
@@ -141,8 +154,24 @@ describe('bytesToBlob: a Blob constructor that refuses bytes (React Native)', ()
       parts: [new Uint8Array([104, 105]), new Uint8Array([33])],
       type: 'text/plain'
     })
-    expect(fetched).toEqual(['data:text/plain;base64,aGkh'])
+    expect(fetched).toEqual(['data:application/octet-stream;base64,aGkh'])
     expect(blob.type).toBe('text/plain')
+    expect(await blobText(blob)).toBe('hi!')
+  })
+
+  it('keeps a type with parameters out of the data: URL and on the Blob', async () => {
+    globalThis.Blob = RnBlob
+    const fetched: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      fetched.push(url)
+      return { blob: async () => new NativeBlob(['hi!']) }
+    })
+    const blob = await bytesToBlob({
+      parts: [new Uint8Array([104, 105, 33])],
+      type: 'text/plain; charset=utf-8'
+    })
+    expect(fetched).toEqual(['data:application/octet-stream;base64,aGkh'])
+    expect(blob.type).toBe('text/plain; charset=utf-8')
     expect(await blobText(blob)).toBe('hi!')
   })
 })

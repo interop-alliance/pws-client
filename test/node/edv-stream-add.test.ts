@@ -182,6 +182,27 @@ describe('put(stream) by id on an encrypted collection', () => {
   })
 })
 
+/**
+ * Rewrites the JWE of stored chunk 1 of resource `id` in place, through
+ * `mutate`, so a read of that chunk meets a corrupted or malformed chunk.
+ *
+ * @param store {Map<string, Uint8Array>}   the memory server's bodies by path
+ * @param id {string}
+ * @param mutate {(jwe: Record<string, unknown>) => void}
+ */
+function rewriteChunk(
+  store: Map<string, Uint8Array>,
+  id: string,
+  mutate: (jwe: Record<string, unknown>) => void
+): void {
+  const path = `/space/s/c/${id}/chunks/1`
+  const chunk = JSON.parse(new TextDecoder().decode(store.get(path))) as {
+    jwe: Record<string, unknown>
+  }
+  mutate(chunk.jwe)
+  store.set(path, new TextEncoder().encode(JSON.stringify(chunk)))
+}
+
 describe('getStream() on an encrypted collection', () => {
   it('returns the decrypted chunked bytes and the plaintext content type', async () => {
     const { collection } = await encryptedCollection()
@@ -260,12 +281,9 @@ describe('getStream() on an encrypted collection', () => {
     const { server, collection } = await encryptedCollection()
     const bytes = bytesOf(60)
     const { id } = await collection.add(streamOf({ bytes, pieceSize: 20 }))
-    const path = `/space/s/c/${id}/chunks/1`
-    const chunk = JSON.parse(
-      new TextDecoder().decode(server.store.get(path))
-    ) as { jwe: { ciphertext: string } }
-    chunk.jwe.ciphertext = flipFirst(chunk.jwe.ciphertext)
-    server.store.set(path, new TextEncoder().encode(JSON.stringify(chunk)))
+    rewriteChunk(server.store, id, jwe => {
+      jwe.ciphertext = flipFirst(jwe.ciphertext as string)
+    })
 
     const read = await collection.getStream(id)
     const streamed = await drain(read!.stream).catch((err: unknown) => err)
@@ -274,6 +292,41 @@ describe('getStream() on an encrypted collection', () => {
     const buffered = await collection.get(id).catch((err: unknown) => err)
     expect(buffered).toBeInstanceOf(EncryptionError)
     expect((buffered as Error).name).toBe('EncryptionError')
+  })
+
+  it('errors the stream with a typed EncryptionError when a chunk is sealed under another key', async () => {
+    const { server, collection } = await encryptedCollection()
+    const bytes = bytesOf(60)
+    const { id } = await collection.add(streamOf({ bytes, pieceSize: 20 }))
+    // A wrapped content key the reader's key does not unwrap: the cipher's
+    // key miss, not an AEAD failure
+    rewriteChunk(server.store, id, jwe => {
+      const recipient = (jwe.recipients as { encrypted_key: string }[])[0]!
+      recipient.encrypted_key = recipient.encrypted_key.slice(0, -2)
+    })
+
+    const read = await collection.getStream(id)
+    const streamed = await drain(read!.stream).catch((err: unknown) => err)
+    expect(streamed).toBeInstanceOf(EncryptionError)
+    expect((streamed as Error).message).toMatch(/failed to decrypt/)
+    expect((streamed as Error).cause).toMatchObject({ name: 'KeyMissError' })
+  })
+
+  it('passes an untyped cipher error through unchanged instead of relabeling it', async () => {
+    const { server, collection } = await encryptedCollection()
+    const bytes = bytesOf(60)
+    const { id } = await collection.add(streamOf({ bytes, pieceSize: 20 }))
+    // A malformed chunk: the cipher refuses it before any key or AEAD step
+    // with a plain Error, which is not tampering and must surface as is
+    rewriteChunk(server.store, id, jwe => {
+      delete jwe.iv
+    })
+
+    const read = await collection.getStream(id)
+    const streamed = await drain(read!.stream).catch((err: unknown) => err)
+    expect(streamed).toBeInstanceOf(Error)
+    expect(streamed).not.toBeInstanceOf(EncryptionError)
+    expect((streamed as Error).message).toMatch(/"iv"/)
   })
 })
 

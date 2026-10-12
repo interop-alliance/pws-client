@@ -7,11 +7,22 @@
 - A chunked decrypt buffered to a `Blob` now surfaces the stream's own
   `NotFoundError` or `EncryptionError` in browsers. Chromium replaced it with a
   bare `TypeError: Failed to fetch`.
-- A chunk whose ciphertext fails its AEAD check now errors a chunked read with
-  `EncryptionError` (the cipher's raw error as `cause`), on both the buffered
-  and the streamed path.
+- A chunk whose ciphertext fails its AEAD check, or whose content key the
+  reader's key does not unwrap, now errors a chunked read with `EncryptionError`
+  (the cipher's named error as `cause`), on both the buffered and the streamed
+  path. The mapping matches the cipher's `IntegrityError` and `KeyMissError` by
+  name, so any other error (a malformed chunk, a bug, one of this library's own
+  typed errors such as a lazy epoch key's `KeyUnwrapError`) passes through
+  unchanged instead of being relabeled as tampering. The document decrypt path
+  classifies an integrity failure by the same name. Requires
+  `@interop/minimal-cipher` 7.11.0.
 - A binary decrypt builds its `Blob` through a `data:` URL fetch where the
-  `Blob` constructor refuses bytes (React Native).
+  `Blob` constructor refuses bytes (React Native). The URL names a fixed media
+  type and the content type is set on the resulting `Blob`, so a type with
+  parameters survives. The fallback buffers the payload several times over, so a
+  large resource is better read through `decodeStream` there.
+- Buffering a decrypt stream into a `Blob` cancels the stream before rejecting
+  on a chunk that is not bytes, so the chunk reads it holds open are released.
 
 ## 0.97.0 - 2026-10-11
 

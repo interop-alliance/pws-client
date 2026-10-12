@@ -463,6 +463,21 @@ describe('createEdvDocCipher (chunkSource)', () => {
     expect((failure as Error).message).toMatch(/chunk 1 .* is not bound/)
   })
 
+  it("passes a chunk source's own typed error through unchanged", async () => {
+    // One of this library's errors raised by the source shares its `name`
+    // with the cipher's integrity failure, and must not be re-wrapped.
+    const { cipher, write } = await setup()
+    const { id, envelope } = await write(blob)
+    const raised = new IntegrityError('the source checked this chunk itself')
+    const chunkSource: ChunkSource = async () => {
+      throw raised
+    }
+    const failure = await cipher
+      .decrypt({ id, envelope, chunkSource })
+      .catch((err: unknown) => err)
+    expect(failure).toBe(raised)
+  })
+
   it('refuses a chunk whose ciphertext was tampered with, as EncryptionError', async () => {
     // The chunk carries the right binding, so it passes the transport's
     // check, and only the AEAD tag inside the cipher's decrypt stream tells.

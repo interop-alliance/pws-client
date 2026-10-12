@@ -60,6 +60,7 @@ import {
   reconstructEpochKeyPair,
   wrapEpochSecret
 } from '../../src/edv/epochCrypto.js'
+import { flipFirst } from '../helpers/bytes.js'
 
 /**
  * The provider options every codec fixture in this file forwards to
@@ -1365,18 +1366,6 @@ describe('EdvCodec: decrypt failure discrimination', () => {
     return responseFrom(bytes)
   }
 
-  /**
-   * Flips the last character of a base64url string to a different one, so the
-   * value stays well-formed base64url but decodes to different bytes.
-   *
-   * @param value {string}
-   * @returns {string}
-   */
-  function flipLast(value: string): string {
-    const last = value.slice(-1)
-    return value.slice(0, -1) + (last === 'A' ? 'B' : 'A')
-  }
-
   it('throws IntegrityError (not KeyUnwrapError) on a tampered ciphertext read by a legitimate recipient', async () => {
     const codec = await makeCodec()
     const encoded = await codec.encode({ data: { secret: 'authentic' } })
@@ -1384,7 +1373,7 @@ describe('EdvCodec: decrypt failure discrimination', () => {
     // the AEAD tag must fail and surface as an integrity failure, NOT as a
     // membership/KeyUnwrapError.
     const response = tamperedResponse(encoded.body, envelope => {
-      envelope.jwe.ciphertext = flipLast(envelope.jwe.ciphertext)
+      envelope.jwe.ciphertext = flipFirst(envelope.jwe.ciphertext)
     })
     const failure = await codec.decode(response).catch((err: unknown) => err)
     expect(failure).toBeInstanceOf(IntegrityError)
@@ -1398,7 +1387,7 @@ describe('EdvCodec: decrypt failure discrimination', () => {
     const codec = await makeCodec()
     const encoded = await codec.encode({ data: { secret: 'authentic' } })
     const response = tamperedResponse(encoded.body, envelope => {
-      envelope.jwe.tag = flipLast(envelope.jwe.tag)
+      envelope.jwe.tag = flipFirst(envelope.jwe.tag)
     })
     await expect(codec.decode(response)).rejects.toThrow(IntegrityError)
   })
