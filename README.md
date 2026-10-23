@@ -1500,6 +1500,11 @@ instead, as `{ outcome: 'not-found' }`, rather than swallowing it.
 Spec endpoints a given server has not yet implemented surface as
 `NotImplementedError` (the server's 501).
 
+The client-side errors (`EncryptionError` and its subtypes, `NotSupportedError`,
+`UnknownEpochError`) are `WasError`s too; they carry no `status`. An
+`UnknownEpochError` carries the `collectionId` whose descriptor to re-read and
+the envelope's unroutable `kids`.
+
 `IncompatibleServerError` comes from service discovery, not from a response
 status. Any signed method, read methods included, throws it when the server
 speaks no WAS version this client understands (see

@@ -95,9 +95,29 @@ search for a wrapped auth error; at the leaf, it decides by name.
   was-client, or one that knowingly resolves a single copy, may still catch
   `PreconditionFailedError` or `AuthRequiredError`. That is a convenience
   for one tree rather than the cross-package contract.
-- Name matching survives boundaries that lose a prototype. An error passed
-  through a structured clone keeps its own `name` property, so the same
-  predicates work there.
+- Name matching survives a boundary that loses the prototype but keeps the
+  own properties: a second copy of this package, a `link:` tree, or a
+  plain object with the same `name`. It does not survive a structured
+  clone. The structured-clone algorithm copies an `Error` as `name`,
+  `message` and `stack` only, and keeps the `name` only for the native
+  error names, so a `WasSyncConflictError` posted to a worker arrives as
+  `name: 'Error'` with `status` dropped and only `message` intact. A
+  boundary that marshals through `postMessage`, `structuredClone`, or a
+  `BroadcastChannel` therefore has to carry the classification by hand:
+  `name` and `message` always, `status` for the sync errors (the masked
+  404 is told from a 401 or 403 by it), `collectionId` and `kids` for
+  `UnknownEpochError`, and `type`, `title`, `problems`, `details` and
+  `requestUrl` when the receiver reports them. The predicates then match
+  the rebuilt plain object, which is already their contract. No consumer
+  crosses such a boundary today (checked 2026-10-23 across was-sync,
+  wallet-core, freewallet, was-react and dcw), so was-client ships no
+  serialization envelope for it; the first consumer that does adds one
+  here rather than inventing a shape of its own.
+- `UnknownEpochError` extends `WasError` like every other error the
+  client raises, so `mapError` passes it through unchanged instead of
+  re-wrapping it under a name no predicate matches. Its `collectionId` and
+  `kids` are own properties, so the descriptor to refresh is read, not
+  parsed out of the message.
 - The rule binds how a consumer classifies rather than where every
   predicate has to live. `isKeyUnwrapError` stays in
   `@interop/wallet-core/descriptors`, even though `KeyUnwrapError` is

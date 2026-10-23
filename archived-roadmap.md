@@ -3995,3 +3995,45 @@ already one of this library's typed errors into `EncryptionError`. That is the
 only option while the AEAD failure has no name of its own, but it also relabels
 a bug or an untyped transport failure as "tampered or wrong key". With a named
 upstream error the mapping becomes a positive match.
+
+### WCL-87: [M] The `err.name` contract does not survive `structuredClone`, and `UnknownEpochError` sits outside the `WasError` tree
+
+- status: done
+- done: 2026-10-23
+- priority: medium
+- labels: errors, sync
+- touches:
+  - was-client: `decisions/0001-cross-package-errors-match-by-name.md` -- the
+    Consequences bullet claiming a structured clone keeps the error's own `name`
+    (shipped: the bullet now states what survives and names the fields a worker
+    boundary carries by hand)
+  - unaffected: "@interop/was-sync", wallet-core, freewallet (checked
+    2026-10-23: none classifies a was-client error after a worker, postMessage,
+    structuredClone, or BroadcastChannel boundary; freewallet's RxDB uses the
+    in-thread Dexie storage, so no envelope is needed)
+- acceptance:
+  - [x] decisions/0001's Consequences bullet states what actually survives a
+        structured clone
+  - [x] `WasError` either carries an explicit serialization envelope, or the
+        decision record names the fields a worker boundary has to carry by hand
+  - [x] `UnknownEpochError` extends `WasError`, keeps `collectionId` and `kids`
+        as own properties, and accepts a `cause`
+  - [x] `UnknownEpochError` is exported from the root entry beside the `./edv`
+        and `./sync` subpaths
+
+Proven: `structuredClone(new WasSyncConflictError(...))` comes back with `name`
+equal to `'Error'` and `status` dropped, with only `message` surviving. The loss
+is the structured-clone algorithm's, which copies an `Error` as name, message
+and stack and keeps the name only for the seven native error names. That
+falsifies a load-bearing sentence in decisions/0001 ("An error passed through a
+structured clone keeps its own `name` property"), which is one of the stated
+reasons `instanceof` was rejected. No `name` string changes, so the decision
+itself stands; its justification needs amending regardless of whether any
+consumer crosses a worker today. Filed alongside it because it is the same
+contract: `UnknownEpochError` extends `Error` rather than `WasError`, so
+`mapError` re-wraps it and erases the name `isUnknownEpochError` matches on.
+That re-wrap is latent today (decode runs outside the `send` try/catch), but the
+class is also the only error missing from the root entry's exports, and its
+`collectionId` and `kids` live only in prose, so a consumer that matched by name
+has to parse the message to learn which collection to refresh. discovered-from:
+whole-codebase review, 2026-09-11.

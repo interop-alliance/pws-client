@@ -49,6 +49,7 @@ export {
   UnverifiedDescriptorError,
   KeyUnwrapError,
   IntegrityError,
+  UnknownEpochError,
   WasSyncAuthError,
   WasSyncCheckpointError,
   WasSyncConflictError,
