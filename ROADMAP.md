@@ -55,8 +55,6 @@ Ready:
   no validator to pin it to
 - WCL-86 [M] `CapabilityRevokedError` and `CapabilityExpiredError` are
   unreachable on every read
-- WCL-87 [M] The `err.name` contract does not survive `structuredClone`, and
-  `UnknownEpochError` sits outside the `WasError` tree
 - WCL-89 [M] A mid-walk 404 truncates a listing, and the walk throws untyped
   errors
 - WCL-90 [M] `was.request()` signs the caller's method verbatim, so a lowercase
@@ -899,44 +897,6 @@ direction is an observable change on public read methods. Shares a root cause
 with the `deleteWithOutcome` item (the same raw-status short-circuit ahead of
 `mapError`); settle the two together. discovered-from: whole-codebase review,
 2026-09-11.
-
-### WCL-87: [M] The `err.name` contract does not survive `structuredClone`, and `UnknownEpochError` sits outside the `WasError` tree
-
-- status: todo
-- priority: medium
-- labels: errors, sync
-- touches:
-  - was-client: `decisions/0001-cross-package-errors-match-by-name.md` -- the
-    Consequences bullet claiming a structured clone keeps the error's own `name`
-  - "@interop/was-sync", wallet-core, freewallet: whether any of them classifies
-    a was-client error after a worker boundary, which decides whether an
-    explicit envelope is also needed
-- acceptance:
-  - [ ] decisions/0001's Consequences bullet states what actually survives a
-        structured clone
-  - [ ] `WasError` either carries an explicit serialization envelope, or the
-        decision record names the fields a worker boundary has to carry by hand
-  - [ ] `UnknownEpochError` extends `WasError`, keeps `collectionId` and `kids`
-        as own properties, and accepts a `cause`
-  - [ ] `UnknownEpochError` is exported from the root entry beside the `./edv`
-        and `./sync` subpaths
-
-Proven: `structuredClone(new WasSyncConflictError(...))` comes back with `name`
-equal to `'Error'` and `status` dropped, with only `message` surviving. The loss
-is the structured-clone algorithm's, which copies an `Error` as name, message
-and stack and keeps the name only for the seven native error names. That
-falsifies a load-bearing sentence in decisions/0001 ("An error passed through a
-structured clone keeps its own `name` property"), which is one of the stated
-reasons `instanceof` was rejected. No `name` string changes, so the decision
-itself stands; its justification needs amending regardless of whether any
-consumer crosses a worker today. Filed alongside it because it is the same
-contract: `UnknownEpochError` extends `Error` rather than `WasError`, so
-`mapError` re-wraps it and erases the name `isUnknownEpochError` matches on.
-That re-wrap is latent today (decode runs outside the `send` try/catch), but the
-class is also the only error missing from the root entry's exports, and its
-`collectionId` and `kids` live only in prose, so a consumer that matched by name
-has to parse the message to learn which collection to refresh. discovered-from:
-whole-codebase review, 2026-09-11.
 
 ### WCL-89: [M] A mid-walk 404 truncates a listing, and the walk throws untyped errors
 

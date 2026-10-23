@@ -1,5 +1,21 @@
 # @interop/was-client Changelog
 
+## 0.99.0 - TBD
+
+### Added
+
+- `mapError` maps the server's `backend-immutable` problem type (a backend
+  change on an existing Collection, 409) to `ConflictError`, with the other
+  immutability refusals.
+
+### Changed
+
+- `UnknownEpochError` now extends `WasError` (so `mapError` passes it through
+  unchanged), exposes `collectionId` and `kids` as own properties, accepts a
+  `cause`, and is exported from the root entry beside `./edv` and `./sync`.
+- decisions/0001 no longer claims a structured clone keeps an error's `name`; it
+  now names the fields a worker boundary has to carry by hand.
+
 ## 0.98.0 - 2026-10-12
 
 ### Added

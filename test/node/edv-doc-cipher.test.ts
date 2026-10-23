@@ -1279,6 +1279,8 @@ describe('UnknownEpochError', () => {
     })
     expect(err).toBeInstanceOf(Error)
     expect(err.name).toBe('UnknownEpochError')
+    expect(err.collectionId).toBe('private-credentials')
+    expect(err.kids).toEqual(['did:key:zEpoch#k'])
     expect(err.message).toContain('private-credentials')
     expect(err.message).toContain('did:key:zEpoch#k')
     expect(err.message).toContain(

@@ -162,7 +162,7 @@ export class IncompatibleServerError extends WasError {
  * `id-conflict` (the id already exists), `reserved-id` (the id collides with a
  * reserved path segment), or `unsupported-backend` (the backend id is not in
  * the space's available list). Also the immutability and replica refusals:
- * `encryption-immutable`, `encryption-history-log-governed`,
+ * `backend-immutable`, `encryption-immutable`, `encryption-history-log-governed`,
  * `revisions-immutable`, `resource-immutable`, and `replica-refused`. The
  * specific kind is on the `type` URI.
  */
@@ -378,21 +378,30 @@ export class WasServerError extends WasError {
  * that the caller's cached descriptor may be stale and should be re-read
  * before retrying: an epoch rotation emits no change-feed entry, so a codec
  * built from a pre-rotation descriptor meets envelopes stamped with a newer
- * epoch it has never seen.
+ * epoch it has never seen. Carries the `collectionId` to refresh and the
+ * unroutable `kids` as own properties, so a consumer that matched by name
+ * (`isUnknownEpochError`) reads them rather than parsing the message.
  *
  * Distinct from {@link KeyUnwrapError}: when the descriptor DOES list the
  * envelope's epoch but this reader holds no key for it (it was never a
  * recipient of that epoch, or it was removed and the epoch rotated), decrypt
  * raises `KeyUnwrapError` instead -- the descriptor is current and re-reading
- * it cannot help.
+ * it cannot help. Raised client-side, so it carries no HTTP status; a subtype
+ * of {@link WasError} so `mapError` passes it through unchanged and a
+ * `catch (WasError)` sees it beside the rest.
  */
-export class UnknownEpochError extends Error {
+export class UnknownEpochError extends WasError {
+  readonly collectionId: string
+  readonly kids: string[]
+
   constructor({
     collectionId,
-    kids
+    kids,
+    cause
   }: {
     collectionId: string
     kids: string[]
+    cause?: unknown
   }) {
     super(
       `Cannot decrypt a resource in collection "${collectionId}": its ` +
@@ -400,9 +409,12 @@ export class UnknownEpochError extends Error {
         `[${cleanText(kids.join(', '), MAX_TEXT_LENGTH)}] whose key ` +
         'epoch is not on the Collection Metadata object this reader holds. ' +
         'The cached descriptor may be stale (an epoch rotation emits no ' +
-        'change-feed entry); re-read it and rebuild the cipher.'
+        'change-feed entry); re-read it and rebuild the cipher.',
+      { cause }
     )
     this.name = 'UnknownEpochError'
+    this.collectionId = collectionId
+    this.kids = [...kids]
   }
 }
 
@@ -491,6 +503,7 @@ const ERROR_CLASS_BY_TYPE = new Map<string, WasErrorClass>([
   [ProblemTypes.ID_CONFLICT, ConflictError],
   [ProblemTypes.UNSUPPORTED_BACKEND, ConflictError],
   [ProblemTypes.REPLICA_REFUSED, ConflictError],
+  [ProblemTypes.BACKEND_IMMUTABLE, ConflictError],
   [ProblemTypes.ENCRYPTION_IMMUTABLE, ConflictError],
   [ProblemTypes.ENCRYPTION_HISTORY_LOG_GOVERNED, ConflictError],
   [ProblemTypes.REVISIONS_IMMUTABLE, ConflictError],

@@ -27,10 +27,11 @@ import {
   WasSyncCheckpointError,
   WasSyncConflictError,
   WasSyncNotFoundError,
+  UnknownEpochError,
   httpStatus,
   isDenialError
 } from '../../src/index.js'
-import { mapError, UnknownEpochError } from '../../src/errors.js'
+import { mapError } from '../../src/errors.js'
 
 describe('mapError', () => {
   it('maps 400 to ValidationError', () => {
@@ -477,5 +478,55 @@ describe('UnknownEpochError', () => {
     })
     expect(err.message).toContain(`[${'k'.repeat(1024)}]`)
     expect(err.message).not.toContain('k'.repeat(1025))
+  })
+
+  it('is a WasError carrying collectionId and kids as own properties', () => {
+    const cause = new Error('unwrap failed')
+    const err = new UnknownEpochError({
+      collectionId: 'notes',
+      kids: ['did:key:zEpoch#k'],
+      cause
+    })
+    expect(err).toBeInstanceOf(WasError)
+    expect(err.name).toBe('UnknownEpochError')
+    expect(err.collectionId).toBe('notes')
+    expect(err.kids).toEqual(['did:key:zEpoch#k'])
+    expect(err.cause).toBe(cause)
+    expect(err.status).toBeUndefined()
+    // Own enumerable properties, so a boundary that copies them by hand (a
+    // worker's postMessage) and a consumer that matched by name both read
+    // them without parsing the message.
+    expect(Object.keys(err)).toEqual(
+      expect.arrayContaining(['collectionId', 'kids'])
+    )
+  })
+
+  it('passes through mapError unchanged rather than being re-wrapped', () => {
+    const err = new UnknownEpochError({ collectionId: 'notes', kids: [] })
+    expect(mapError(err)).toBe(err)
+  })
+})
+
+describe('structuredClone of a WasError', () => {
+  // The structured-clone algorithm copies an Error as name, message and stack
+  // only, and keeps the name only for the native error names. This pins what
+  // decisions/0001 says a worker boundary has to carry by hand.
+  it('keeps only the message; the name and the own fields are lost', () => {
+    const cloned = structuredClone(
+      new WasSyncConflictError('conflict', { status: 412, requestUrl: 'u' })
+    )
+    expect(cloned.message).toBe('conflict')
+    expect(cloned.name).toBe('Error')
+    expect(cloned.status).toBeUndefined()
+    expect(cloned.requestUrl).toBeUndefined()
+  })
+
+  it('loses the collectionId and kids of an UnknownEpochError', () => {
+    const cloned = structuredClone(
+      new UnknownEpochError({ collectionId: 'notes', kids: ['k'] })
+    )
+    expect(cloned.name).toBe('Error')
+    expect(cloned.collectionId).toBeUndefined()
+    expect(cloned.kids).toBeUndefined()
   })
 })
