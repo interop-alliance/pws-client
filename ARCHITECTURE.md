@@ -673,7 +673,8 @@ what reconciles plaintext, single-recipient, and multi-recipient (key-epoch)
 collections behind one interface. The pull path rides `Collection.changes()`
 (the signed `POST .../query`, profile `changes`), which likewise never resolves
 the codec. The read-only `GET .../query?profile=changes` form carries the same
-parameters in the query string. It exists for a GET-only capability, which the
+parameters in the query string. It exists for a capability without `POST` (a
+GET and HEAD grant, the share grant a subscription agent holds), which the
 `POST` form refuses, so `changes()` derives the form from the bound capability's
 `allowedAction` (`GET` when it is stated and excludes `POST`); `method`
 overrides it, and `resourceChanges()` forwards it. The port binds no such

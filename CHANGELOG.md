@@ -7,9 +7,14 @@
 - `mapError` maps the server's `backend-immutable` problem type (a backend
   change on an existing Collection, 409) to `ConflictError`, with the other
   immutability refusals.
+- An integration test reads the `changes` feed through `collection.changes()`
+  under a GET and HEAD delegation (the derived `GET` form) and shows the same
+  grant refused on the `POST` form.
 
 ### Changed
 
+- `@interop/storage-core` ^0.38.0: `Action` names `HEAD`, so `grant()` accepts
+  a GET and HEAD share grant without a cast.
 - `UnknownEpochError` now extends `WasError` (so `mapError` passes it through
   unchanged), exposes `collectionId` and `kids` as own properties, accepts a
   `cause`, and is exported from the root entry beside `./edv` and `./sync`.

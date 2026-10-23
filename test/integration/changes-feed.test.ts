@@ -6,7 +6,9 @@
  * `changes` query profile round-trips through the client -- ordering, tombstones,
  * checkpoint resumption, the record kinds beside Resources, and the
  * server-managed `createdBy` provenance that must reach a replica without a
- * per-resource `/meta` fetch.
+ * per-resource `/meta` fetch -- and the read-only `GET` form, which a holder
+ * of a GET and HEAD grant (a subscription agent's share grant) reads through
+ * the same method.
  *
  * Requires a running server: set `TEST_SERVER_URL`. The suite skips when it is
  * unset, so a bare `pnpm test:integration` (no server) is not a failure.
@@ -15,7 +17,7 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { isResourceChange } from '@interop/storage-core'
 
-import { WasClient } from '../../src/index.js'
+import { NotFoundError, WasClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
 
 const serverUrl = process.env.TEST_SERVER_URL
@@ -128,5 +130,36 @@ describeLive('collection.changes() (live server)', () => {
     expect(rest.documents).toHaveLength(1)
     // Shorter than `limit`: an RxDB pull handler stops iterating here.
     expect(rest.documents.length).toBeLessThan(limit)
+  })
+
+  it('reads the feed under a GET and HEAD grant, with no POST', async () => {
+    const { was: agent, did: agentDid } = await freshWasClient()
+    const grant = await notes.grant({
+      to: agentDid,
+      actions: ['GET', 'HEAD'],
+      expires: new Date(Date.now() + 60 * 60 * 1000)
+    })
+    const granted = agent
+      .space(space.id)
+      .collection('notes', { capability: grant })
+
+    // The form is derived from the grant: `GET .../query?profile=changes`,
+    // verified under the `GET` action. The page is the `POST` form's, the
+    // checkpoint included, so both forms share one checkpoint shape.
+    const byGet = await granted.changes({ limit: 10 })
+    const byPost = await notes.changes({ limit: 10 })
+    expect(byGet).toEqual(byPost)
+    expect(typeof byGet.checkpoint).toBe('string')
+
+    // The grant's checkpoint resumes the owner's feed and vice versa.
+    const resumed = await granted.changes({ checkpoint: byPost.checkpoint! })
+    expect(resumed.documents).toEqual([])
+    expect(resumed.checkpoint).toBeNull()
+
+    // The same grant cannot run the `POST` form: WAS masks the refusal as
+    // 404, which `changes()` throws rather than reading as an empty feed.
+    await expect(granted.changes({ method: 'POST' })).rejects.toThrow(
+      NotFoundError
+    )
   })
 })

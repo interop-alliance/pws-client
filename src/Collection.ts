@@ -1766,10 +1766,11 @@ export class Collection {
    * The query is sent as a `POST` whose body carries the parameters, or in
    * the read-only `GET` form with the parameters in the query string, which
    * the server verifies under the `GET` action and answers with the same page.
-   * A capability whose `allowedAction` excludes `POST` (a GET-only pull
-   * capability, say) reads the feed with `GET`, since the `POST` form refuses
-   * it with `NotFoundError`; every other handle sends `POST`. `method`
-   * overrides the derived form.
+   * A capability whose `allowedAction` excludes `POST` (a GET and HEAD grant
+   * on the collection, say, which is what a subscription agent holds) reads
+   * the feed with `GET`, since the `POST` form refuses it with
+   * `NotFoundError`; every other handle sends `POST`. `method` overrides the
+   * derived form.
    *
    * @param [options] {object}
    * @param [options.checkpoint] {ChangesCheckpoint}   opaque checkpoint from a prior page; resume strictly after it

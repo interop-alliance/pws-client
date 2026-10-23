@@ -4037,3 +4037,65 @@ class is also the only error missing from the root entry's exports, and its
 `collectionId` and `kids` live only in prose, so a consumer that matched by name
 has to parse the message to learn which collection to refresh. discovered-from:
 whole-codebase review, 2026-09-11.
+
+### WCL-132: [H] [after WASS-51] A GET-form `Collection.changes()` caller for a GET/HEAD grant holder
+
+- status: done
+- done: 2026-10-23
+- priority: high
+- labels: changes-feed, zcap, audiences, cross-repo
+- discovered-from: freewallet FW-478 (the cleartext audiences design, section 3
+  and question 8.7, approved 2026-10-05)
+- depends-on: WASS-51 (the profile text of the GET form)
+- touches:
+  - was-client: `Collection.changes()` (`src/Collection.ts`) gains the GET form
+    beside the POST-only one, invoked under the caller's zcap like any other
+    read; the sync wire contract names it -- shipped in 0.93.2 (the derived
+    `GET` form, `method` override, ARCHITECTURE "Sync" text); this item adds
+    the integration test under a GET and HEAD delegation and names the share
+    grant in the `changes()` JSDoc and ARCHITECTURE.md
+  - storage-core: `Action` lacked `HEAD`, so `grant({ actions: ['GET', 'HEAD'] })`
+    did not typecheck; widened there (0.38.0, unpublished), WCL-136 drops the
+    test's cast once it is published and bumped here
+  - wallet-attached-storage-spec: WASS-51's GET form, cited; still `todo`
+    there, the profile text has yet to state the form
+  - freewallet: FW-478 depends on this item; the e2e agent double reads an
+    audience through it (nothing to file: the caller is `Collection.changes()`
+    under the agent's bound grant, no new API)
+  - was-react: the plaintext audience reader FW-478 adds calls it; cite
+    (nothing to file: same caller, no new API)
+- acceptance:
+  - [x] A holder of a GET and HEAD grant on a collection can read its `changes`
+        feed through `Collection.changes()` with no POST
+  - [x] The POST form is unchanged and both share one checkpoint shape
+  - [x] An integration-tier test reads the feed under a GET/HEAD delegation and
+        is refused under one carrying GET alone when the server requires HEAD,
+        per WASS-51's text (the test shows the GET/HEAD grant refused on the
+        `POST` form instead: the server verifies the GET form under `GET`
+        alone and does not require `HEAD`, so the GET-alone refusal has no
+        server behaviour to test against)
+
+Context: a subscription agent holds today's share grant shape, GET and HEAD on
+an audience collection's container, and reads new posts off the `changes` feed.
+The feed is POST-only here, so that grant could not reach it; the server shipped
+the GET form (0.42.0) and WASS-51 carries its text. The only planned caller of
+the GET form was an optional bullet in WCL-127. The ecosystem learnings forbid
+hand-rolling WAS requests, so the reader needs this caller from was-client.
+
+### WCL-136: [L] Drop the `HEAD` action cast in the changes-feed integration test
+
+- status: done
+- done: 2026-10-23
+- priority: low
+- labels: tests, cleanup
+- discovered-from: WCL-132 (2026-10-23)
+- acceptance:
+  - [x] `@interop/storage-core` with `HEAD` in `Action` (0.38.0) is published
+        and the dependency range here is bumped to it
+  - [x] `test/integration/changes-feed.test.ts` passes `['GET', 'HEAD']` to
+        `grant()` with no `ActionInput[]` cast
+
+Context: `storage-core`'s `Action` omitted `HEAD`, the read action a share
+grant carries beside `GET`, so minting a GET and HEAD grant through `grant()`
+did not typecheck. The type was widened in storage-core; until the published
+package carries it, the test casts.
