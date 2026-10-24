@@ -12,7 +12,7 @@
  */
 import type { ZcapClient } from '@interop/ezcap'
 import type { HttpResponse } from '@interop/http-client'
-import { WasError, mapError, httpStatus } from '../errors.js'
+import { NotFoundError, WasError, mapError, httpStatus } from '../errors.js'
 import { toUrl } from './paths.js'
 import { dataOrNull } from './content.js'
 import { readEtag } from './conditional.js'
@@ -66,6 +66,33 @@ function resolveRequestUrl(context: ClientContext, input: SendInput): string {
     throw new TypeError('Either "path" or "url" is required.')
   }
   return toUrl({ baseUrl: context.baseUrl, path: input.path })
+}
+
+/**
+ * The signer's own target rule, mirrored from `ZcapClient.request` as the same
+ * plain string comparison (no URL parse): the invocation target is a RESTful
+ * prefix of `url`, or equal to it.
+ *
+ * @param options {object}
+ * @param options.url {string}
+ * @param options.invocationTarget {string}
+ * @returns {boolean}
+ */
+function withinInvocationTarget({
+  url,
+  invocationTarget
+}: {
+  url: string
+  invocationTarget: string
+}): boolean {
+  const restfulPrefix = invocationTarget.endsWith('/')
+    ? invocationTarget
+    : `${invocationTarget}/`
+  return (
+    url.startsWith(restfulPrefix) ||
+    url.startsWith(`${invocationTarget}?`) ||
+    url === invocationTarget
+  )
 }
 
 /**
@@ -172,6 +199,13 @@ export async function unsignedRequest(input: {
  * set, a 404 resolves to `null` (MongoDB `findOne` semantics); otherwise every
  * non-2xx maps to a `WasError` subclass.
  *
+ * A request whose URL lies outside the attached capability's invocation target
+ * (a Collection Metadata read under a resource-scoped grant, say) is answered
+ * here, with nothing sent: the signer would refuse to invoke the capability
+ * against it (confused-deputy protection), and the server would mask the
+ * unauthorized request as a 404 anyway. So it takes the 404 translations:
+ * `null` for a `read` or an `idempotent` delete, `NotFoundError` otherwise.
+ *
  * @param context {ClientContext}
  * @param input {SendInput}
  * @returns {Promise<HttpResponse | null>}
@@ -180,6 +214,20 @@ export async function send(
   context: ClientContext,
   input: SendInput
 ): Promise<HttpResponse | null> {
+  const invocationTarget = input.capability?.invocationTarget
+  if (invocationTarget !== undefined) {
+    const url = resolveRequestUrl(context, input)
+    if (!withinInvocationTarget({ url, invocationTarget })) {
+      if (input.read || input.idempotent) {
+        return null
+      }
+      throw new NotFoundError(
+        `"${url}" lies outside the capability's invocation target ` +
+          `"${invocationTarget}", which cannot be invoked against it.`,
+        { status: 404, requestUrl: url }
+      )
+    }
+  }
   try {
     return await rawRequest(context, input)
   } catch (err) {

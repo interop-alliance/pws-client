@@ -45,8 +45,6 @@ Ready:
   as `not-found`
 - WCL-67 [M] `Space.createCollection` pins a declared encryption descriptor the
   server may never have stored
-- WCL-68 [M] A `fromCapability` Resource on an encryption-capable client is
-  unusable
 - WCL-76 [M] The late encryption-declaration CAS rebases only on 412, though the
   server answers that race with 400 or 409
 - WCL-78 [M] An undecryptable Collection `/meta` envelope fails the whole codec
@@ -716,39 +714,6 @@ invariant 1 -- an encryption-capable client never downgrades to plaintext
 silently -- failing in the one direction nothing guards. The id half is the same
 read of the same response: against the reference server a supplied `id` is
 always honoured, so it costs one extra assertion inside this change.
-
-discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-68: [M] A `fromCapability` Resource on an encryption-capable client is unusable
-
-- status: todo
-- priority: medium
-- labels: api, encryption, ergonomics
-- touches:
-  - was-client: `WasClient.fromCapability` (`src/WasClient.ts:351`, `:387`) and
-    the `Resource` / `Collection` constructors it calls
-  - freewallet, wallet-core: `fromCapability` is a public method of a shared
-    `@interop/*` package, so the additive signature widening is named in the
-    CHANGELOG and checked against their call sites
-- acceptance:
-  - [ ] `fromCapability(zcap, options)` accepts `HandleOptions` and forwards
-        `options.encryption` to the constructed handle
-  - [ ] A capability-scoped Resource on an encryption-capable client reads and
-        writes when given an explicit encryption override
-  - [ ] A test asserts the same handle works on a plaintext collection, which
-        fails today for the same reason
-
-Execution-proven, and `fromCapability.length === 1` is the whole of it.
-`fromCapability` constructs the handle with no codec and no encryption option.
-The standalone branch builds a codec holder with no override, and `resolveCodec`
-then GETs the collection description under a resource-scoped capability. WAS
-masks that refusal as a 404, the description resolves to `null`, and the handle
-throws `EncryptionError` advising the caller to pass an explicit per-handle
-encryption override -- which the returned handle cannot accept. The failure also
-hits `get()` on a plaintext collection. A plaintext-only client is unaffected,
-since it short-circuits before the descriptor read. `HandleOptions` already
-exists and is already what `Collection.resource(id, options)` takes, so this is
-a one-line forward.
 
 discovered-from: whole-codebase review, 2026-09-11.
 

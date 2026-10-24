@@ -18,8 +18,6 @@
  * The suite skips when it is unset.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
 import { WasClient, KeyUnwrapError } from '../../src/index.js'
@@ -33,30 +31,10 @@ import {
 } from '../../src/edv/index.js'
 import type { EncryptionDescriptorStore } from '../../src/edv/index.js'
 import { resolveEpochKeys } from '../../src/edv/epochKeys.js'
+import { makeDidKeyKak as makeReader } from '../helpers/party.js'
 
 const serverUrl = process.env.TEST_SERVER_URL
 const describeLive = serverUrl ? describe : describe.skip
-
-/**
- * Generates a self-describing did:key X25519 reader: its `id` is
- * `did:key:<pub>#<pub>`, so the default `did:key` recipient resolver can
- * recover its public key from the `kid` alone.
- *
- * @returns {Promise<{ kak: IKeyAgreementKey; recipient: { id: string; publicKeyMultibase: string } }>}
- */
-async function makeReader(): Promise<{
-  kak: IKeyAgreementKey
-  recipient: { id: string; publicKeyMultibase: string }
-}> {
-  const kak = await X25519KeyAgreementKey2020.generate()
-  const did = `did:key:${kak.publicKeyMultibase}`
-  kak.controller = did
-  kak.id = `${did}#${kak.publicKeyMultibase}`
-  return {
-    kak: kak as IKeyAgreementKey,
-    recipient: { id: kak.id, publicKeyMultibase: kak.publicKeyMultibase }
-  }
-}
 
 describeLive('resource-hosted descriptor store (live server)', () => {
   let owner: WasClient

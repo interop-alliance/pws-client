@@ -213,11 +213,15 @@ controller). Per-handle state on top of that:
   children a resolver thunk so they share the parent's memoized codec (and its
   `reset()`). A standalone `Resource` resolves its own. Codecs stay per-handle:
   a handle may carry an encryption override.
-- `WasClient.fromCapability(zcap)` parses `invocationTarget` back into a handle
-  at the right depth via `parseSpaceTarget`. A capability from another party,
-  whose server is not known in advance, goes through `parseAbsoluteSpaceTarget`
-  first, which reads the server base URL off the target itself; the client is
-  then built for that server and the handle derived as usual.
+- `WasClient.fromCapability(zcap, options)` parses `invocationTarget` back into
+  a handle at the right depth via `parseSpaceTarget`, forwarding
+  `options.encryption` as the handle's override (a resource-scoped capability
+  cannot read the Collection Metadata object, so an encryption-capable client
+  needs the override to resolve a codec at all). A capability from another
+  party, whose server is not known in advance, goes through
+  `parseAbsoluteSpaceTarget` first, which reads the server base URL off the
+  target itself; the client is then built for that server and the handle derived
+  as usual.
 
 ## Service discovery
 
@@ -242,6 +246,17 @@ the client acts on both. The `instance` member is not read.
 passes the gate. That includes `send`, `was.request()`, codec-driven requests,
 `WasTransport`, and the sync port. Unsigned public reads take absolute URLs that
 may be on another server, so they are not gated.
+
+`send()` also answers, without sending, a request whose URL lies outside the
+attached capability's `invocationTarget`. The signer would refuse to invoke the
+capability there (confused-deputy protection), and the server would mask the
+unauthorized request as a 404, so the request takes the 404 translations
+locally: `null` for a `read` or `idempotent` request, `NotFoundError` otherwise.
+The check is the signer's own string rule (the target is a RESTful prefix of the
+URL, or equal to it), not a URL parse, so the two cannot disagree on host case
+or a default port. This is what makes codec discovery under a resource-scoped
+capability fail closed with `EncryptionError` instead of a generic transport
+error.
 
 Failure classes:
 
@@ -673,9 +688,9 @@ what reconciles plaintext, single-recipient, and multi-recipient (key-epoch)
 collections behind one interface. The pull path rides `Collection.changes()`
 (the signed `POST .../query`, profile `changes`), which likewise never resolves
 the codec. The read-only `GET .../query?profile=changes` form carries the same
-parameters in the query string. It exists for a capability without `POST` (a
-GET and HEAD grant, the share grant a subscription agent holds), which the
-`POST` form refuses, so `changes()` derives the form from the bound capability's
+parameters in the query string. It exists for a capability without `POST` (a GET
+and HEAD grant, the share grant a subscription agent holds), which the `POST`
+form refuses, so `changes()` derives the form from the bound capability's
 `allowedAction` (`GET` when it is stated and excludes `POST`); `method`
 overrides it, and `resourceChanges()` forwards it. The port binds no such
 capability and sends `POST`.

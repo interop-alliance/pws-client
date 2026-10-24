@@ -29,78 +29,26 @@
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import type { HttpResponse } from '@interop/http-client'
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { isResourceChange } from '@interop/storage-core'
 
 import { WasClient, KeyUnwrapError } from '../../src/index.js'
 import type {
   Collection,
   CollectionEncryption,
-  EncryptionProvider,
   IDelegatedZcap,
   Space
 } from '../../src/index.js'
 import {
-  createEdvEncryption,
   initRecipients,
   addRecipient,
   removeRecipient,
   trustRosterDidKeys
 } from '../../src/edv/index.js'
-import { didKeyResolver } from '../../src/edv/epochCrypto.js'
+import { makeParty } from '../helpers/party.js'
+import type { Party } from '../helpers/party.js'
 
 const serverUrl = process.env.TEST_SERVER_URL
 const describeLive = serverUrl ? describe : describe.skip
-
-interface Party {
-  was: WasClient
-  provider: EncryptionProvider
-  signer: Parameters<typeof WasClient.fromSigner>[0]['signer']
-  did: string
-  kak: IKeyAgreementKey
-  recipient: { id: string; publicKeyMultibase: string }
-}
-
-/**
- * Builds a party: an Ed25519 signer (for authorization) plus a self-describing
- * `did:key` X25519 key-agreement key (for decryption), and a `WasClient` whose
- * encryption provider supplies that X25519 key. The `kid` is
- * `did:key:<pub>#<pub>`, so the default `did:key` recipient resolver recovers
- * its public key -- what `removeRecipient` re-wraps the fresh epoch to.
- *
- * @returns {Promise<Party>}
- */
-async function makeParty(): Promise<Party> {
-  const keyPair = await Ed25519VerificationKey.generate()
-  const did = `did:key:${keyPair.fingerprint()}`
-
-  const kak = await X25519KeyAgreementKey2020.generate()
-  const kakDid = `did:key:${kak.publicKeyMultibase}`
-  kak.controller = kakDid
-  kak.id = `${kakDid}#${kak.publicKeyMultibase}`
-
-  const provider = createEdvEncryption({
-    resolveKeys: async () => ({
-      keyAgreementKey: kak as IKeyAgreementKey,
-      keyResolver: didKeyResolver
-    })
-  })
-  const signer = keyPair.didKeySigner()
-  return {
-    was: WasClient.fromSigner({
-      serverUrl: serverUrl!,
-      signer,
-      encryption: provider
-    }),
-    provider,
-    signer,
-    did,
-    kak: kak as IKeyAgreementKey,
-    recipient: { id: kak.id, publicKeyMultibase: kak.publicKeyMultibase }
-  }
-}
 
 describeLive('multi-recipient key epochs (live server)', () => {
   let owner: Party
@@ -197,10 +145,10 @@ describeLive('multi-recipient key epochs (live server)', () => {
   }
 
   beforeAll(async () => {
-    owner = await makeParty()
-    readerA = await makeParty()
-    readerB = await makeParty()
-    readerC = await makeParty()
+    owner = await makeParty({ serverUrl: serverUrl! })
+    readerA = await makeParty({ serverUrl: serverUrl! })
+    readerB = await makeParty({ serverUrl: serverUrl! })
+    readerC = await makeParty({ serverUrl: serverUrl! })
     ownerPlain = WasClient.fromSigner({
       serverUrl: serverUrl!,
       signer: owner.signer
@@ -350,8 +298,8 @@ describeLive('multi-recipient key epochs (live server)', () => {
   })
 
   it('two concurrent addRecipient calls both land (the CAS prevents a clobber)', async () => {
-    const newA = await makeParty()
-    const newB = await makeParty()
+    const newA = await makeParty({ serverUrl: serverUrl! })
+    const newB = await makeParty({ serverUrl: serverUrl! })
     // Two racing adds from two independent handles over the same collection.
     await Promise.all([
       addRecipient({

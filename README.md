@@ -511,6 +511,17 @@ const handle = bobWas.fromCapability(zcap) // a Resource here
 await handle.get() // succeeds; a write would be denied by the GET-only grant
 ```
 
+A resource-scoped grant does not cover the Collection Metadata object, so a
+client constructed with an `encryption` provider cannot discover whether the
+collection is encrypted and fails closed with `EncryptionError`. Pass the handle
+an explicit override, as you would to `collection.resource(id, options)`:
+`'plaintext'` for a plaintext collection, or the collection's `encryption`
+descriptor (shared out of band with the grant) for an encrypted one.
+
+```ts
+const handle = bobWas.fromCapability(zcap, { encryption: 'plaintext' })
+```
+
 Actions are HTTP verbs (`GET` / `PUT` / `POST` / `DELETE`). The WAS server
 authorizes on these case-sensitively (uppercase), but `grant()` also accepts the
 lowercase forms and normalizes them to uppercase in the signed zcap -- so

@@ -47,6 +47,7 @@ import { Space } from './Space.js'
 import { Collection } from './Collection.js'
 import { Resource } from './Resource.js'
 import type {
+  EncryptionOverride,
   GrantOptions,
   HandleOptions,
   IDelegatedZcap,
@@ -514,10 +515,26 @@ export class WasClient {
    * the depth implied by the capability's `invocationTarget` (space /
    * collection / resource), pre-bound with that capability.
    *
+   * A resource-scoped capability cannot read the Collection Metadata object, so
+   * an encryption-capable client cannot discover whether the collection is
+   * encrypted and fails closed on the first read or write. The `encryption`
+   * option is the way through: an explicit override skips that discovery
+   * (`'plaintext'`, or a descriptor plus keys the grantor handed over out of
+   * band). On a Resource or Collection handle it is the per-handle override of
+   * `collection.resource(id, options)`; on a Space handle it is the Space's
+   * default, inherited by every `collection()` child unless that call states
+   * its own.
+   *
    * @param zcap {IZcap}
+   * @param options {object}
+   * @param [options.encryption] {EncryptionOverride}   per-handle encryption
+   *   override for the returned handle (see `EncryptionOverride`)
    * @returns {Space | Collection | Resource}
    */
-  fromCapability(zcap: IZcap): Space | Collection | Resource {
+  fromCapability(
+    zcap: IZcap,
+    { encryption }: { encryption?: EncryptionOverride } = {}
+  ): Space | Collection | Resource {
     const target = zcap.invocationTarget
     try {
       new URL(target)
@@ -558,7 +575,8 @@ export class WasClient {
         spaceId: parsed.spaceId,
         collectionId: parsed.collectionId,
         resourceId: parsed.resourceId,
-        capability: zcap
+        capability: zcap,
+        encryption
       })
     }
     if (parsed.kind === 'collection') {
@@ -566,10 +584,16 @@ export class WasClient {
         context,
         spaceId: parsed.spaceId,
         collectionId: parsed.collectionId,
-        capability: zcap
+        capability: zcap,
+        encryption
       })
     }
-    return new Space({ context, spaceId: parsed.spaceId, capability: zcap })
+    return new Space({
+      context,
+      spaceId: parsed.spaceId,
+      capability: zcap,
+      encryption
+    })
   }
 
   /**

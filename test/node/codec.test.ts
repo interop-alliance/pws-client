@@ -18,9 +18,11 @@
 import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import { WasClient, EncryptionError } from '../../src/index.js'
+import { WasClient, EncryptionError, NotFoundError } from '../../src/index.js'
 import type {
   CollectionEncryption,
+  IZcap,
+  Resource,
   EncryptionProvider,
   ResourceCodec,
   EncodedWrite,
@@ -473,6 +475,79 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
       .put('r', { hello: 'world' })
     const write = calls.find(call => call.method === 'PUT')
     expect(write?.json).toEqual({ hello: 'world' })
+  })
+})
+
+describe('fromCapability forwards a per-handle encryption override', () => {
+  const scoped = {
+    '@context': 'https://w3id.org/zcap/v1',
+    id: 'urn:zcap:scoped',
+    invocationTarget: 'https://was.example/space/s/c/r'
+  } as unknown as IZcap
+  const encryption: EncryptionProvider = {
+    async codecFor() {
+      return fakeCodec([])
+    }
+  }
+
+  it('fails closed on a resource-scoped capability with no override', async () => {
+    // The capability does not cover the Collection Metadata object, so the
+    // client answers that GET locally (the stub would have served it) and
+    // cannot tell a plaintext collection from an encrypted one. The resource
+    // GET, which overlaps the codec resolution, is covered and goes out.
+    const { client, calls } = clientWithRouter({ encryption })
+    const handle = client.fromCapability(scoped) as Resource
+    await expect(handle.get()).rejects.toThrow(EncryptionError)
+    expect(calls.map(call => call.url)).toEqual([
+      'https://was.example/space/s/c/r'
+    ])
+  })
+
+  it('answers a request outside the capability target without sending it', async () => {
+    const { client, calls } = clientWithRouter({ readData: { ok: true } })
+    const collection = client.space('s').collection('c', { capability: scoped })
+    // A read outside the target is the server's masked 404: `null`.
+    expect(await collection.describe()).toBeNull()
+    // A write outside the target is the same refusal, typed.
+    await expect(
+      collection.resource('other').put({ hello: 'world' })
+    ).rejects.toThrow(NotFoundError)
+    expect(calls).toEqual([])
+    // The covered resource itself still goes out.
+    expect(await collection.resource('r').get()).toEqual({ ok: true })
+    expect(calls.map(call => call.url)).toEqual([
+      'https://was.example/space/s/c/r'
+    ])
+  })
+
+  it("reads and writes a plaintext collection with a 'plaintext' override", async () => {
+    const { client, calls } = clientWithRouter({ encryption })
+    const handle = client.fromCapability(scoped, {
+      encryption: 'plaintext'
+    }) as Resource
+    await handle.put({ hello: 'world' })
+    expect(calls.find(call => call.method === 'PUT')?.json).toEqual({
+      hello: 'world'
+    })
+  })
+
+  it('encrypts with a scheme override on a resource-scoped capability', async () => {
+    const log: string[] = []
+    const logging: EncryptionProvider = {
+      async codecFor() {
+        log.push('codecFor')
+        return fakeCodec(log)
+      }
+    }
+    const { client, calls } = clientWithRouter({ encryption: logging })
+    const handle = client.fromCapability(scoped, {
+      encryption: { scheme: 'edv' }
+    }) as Resource
+    await handle.put({ secret: 1 })
+    expect(log).toContain('codecFor')
+    expect(log).toContain('encode:r')
+    // The encrypting codec hands the write off as bytes, not as the JSON body.
+    expect(calls.find(call => call.method === 'PUT')?.json).toBeUndefined()
   })
 })
 
