@@ -278,7 +278,12 @@ describe('collection.meta() created stamp', () => {
 describe('collection.changes({ method: "GET" })', () => {
   const page = { documents: [], checkpoint: null }
   // allowedAction: ['GET']
-  const getOnlyCapability = registration.capability
+  // A GET and HEAD grant on the collection being read (the signer refuses a
+  // capability invoked outside its own target).
+  const getOnlyCapability = {
+    ...registration.capability,
+    invocationTarget: 'https://was.example/space/s/notes/'
+  }
 
   it('GETs the query endpoint with the parameters in the query string', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })

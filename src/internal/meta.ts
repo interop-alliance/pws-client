@@ -276,6 +276,9 @@ export async function patchCustom(
  * to you (WAS returns 404 for both not-found and unauthorized); `etag` is
  * absent against a backend that does not version the object.
  *
+ * Also `null` when the capability's invocation target does not contain the
+ * object (a resource-scoped grant, typically); see `send()`.
+ *
  * @param context {ClientContext}
  * @param options {object}
  * @param options.spaceId {string}

@@ -4,6 +4,11 @@
 
 ### Added
 
+- `WasClient.fromCapability(zcap, options)` takes the handle options the other
+  factories take and forwards `options.encryption` to the returned handle. A
+  capability-scoped handle on an encryption-capable client was unusable before,
+  since it could neither discover the collection's descriptor nor accept the
+  override the error advised.
 - `mapError` maps the server's `backend-immutable` problem type (a backend
   change on an existing Collection, 409) to `ConflictError`, with the other
   immutability refusals.
@@ -11,10 +16,21 @@
   under a GET and HEAD delegation (the derived `GET` form) and shows the same
   grant refused on the `POST` form.
 
+### Fixed
+
+- A signed request whose URL lies outside the attached capability's invocation
+  target (a Collection Metadata read under a resource-scoped grant, say) is now
+  answered by the client the way the server would answer it, with nothing sent:
+  `null` for a read, `NotFoundError` for a write. Before, the signer's local
+  refusal surfaced as a generic `WasError`. The check mirrors the signer's own
+  string rule (the target is a RESTful prefix of the URL, or equal to it), so
+  the two cannot disagree. Codec discovery under such a handle therefore fails
+  closed with the advisory `EncryptionError`.
+
 ### Changed
 
-- `@interop/storage-core` ^0.38.0: `Action` names `HEAD`, so `grant()` accepts
-  a GET and HEAD share grant without a cast.
+- `@interop/storage-core` ^0.38.0: `Action` names `HEAD`, so `grant()` accepts a
+  GET and HEAD share grant without a cast.
 - `UnknownEpochError` now extends `WasError` (so `mapError` passes it through
   unchanged), exposes `collectionId` and `kids` as own properties, accepts a
   `cause`, and is exported from the root entry beside `./edv` and `./sync`.

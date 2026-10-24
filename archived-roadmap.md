@@ -4051,19 +4051,20 @@ whole-codebase review, 2026-09-11.
   - was-client: `Collection.changes()` (`src/Collection.ts`) gains the GET form
     beside the POST-only one, invoked under the caller's zcap like any other
     read; the sync wire contract names it -- shipped in 0.93.2 (the derived
-    `GET` form, `method` override, ARCHITECTURE "Sync" text); this item adds
-    the integration test under a GET and HEAD delegation and names the share
-    grant in the `changes()` JSDoc and ARCHITECTURE.md
-  - storage-core: `Action` lacked `HEAD`, so `grant({ actions: ['GET', 'HEAD'] })`
-    did not typecheck; widened there (0.38.0, unpublished), WCL-136 drops the
-    test's cast once it is published and bumped here
-  - wallet-attached-storage-spec: WASS-51's GET form, cited; still `todo`
-    there, the profile text has yet to state the form
+    `GET` form, `method` override, ARCHITECTURE "Sync" text); this item adds the
+    integration test under a GET and HEAD delegation and names the share grant
+    in the `changes()` JSDoc and ARCHITECTURE.md
+  - storage-core: `Action` lacked `HEAD`, so
+    `grant({ actions: ['GET', 'HEAD'] })` did not typecheck; widened there
+    (0.38.0, unpublished), WCL-136 drops the test's cast once it is published
+    and bumped here
+  - wallet-attached-storage-spec: WASS-51's GET form, cited; still `todo` there,
+    the profile text has yet to state the form
   - freewallet: FW-478 depends on this item; the e2e agent double reads an
     audience through it (nothing to file: the caller is `Collection.changes()`
     under the agent's bound grant, no new API)
-  - was-react: the plaintext audience reader FW-478 adds calls it; cite
-    (nothing to file: same caller, no new API)
+  - was-react: the plaintext audience reader FW-478 adds calls it; cite (nothing
+    to file: same caller, no new API)
 - acceptance:
   - [x] A holder of a GET and HEAD grant on a collection can read its `changes`
         feed through `Collection.changes()` with no POST
@@ -4071,9 +4072,9 @@ whole-codebase review, 2026-09-11.
   - [x] An integration-tier test reads the feed under a GET/HEAD delegation and
         is refused under one carrying GET alone when the server requires HEAD,
         per WASS-51's text (the test shows the GET/HEAD grant refused on the
-        `POST` form instead: the server verifies the GET form under `GET`
-        alone and does not require `HEAD`, so the GET-alone refusal has no
-        server behaviour to test against)
+        `POST` form instead: the server verifies the GET form under `GET` alone
+        and does not require `HEAD`, so the GET-alone refusal has no server
+        behaviour to test against)
 
 Context: a subscription agent holds today's share grant shape, GET and HEAD on
 an audience collection's container, and reads new posts off the `changes` feed.
@@ -4095,7 +4096,42 @@ hand-rolling WAS requests, so the reader needs this caller from was-client.
   - [x] `test/integration/changes-feed.test.ts` passes `['GET', 'HEAD']` to
         `grant()` with no `ActionInput[]` cast
 
-Context: `storage-core`'s `Action` omitted `HEAD`, the read action a share
-grant carries beside `GET`, so minting a GET and HEAD grant through `grant()`
-did not typecheck. The type was widened in storage-core; until the published
-package carries it, the test casts.
+Context: `storage-core`'s `Action` omitted `HEAD`, the read action a share grant
+carries beside `GET`, so minting a GET and HEAD grant through `grant()` did not
+typecheck. The type was widened in storage-core; until the published package
+carries it, the test casts.
+
+### WCL-68: [M] A `fromCapability` Resource on an encryption-capable client is unusable
+
+- status: done (2026-10-23)
+- priority: medium
+- labels: api, encryption, ergonomics
+- touches:
+  - was-client: `WasClient.fromCapability` (`src/WasClient.ts:351`, `:387`) and
+    the `Resource` / `Collection` constructors it calls -- shipped (0.99.0)
+  - freewallet, wallet-core: `fromCapability` is a public method of a shared
+    `@interop/*` package, so the additive signature widening is named in the
+    CHANGELOG and checked against their call sites -- unaffected: freewallet
+    (every call site is the one-argument, collection-scoped form, which is
+    unchanged); unaffected: wallet-core (no call sites)
+- acceptance:
+  - [x] `fromCapability(zcap, options)` accepts `HandleOptions` and forwards
+        `options.encryption` to the constructed handle
+  - [x] A capability-scoped Resource on an encryption-capable client reads and
+        writes when given an explicit encryption override
+  - [x] A test asserts the same handle works on a plaintext collection, which
+        fails today for the same reason
+
+Execution-proven, and `fromCapability.length === 1` is the whole of it.
+`fromCapability` constructs the handle with no codec and no encryption option.
+The standalone branch builds a codec holder with no override, and `resolveCodec`
+then GETs the collection description under a resource-scoped capability. WAS
+masks that refusal as a 404, the description resolves to `null`, and the handle
+throws `EncryptionError` advising the caller to pass an explicit per-handle
+encryption override -- which the returned handle cannot accept. The failure also
+hits `get()` on a plaintext collection. A plaintext-only client is unaffected,
+since it short-circuits before the descriptor read. `HandleOptions` already
+exists and is already what `Collection.resource(id, options)` takes, so this is
+a one-line forward.
+
+discovered-from: whole-codebase review, 2026-09-11.
