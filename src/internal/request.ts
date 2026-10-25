@@ -11,6 +11,7 @@
  * server whose protocol version this client does not speak.
  */
 import type { ZcapClient } from '@interop/ezcap'
+import { isValidTarget } from '@interop/zcap'
 import type { HttpResponse } from '@interop/http-client'
 import { NotFoundError, WasError, mapError, httpStatus } from '../errors.js'
 import { toUrl } from './paths.js'
@@ -66,33 +67,6 @@ function resolveRequestUrl(context: ClientContext, input: SendInput): string {
     throw new TypeError('Either "path" or "url" is required.')
   }
   return toUrl({ baseUrl: context.baseUrl, path: input.path })
-}
-
-/**
- * The signer's own target rule, mirrored from `ZcapClient.request` as the same
- * plain string comparison (no URL parse): the invocation target is a RESTful
- * prefix of `url`, or equal to it.
- *
- * @param options {object}
- * @param options.url {string}
- * @param options.invocationTarget {string}
- * @returns {boolean}
- */
-function withinInvocationTarget({
-  url,
-  invocationTarget
-}: {
-  url: string
-  invocationTarget: string
-}): boolean {
-  const restfulPrefix = invocationTarget.endsWith('/')
-    ? invocationTarget
-    : `${invocationTarget}/`
-  return (
-    url.startsWith(restfulPrefix) ||
-    url.startsWith(`${invocationTarget}?`) ||
-    url === invocationTarget
-  )
 }
 
 /**
@@ -205,6 +179,8 @@ export async function unsignedRequest(input: {
  * against it (confused-deputy protection), and the server would mask the
  * unauthorized request as a 404 anyway. So it takes the 404 translations:
  * `null` for a `read` or an `idempotent` delete, `NotFoundError` otherwise.
+ * The check is `isValidTarget` from `@interop/zcap`, the rule the server's
+ * verifier applies, so the two cannot disagree.
  *
  * @param context {ClientContext}
  * @param input {SendInput}
@@ -217,7 +193,13 @@ export async function send(
   const invocationTarget = input.capability?.invocationTarget
   if (invocationTarget !== undefined) {
     const url = resolveRequestUrl(context, input)
-    if (!withinInvocationTarget({ url, invocationTarget })) {
+    if (
+      !isValidTarget({
+        invocationTarget: url,
+        baseInvocationTarget: invocationTarget,
+        allowTargetAttenuation: true
+      })
+    ) {
       if (input.read || input.idempotent) {
         return null
       }

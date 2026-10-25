@@ -22,13 +22,14 @@
   target (a Collection Metadata read under a resource-scoped grant, say) is now
   answered by the client the way the server would answer it, with nothing sent:
   `null` for a read, `NotFoundError` for a write. Before, the signer's local
-  refusal surfaced as a generic `WasError`. The check mirrors the signer's own
-  string rule (the target is a RESTful prefix of the URL, or equal to it), so
-  the two cannot disagree. Codec discovery under such a handle therefore fails
-  closed with the advisory `EncryptionError`.
+  refusal surfaced as a generic `WasError`. The check is `isValidTarget` from
+  `@interop/zcap`, the rule the server's verifier applies, so the two cannot
+  disagree. Codec discovery under such a handle therefore fails closed with the
+  advisory `EncryptionError`.
 
 ### Changed
 
+- `@interop/zcap` 11.4.0, for the exported `isValidTarget`.
 - `@interop/storage-core` ^0.38.0: `Action` names `HEAD`, so `grant()` accepts a
   GET and HEAD share grant without a cast.
 - `UnknownEpochError` now extends `WasError` (so `mapError` passes it through

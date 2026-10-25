@@ -252,11 +252,11 @@ attached capability's `invocationTarget`. The signer would refuse to invoke the
 capability there (confused-deputy protection), and the server would mask the
 unauthorized request as a 404, so the request takes the 404 translations
 locally: `null` for a `read` or `idempotent` request, `NotFoundError` otherwise.
-The check is the signer's own string rule (the target is a RESTful prefix of the
-URL, or equal to it), not a URL parse, so the two cannot disagree on host case
-or a default port. This is what makes codec discovery under a resource-scoped
-capability fail closed with `EncryptionError` instead of a generic transport
-error.
+The check is `isValidTarget` from `@interop/zcap`, the rule the server's
+verifier applies (the target is a RESTful prefix of the URL, or equal to it, as
+a plain string comparison), so the two cannot disagree on host case or a default
+port. This is what makes codec discovery under a resource-scoped capability fail
+closed with `EncryptionError` instead of a generic transport error.
 
 Failure classes:
 
