@@ -14,7 +14,12 @@ import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
 
-import { WasClient, NotFoundError, ValidationError } from '../../src/index.js'
+import {
+  WasClient,
+  NotFoundError,
+  PreconditionFailedError,
+  ValidationError
+} from '../../src/index.js'
 import type {
   CollectionMetadata,
   EncryptionProvider,
@@ -163,6 +168,100 @@ describe('the merge runs against the version the write pins to', () => {
     await collection.configure({ name: 'Renamed', force: true })
     expect(calls.map(call => call.method)).toEqual(['GET', 'PUT'])
     expect(calls[1]?.headers?.['if-match']).toBe('"1"')
+  })
+})
+
+describe('configure() beside a concurrent recipient grant', () => {
+  const wrap = (kid: string) => ({
+    header: { kid, alg: 'ECDH-ES+A256KW' },
+    encrypted_key: `wrapped-for-${kid}`
+  })
+  const rosterOf = (...kids: string[]) => ({
+    scheme: 'edv',
+    version: 1,
+    currentEpoch: 'e1',
+    epochs: [{ id: 'e1', recipients: kids.map(wrap) }]
+  })
+
+  it('carries a reader escrowed by a racing addRecipient forward on the rebase', async () => {
+    // Client A renames while client B escrows a new reader into the current
+    // epoch (the one descriptor change the server permits inside an existing
+    // epoch). A's merge carries `encryption` forward whole from the version it
+    // read, so its first attempt would drop B's wrapped key; pinned to that
+    // version it loses, and the rebase re-reads the roster B wrote.
+    let version = 1
+    const { client, calls } = clientWith(args => {
+      if (args.method === 'GET') {
+        return version === 1
+          ? served(
+              { id: 'c', type: ['Collection'], encryption: rosterOf('alice') },
+              '"1"'
+            )
+          : served(
+              {
+                id: 'c',
+                type: ['Collection'],
+                encryption: rosterOf('alice', 'bob')
+              },
+              '"2"'
+            )
+      }
+      if (version === 1) {
+        version = 2
+        failWith(412)
+      }
+      return jsonResponse({ status: 204, headers: { etag: '"3"' } })
+    })
+    const result = await client
+      .space('s')
+      .collection('c')
+      .configure({ name: 'Renamed' })
+    const writes = calls.filter(call => call.method === 'PUT')
+    expect(writes).toHaveLength(2)
+    expect(writes[0]?.json).toMatchObject({ encryption: rosterOf('alice') })
+    expect(writes[1]?.headers?.['if-match']).toBe('"2"')
+    expect(writes[1]?.json).toMatchObject({
+      name: 'Renamed',
+      encryption: rosterOf('alice', 'bob')
+    })
+    expect(result.description.encryption).toEqual(rosterOf('alice', 'bob'))
+  })
+
+  it("surfaces the lost race as PreconditionFailedError under the caller's ifMatch", async () => {
+    // A caller holding its own validator asked to decide the rebase itself:
+    // one attempt, pinned to that validator, and the 412 is its to see.
+    const { client, calls } = clientWith(args =>
+      args.method === 'GET'
+        ? served(
+            { id: 'c', type: ['Collection'], encryption: rosterOf('alice') },
+            '"2"'
+          )
+        : failWith(412)
+    )
+    await expect(
+      client
+        .space('s')
+        .collection('c')
+        .configure({ name: 'Renamed', ifMatch: '"1"' })
+    ).rejects.toBeInstanceOf(PreconditionFailedError)
+    const writes = calls.filter(call => call.method === 'PUT')
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.headers?.['if-match']).toBe('"1"')
+  })
+
+  it('refuses a pinned configure when the object is gone, force or not', async () => {
+    // A write pinned to a validator is to an object the caller has read, so an
+    // unreadable one is a lost Collection, not the upsert `force` unlocks.
+    const { client, calls } = clientWith(args =>
+      args.method === 'GET' ? failWith(404) : jsonResponse({ status: 204 })
+    )
+    await expect(
+      client
+        .space('s')
+        .collection('c')
+        .configure({ name: 'Renamed', force: true, ifMatch: '"1"' })
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(0)
   })
 })
 

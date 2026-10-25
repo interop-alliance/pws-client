@@ -36,8 +36,6 @@ Ready:
   first declaration is lost
 - WCL-53 [M] `#buildQuery` silently drops query terms a caller named
 - WCL-54 [M] A content-addressed collection accepts an in-place `put()` update
-- WCL-63 [M] `Collection.configure()` is an unguarded read-modify-write that
-  reverts a concurrent recipient grant
 - WCL-64 [M] `Collection.setMeta()` silently destroys the persisted index schema
 - WCL-65 [M] A codec resolved without read access to the Collection `/meta`
   silently writes un-indexed documents
@@ -547,42 +545,6 @@ of re-deriving. `src/sync/types.ts:196-200` documents the opposite contract: a
 content-addressed cipher either omits `encryptUpdate` or throws.
 
 discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-63: [M] `Collection.configure()` is an unguarded read-modify-write that reverts a concurrent recipient grant
-
-- status: todo
-- priority: medium
-- labels: conditional-writes, encryption, correctness, api
-- touches:
-  - was-client: `Collection.configure` (`src/Collection.ts:269-323`) gains a
-    precondition, so a racing caller now sees a `PreconditionFailedError` where
-    the write used to succeed
-  - freewallet, wallet-core, was-react: each calls `Collection.configure`, and a
-    rebase-on-412 contract is what they inherit
-- acceptance:
-  - [ ] `configure()` reads through `describeWithEtag()` and sends the merged
-        description under that validator, driven by `compareAndSwap` so a 412
-        rebases instead of surfacing
-  - [ ] A `configure()` racing an `addRecipient` on the same collection either
-        keeps the added recipient or fails loudly; it never drops the wrapped
-        key
-  - [ ] The option bag accepts an explicit `ifMatch` for callers that already
-        hold a validator
-
-`configure` merges `encryption` forward wholesale, and
-`collectionWritableFields` passes the whole object -- `epochs` with their
-`recipients`, and `hmac.recipients` -- into a PUT that calls no `writeHeaders`
-at all. `replaceDescription` on the same class right above it does. The server
-permits exactly that mutation (recipients within an existing epoch MAY change),
-and `addRecipient` edits recipients inside the current epoch, so a stale merge
-deletes a just-added reader's wrapped key with no error to anyone. The dangerous
-direction is one-way: `removeRecipient` rotates to a new epoch, and the
-append-only rule turns a racing `configure` into a loud 400 there. A
-log-governed collection is safe, since a direct `encryption` write is refused.
-PARTIAL: WCL-41 re-expresses `configure` and `patchCustom` against the single
-validator, which closes this as a side effect, but only after v0.5 lands and
-only while that item stays blocked on the server. discovered-from:
-whole-codebase review, 2026-09-11.
 
 ### WCL-64: [M] `Collection.setMeta()` silently destroys the persisted index schema
 
