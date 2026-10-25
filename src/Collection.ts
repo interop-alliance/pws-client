@@ -594,7 +594,12 @@ export class Collection {
    *
    * The merge runs against the same read the write is pinned to, and rebases
    * with it: a rival configuration change landing in between is re-read and
-   * merged over rather than re-applied stale.
+   * merged over rather than re-applied stale. That covers the `encryption`
+   * descriptor too, which the merge carries forward whole: a reader escrowed
+   * into the current epoch by a concurrent `addRecipient` is re-read on the
+   * rebase, so this write never sends the roster without that reader's
+   * wrapped key. Pass `ifMatch` to pin the write to a validator of your own
+   * instead, and see a lost race as `PreconditionFailedError`.
    *
    * The merge needs a readable current object to be lost-update-safe, and the
    * read cannot distinguish "absent" from "unreadable" (WAS masks unauthorized
@@ -625,17 +630,23 @@ export class Collection {
    *   rather than merged forward. `null` means the caller read it and found
    *   the collection absent or unreadable; omitting the member entirely is
    *   what asks for the read
+   * @param [desc.ifMatch] {string}   the caller's own validator (the `etag`
+   *   from {@link describeWithEtag}): the merge then runs once against the
+   *   version it names and a lost race surfaces as `PreconditionFailedError`
+   *   instead of being rebased, for a caller whose decision to write depends
+   *   on what it read. A pinned write is to an object the caller has read, so
+   *   an unreadable one is `NotFoundError`, not a create
    * @returns {Promise<{ description: CollectionMetadata; etag?: string }>}
    *   the `description` as merged and written by the last attempt, together
-   *   with that write's `etag` -- the validator to pass to
-   *   {@link replaceDescription}'s `ifMatch` for a follow-on
-   *   compare-and-swap. `etag` is absent only where the header did not reach
-   *   the client
+   *   with that write's `etag` -- the validator to pass to a follow-on
+   *   `ifMatch` for a compare-and-swap. `etag` is absent only where the header
+   *   did not reach the client
    */
   async configure(
     desc: CollectionWritableFields & {
       force?: boolean
       current?: (CollectionMetadata & { etag?: string }) | null
+      ifMatch?: string
     }
   ): Promise<{ description: CollectionMetadata; etag?: string }> {
     // What the last compose attempt merged, for the echoed return below (the
@@ -659,8 +670,11 @@ export class Collection {
             }
           : undefined,
       // The merge is the upsert: with nothing stored there is nothing to merge
-      // forward, and the guard below decides whether that is safe.
-      allowAbsent: true,
+      // forward, and the guard below decides whether that is safe. A write
+      // pinned to the caller's validator is to an object it has read, so for
+      // it an unreadable object is a lost Collection rather than a create.
+      allowAbsent: desc.ifMatch === undefined,
+      ifMatch: desc.ifMatch,
       compose: stored => {
         const current = stored === null ? null : asCollectionMetadata(stored)
         // Each protected field is checked on its own terms. Supplying one does

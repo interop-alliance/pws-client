@@ -4,6 +4,13 @@
 
 ### Added
 
+- `Collection.configure()` accepts `ifMatch`, the validator from
+  `describeWithEtag()`, for a caller that wants to see a lost race as
+  `PreconditionFailedError` rather than have the merge rebased. A pinned
+  `configure` on an unreadable Collection is `NotFoundError`, not a create. A
+  unit test shows the unconditional form carrying a reader a concurrent
+  `addRecipient` escrowed forward on the rebase, instead of dropping the
+  wrapped key.
 - `WasClient.fromCapability(zcap, options)` takes the handle options the other
   factories take and forwards `options.encryption` to the returned handle. A
   capability-scoped handle on an encryption-capable client was unusable before,

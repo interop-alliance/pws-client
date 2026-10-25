@@ -4135,3 +4135,43 @@ exists and is already what `Collection.resource(id, options)` takes, so this is
 a one-line forward.
 
 discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-63: [M] `Collection.configure()` is an unguarded read-modify-write that reverts a concurrent recipient grant
+
+- status: done (2026-10-24)
+- priority: medium
+- labels: conditional-writes, encryption, correctness, api
+- touches:
+  - was-client: `Collection.configure` (`src/Collection.ts:269-323`) gains a
+    precondition, so a racing caller now sees a `PreconditionFailedError` where
+    the write used to succeed -- shipped: the unconditional form pins to the
+    read it merges against and rebases a 412 (landed with WCL-41's shared
+    compose path); the explicit `ifMatch` form surfaces it
+  - freewallet, wallet-core, was-react: each calls `Collection.configure`, and a
+    rebase-on-412 contract is what they inherit -- unaffected: the
+    unconditional call they make keeps succeeding (the rebase is internal);
+    only a caller opting into `ifMatch` sees a 412
+- acceptance:
+  - [x] `configure()` reads through `describeWithEtag()` and sends the merged
+        description under that validator, driven by `compareAndSwap` so a 412
+        rebases instead of surfacing
+  - [x] A `configure()` racing an `addRecipient` on the same collection either
+        keeps the added recipient or fails loudly; it never drops the wrapped
+        key
+  - [x] The option bag accepts an explicit `ifMatch` for callers that already
+        hold a validator
+
+`configure` merges `encryption` forward wholesale, and
+`collectionWritableFields` passes the whole object -- `epochs` with their
+`recipients`, and `hmac.recipients` -- into a PUT that calls no `writeHeaders`
+at all. `replaceDescription` on the same class right above it does. The server
+permits exactly that mutation (recipients within an existing epoch MAY change),
+and `addRecipient` edits recipients inside the current epoch, so a stale merge
+deletes a just-added reader's wrapped key with no error to anyone. The dangerous
+direction is one-way: `removeRecipient` rotates to a new epoch, and the
+append-only rule turns a racing `configure` into a loud 400 there. A
+log-governed collection is safe, since a direct `encryption` write is refused.
+PARTIAL: WCL-41 re-expresses `configure` and `patchCustom` against the single
+validator, which closes this as a side effect, but only after v0.5 lands and
+only while that item stays blocked on the server. discovered-from:
+whole-codebase review, 2026-09-11.
