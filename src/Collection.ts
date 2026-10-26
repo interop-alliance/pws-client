@@ -40,9 +40,10 @@ import { send, readData } from './internal/request.js'
 import {
   codecForDescriptor,
   collectionCodecHolder,
-  identityCodec
+  identityCodec,
+  openStoredCustom
 } from './internal/codec.js'
-import type { CodecHolder } from './internal/codec.js'
+import type { CodecHolder, ReadBaseline } from './internal/codec.js'
 import {
   collectWalk,
   signedPageWalk,
@@ -93,7 +94,8 @@ import {
   INDEX_SCHEMA_PROPERTY,
   mergeIndexDeclarations,
   normalizeIndexRequests,
-  readIndexSchema
+  readIndexSchema,
+  withStoredIndexSchema
 } from './internal/indexSchema.js'
 import type { CustomWithIndexSchema } from './internal/indexSchema.js'
 import type {
@@ -129,6 +131,7 @@ import type {
   LinkSet,
   PolicyDocument,
   CollectionResourcesList,
+  ResourceMetadataCustom,
   ResourceMetadataCustomInput,
   ResourceSummary
 } from './types.js'
@@ -383,6 +386,25 @@ export class Collection {
   }
 
   /**
+   * Resolves this handle's codec and takes the metadata snapshot the
+   * resolution read, when this call is the one that started it (see
+   * `CodecHolder.resolve`). The read behind the snapshot is kept as the next
+   * write's baseline, as a `GET` of the object would be.
+   *
+   * @returns {Promise<{ codec: ResourceCodec; meta?: (CollectionMetadata & { etag?: string }) | null }>}
+   */
+  async #resolveSnapshot(): Promise<{
+    codec: ResourceCodec
+    meta?: (CollectionMetadata & { etag?: string }) | null
+  }> {
+    const { codec, meta, baseline } = await this.#codecHolder.resolve()
+    if (baseline !== undefined) {
+      this.#remember(baseline)
+    }
+    return meta !== undefined ? { codec, meta } : { codec }
+  }
+
+  /**
    * Reads the stored Collection Metadata object with its validator, in the wire
    * form the server served it -- `custom` undecoded. The one read behind
    * {@link describe} and behind every write's compose step.
@@ -409,22 +431,23 @@ export class Collection {
    * validator is kept: the write is pinned to that validator, so a baseline
    * another client has since overwritten loses the compare-and-swap and is
    * re-read, while a backend serving no validator has nothing to lose the race
-   * on and always reads fresh.
+   * on and always reads fresh. A read that also decoded the object's `custom`
+   * (a `meta()`) keeps the opened value beside it, so the write does not open
+   * the same envelope again.
    */
-  #recentRead?: { metadata: StoredCollectionMetadata; etag: string }
+  #recentRead?: ReadBaseline & { etag: string }
 
   /**
    * Records a read as the next write's baseline (see {@link #recentRead}).
    *
-   * @param read {object | null}   the stored object and its validator
+   * @param read {object | null}   the stored object and its validator, with
+   *   its `custom` as opened through the codec when the read decoded it
    * @returns {void}
    */
-  #remember(
-    read: { metadata: StoredCollectionMetadata; etag?: string } | null
-  ): void {
+  #remember(read: ReadBaseline | null): void {
     this.#recentRead =
       read !== null && read.etag !== undefined
-        ? { metadata: read.metadata, etag: read.etag }
+        ? { ...read, etag: read.etag }
         : undefined
   }
 
@@ -436,11 +459,11 @@ export class Collection {
    * rather than merely rebasable.
    *
    * @param [ifMatch] {string}   the caller's precondition, when it named one
-   * @returns {{ metadata: StoredCollectionMetadata; etag: string } | undefined}
+   * @returns {object | undefined}   the remembered read
    */
   #takeRecentRead(
     ifMatch?: string
-  ): { metadata: StoredCollectionMetadata; etag: string } | undefined {
+  ): (ReadBaseline & { etag: string }) | undefined {
     const recent = this.#recentRead
     this.#recentRead = undefined
     if (recent === undefined) {
@@ -483,7 +506,8 @@ export class Collection {
    *
    * @param options {object}
    * @param options.compose {function}   the stored object (`null` when there is
-   *   none) to the write body, minus `id`
+   *   none) to the write body, minus `id`; also handed the stored `custom` as
+   *   opened through the codec, when the baseline is a read that opened it
    * @param options.operation {string}   what the caller is doing, for the
    *   compare-and-swap exhaustion error
    * @param [options.current] {object}   an object the caller has already read,
@@ -507,7 +531,8 @@ export class Collection {
     ifNoneMatch
   }: {
     compose: (
-      stored: StoredCollectionMetadata | null
+      stored: StoredCollectionMetadata | null,
+      opened?: ResourceMetadataCustom
     ) => StoredCollectionMetadata | Promise<StoredCollectionMetadata>
     operation: string
     current?: { metadata: StoredCollectionMetadata; etag?: string } | null
@@ -541,19 +566,21 @@ export class Collection {
       return put(await compose(null), { ifNoneMatch: true })
     }
     // A fresh baseline: this handle's most recent read, then a `GET`. The
-    // recent read is consumed once, so a rebase always issues the `GET`.
+    // recent read is consumed once, so a rebase always issues the `GET`. The
+    // baseline is the whole read, so the opened `custom` a remembered read
+    // carries reaches `compose` with the object it was opened from.
     const read = async (): Promise<{
-      value: StoredCollectionMetadata | null
+      value: ReadBaseline | null
       etag?: string
     }> => {
       const recent = this.#takeRecentRead(ifMatch)
       if (recent !== undefined) {
-        return { value: recent.metadata, etag: recent.etag }
+        return { value: recent, etag: recent.etag }
       }
       const stored = await this.#readStored()
       this.#recentRead = undefined
       if (stored !== null) {
-        return { value: stored.metadata, etag: stored.etag }
+        return { value: stored, etag: stored.etag }
       }
       if (allowAbsent !== true) {
         throw new NotFoundError(
@@ -569,17 +596,21 @@ export class Collection {
     }
     // The caller's own read, when it supplied one, is the first baseline.
     const seed =
-      current != null
-        ? { value: current.metadata, etag: current.etag }
-        : undefined
+      current != null ? { value: current, etag: current.etag } : undefined
+    const composeFrom = (
+      baseline: ReadBaseline | null
+    ): StoredCollectionMetadata | Promise<StoredCollectionMetadata> =>
+      baseline === null
+        ? compose(null)
+        : compose(baseline.metadata, baseline.opened)
     if (ifMatch !== undefined) {
       const attempt = seed ?? (await read())
-      return put(await compose(attempt.value), { ifMatch })
+      return put(await composeFrom(attempt.value), { ifMatch })
     }
     return composeAndSwap({
       read,
       ...(seed !== undefined && { current: seed }),
-      compose,
+      compose: composeFrom,
       write: put,
       operation
     })
@@ -880,9 +911,14 @@ export class Collection {
       if (from === null || to === null) {
         return {}
       }
-      const slot = { kind: 'collection' } as const
-      const opened = await from.decodeMeta({ custom: stored.custom }, slot)
-      const { custom, epoch } = await to.encodeMeta({ custom: opened, slot })
+      const opened = await openStoredCustom({ codec: from, stored })
+      if (opened === null) {
+        return {}
+      }
+      const { custom, epoch } = await to.encodeMeta({
+        custom: opened,
+        slot: { kind: 'collection' }
+      })
       return { custom, ...(epoch !== undefined && { epoch }) }
     } catch {
       return {}
@@ -955,10 +991,11 @@ export class Collection {
     // Resolving the codec on a blinded-index collection reads `meta` itself
     // (for the index schema). When this call is the one that started that
     // resolution, its snapshot is this read's answer -- take it rather than
-    // GETting and decrypting the same document twice. Every other caller gets
-    // no snapshot and reads for itself, so a `meta()` never serves a
-    // point-in-time copy another client may have overwritten since.
-    const { codec, meta } = await this.#codecHolder.resolve()
+    // GETting and decrypting the same document twice, and keep the read behind
+    // it as the next write's baseline, as the `GET` below would be kept. Every
+    // other caller gets no snapshot and reads for itself, so a `meta()` never
+    // serves a point-in-time copy another client may have overwritten since.
+    const { codec, meta } = await this.#resolveSnapshot()
     if (meta !== undefined) {
       return meta
     }
@@ -979,11 +1016,26 @@ export class Collection {
 
   /**
    * Replaces the Collection's user-writable annotations (`custom`). This is a
-   * full replacement of `custom`: any property omitted from it is cleared, and
-   * an omitted `custom` clears them all. The Collection's configuration
-   * members are carried forward -- the same `PUT` replaces the whole
-   * Collection Metadata object, so they are read and re-sent rather than
-   * dropped.
+   * full replacement of `custom`: any annotation omitted from it is cleared,
+   * and an omitted `custom` clears every annotation. The Collection's
+   * configuration members are carried forward -- the same `PUT` replaces the
+   * whole Collection Metadata object, so they are read and re-sent rather
+   * than dropped.
+   *
+   * One member of `custom` is carried forward the same way, and is the one
+   * exception to the full replacement: the persisted `indexSchema` that
+   * {@link declareIndex} stores there. It is collection state this library
+   * owns, not an annotation the caller is replacing, so a `custom` with no
+   * `indexSchema` member of its own (and an omitted `custom`) keeps the stored
+   * one. A `custom` that names `indexSchema` is sent as given, and installs
+   * what it names on this handle's codec, as {@link declareIndex} does. That
+   * is also how the stored schema is dropped: a `custom` carrying
+   * `indexSchema: undefined` names the member, so nothing is carried forward,
+   * and the undefined member is omitted from the serialized write. Carrying
+   * the schema forward opens the stored `custom` through the codec (reusing
+   * the open a preceding {@link meta} read performed). A stored `custom` this
+   * client cannot open carries nothing, so the write still replaces it as
+   * given.
    *
    * On an encrypted collection `custom` is encrypted into an opaque envelope by
    * the codec before it is sent, so `name` / `tags` are never stored as
@@ -1009,7 +1061,8 @@ export class Collection {
    * @param meta {object}
    * @param [meta.custom] {ResourceMetadataCustomInput}   the user-writable
    *   properties; extra members beyond `name` / `tags` are admitted (this
-   *   Collection-level `custom` also carries the persisted `indexSchema`)
+   *   Collection-level `custom` also carries the persisted `indexSchema`,
+   *   which is carried forward from the stored object when omitted here)
    *   while `name` / `tags` themselves stay checked at their stored types
    * @param options {object}
    * @param [options.ifMatch] {string}       update only if the `ETag` matches
@@ -1022,21 +1075,33 @@ export class Collection {
     options: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
     const codec = await this.#codecForWrite(options.ifNoneMatch === true)
-    const { custom, epoch } = await codec.encodeMeta({
-      custom: meta.custom ?? {},
-      slot: { kind: 'collection' }
-    })
+    const slot = { kind: 'collection' } as const
+    // The `custom` the winning attempt sent, schema member included: the
+    // handle's codec is brought to the schema it holds once the write lands,
+    // so this handle blinds and gates under what it just wrote.
+    let sent: ResourceMetadataCustomInput = meta.custom ?? {}
     const { etag } = await this.#writeStored({
       // The configuration members come from the stored object and the
-      // annotations from this call. The epoch stamp describes the `custom`
-      // envelope itself, so it is re-stated with it; the server clears the
-      // stored stamp when the member is omitted, which is exactly right on a
-      // plaintext collection, whose codec surfaces no epoch.
-      compose: stored => ({
-        ...carriedForward(stored ?? {}, { replacing: ANNOTATION_MEMBERS }),
-        custom,
-        ...(epoch !== undefined && { epoch })
-      }),
+      // annotations from this call, except the index schema, which the
+      // annotations keep unless they state their own. The epoch stamp
+      // describes the `custom` envelope itself, so it is re-stated with it;
+      // the server clears the stored stamp when the member is omitted, which
+      // is exactly right on a plaintext collection, whose codec surfaces no
+      // epoch.
+      compose: async (stored, opened) => {
+        sent = await withStoredIndexSchema({
+          custom: meta.custom ?? {},
+          stored: async () =>
+            opened ??
+            (stored === null ? null : await openStoredCustom({ codec, stored }))
+        })
+        const { custom, epoch } = await codec.encodeMeta({ custom: sent, slot })
+        return {
+          ...carriedForward(stored ?? {}, { replacing: ANNOTATION_MEMBERS }),
+          custom,
+          ...(epoch !== undefined && { epoch })
+        }
+      },
       operation: 'Collection metadata update',
       // The create states its own absence; every other annotation write is
       // about a Collection that exists, and an unreadable one is refused
@@ -1045,6 +1110,7 @@ export class Collection {
       ifMatch: options.ifMatch,
       ifNoneMatch: options.ifNoneMatch
     })
+    codec.indexing?.applySchema(readIndexSchema(sent))
     return { etag }
   }
 
@@ -1252,7 +1318,7 @@ export class Collection {
     indexing: CodecIndexing
     meta?: (CollectionMetadata & { etag?: string }) | null
   }> {
-    const { codec, meta } = await this.#codecHolder.resolve()
+    const { codec, meta } = await this.#resolveSnapshot()
     if (!codec.indexing) {
       throw new ValidationError(
         `Cannot ${operation} on collection "${this.id}": it carries no ` +

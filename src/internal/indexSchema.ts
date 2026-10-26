@@ -16,6 +16,7 @@
  */
 import type { IndexDeclaration, IndexSchema } from '../codec.js'
 import { ValidationError } from '../errors.js'
+import type { ResourceMetadataCustomInput } from '../types.js'
 
 /**
  * The property the schema is stored under inside the collection's metadata
@@ -257,5 +258,56 @@ export function assertQueryAttributes({
           'the declaration are not indexed until they are rewritten.'
       )
     }
+  }
+}
+
+/**
+ * The `custom` a full-replacement Collection annotation write sends: the
+ * caller's `custom`, plus the stored schema when the caller's names none of
+ * its own. The schema is collection state this module owns rather than an
+ * annotation the caller is replacing, so a write about `name` / `tags` must
+ * not clear it on the way through. A `custom` that names the `indexSchema`
+ * member (a `declareIndex` write, the read-merge-write sugar, or a caller
+ * clearing the schema with `indexSchema: undefined`) is returned as given.
+ *
+ * The stored `custom` is opened only when there is something to carry, which
+ * is what the `stored` thunk is for: on an encrypted collection the open is a
+ * decrypt, and the caller usually holds the opened value from the `meta()`
+ * read the write composes against. An opened value that is not an object (a
+ * stored `custom` this client cannot open, or a foreign writer's scalar)
+ * carries nothing: the write goes out as given, which keeps `setMeta` the way
+ * to replace such a value. The same policy the configuration write applies
+ * when it cannot re-seal the stored `custom`.
+ *
+ * @param options {object}
+ * @param options.custom {ResourceMetadataCustomInput}   the write's `custom`
+ * @param options.stored {function}   resolves the stored `custom` opened
+ *   through the codec, or `undefined` when there is none or it cannot be
+ *   opened here
+ * @returns {Promise<ResourceMetadataCustomInput>}
+ */
+export async function withStoredIndexSchema({
+  custom,
+  stored
+}: {
+  custom: ResourceMetadataCustomInput
+  stored: () => Promise<unknown>
+}): Promise<ResourceMetadataCustomInput> {
+  if (INDEX_SCHEMA_PROPERTY in custom) {
+    return custom
+  }
+  const opened = await stored()
+  if (
+    opened === null ||
+    typeof opened !== 'object' ||
+    !(INDEX_SCHEMA_PROPERTY in opened)
+  ) {
+    return custom
+  }
+  return {
+    ...custom,
+    [INDEX_SCHEMA_PROPERTY]: (opened as CustomWithIndexSchema)[
+      INDEX_SCHEMA_PROPERTY
+    ]
   }
 }

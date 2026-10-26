@@ -693,6 +693,25 @@ describe('a custom this reader cannot open', () => {
   })
 })
 
+describe('a stored custom that is not an object', () => {
+  it('is replaced as given rather than crashing the schema carry-over', async () => {
+    // A foreign writer's scalar on a plaintext collection: the identity codec
+    // hands it back verbatim, and there is no schema member to look for in it.
+    const { client, calls } = clientWith(args =>
+      args.method === 'GET'
+        ? served({ id: 'c', type: ['Collection'], custom: 'abc' }, '"1"')
+        : jsonResponse({ status: 204, headers: { etag: '"2"' } })
+    )
+    const { etag } = await client
+      .space('s')
+      .collection('c')
+      .setMeta({ custom: { name: 'Docs' } })
+    expect(etag).toBe('"2"')
+    const write = calls.find(call => call.method === 'PUT')
+    expect(write?.json).toEqual({ id: 'c', custom: { name: 'Docs' } })
+  })
+})
+
 describe("Collection.configure() answers with the write's etag", () => {
   it('reports the validator an update answered with', async () => {
     const { client } = clientWith(args =>

@@ -4148,9 +4148,9 @@ discovered-from: whole-codebase review, 2026-09-11.
     read it merges against and rebases a 412 (landed with WCL-41's shared
     compose path); the explicit `ifMatch` form surfaces it
   - freewallet, wallet-core, was-react: each calls `Collection.configure`, and a
-    rebase-on-412 contract is what they inherit -- unaffected: the
-    unconditional call they make keeps succeeding (the rebase is internal);
-    only a caller opting into `ifMatch` sees a 412
+    rebase-on-412 contract is what they inherit -- unaffected: the unconditional
+    call they make keeps succeeding (the rebase is internal); only a caller
+    opting into `ifMatch` sees a 412
 - acceptance:
   - [x] `configure()` reads through `describeWithEtag()` and sends the merged
         description under that validator, driven by `compareAndSwap` so a 412
@@ -4175,3 +4175,35 @@ PARTIAL: WCL-41 re-expresses `configure` and `patchCustom` against the single
 validator, which closes this as a side effect, but only after v0.5 lands and
 only while that item stays blocked on the server. discovered-from:
 whole-codebase review, 2026-09-11.
+
+### WCL-64: [M] `Collection.setMeta()` silently destroys the persisted index schema
+
+- status: done (2026-10-24)
+- priority: medium
+- labels: encryption, search, api, correctness
+- touches:
+  - was-client: `Collection.setMeta` (`src/Collection.ts:511-527`) and
+    `writeMeta` (`src/internal/meta.ts:120-161`)
+  - freewallet, was-react: unaffected (both write Collection metadata; the
+    carry-forward is implicit, so a full-replacement write of `name` / `tags`
+    now keeps the schema with no change on their side)
+- acceptance:
+  - [x] `setMeta({ custom })` on a collection with a declared schema either
+        preserves the stored `indexSchema` or refuses the write; the chosen
+        policy is stated in the method's JSDoc (preserve-unless-supplied)
+  - [x] A regression test declares an index, calls `setMeta`, and asserts a
+        fresh handle still reads the declared indexes
+
+Execution-proven. `setMeta` is a full replacement of `custom`, and the schema
+lives inside `custom` under `indexSchema`. Neither `setMeta` nor `writeMeta`
+carries it forward, while `patchCustom` does -- which is why `setName` and
+`setTags` are safe. A scratch run declares `content.type`, calls
+`setMeta({ custom: { name: 'Docs' } })`, and a fresh handle then reads no
+indexes while the stored documents still carry their blinded tokens. The
+`@param` note says this `custom` also carries the persisted schema, but nothing
+warns that omitting it deletes it. Preserve-unless-supplied and refuse-the-drop
+are both defensible, so the policy is a maintainer decision. WCL-41 makes the
+collision sharper rather than softer, since `replaceDescription()` and
+`setMeta()` become one full-replacement write, so design the fix knowing that.
+
+discovered-from: whole-codebase review, 2026-09-11.

@@ -36,7 +36,6 @@ Ready:
   first declaration is lost
 - WCL-53 [M] `#buildQuery` silently drops query terms a caller named
 - WCL-54 [M] A content-addressed collection accepts an in-place `put()` update
-- WCL-64 [M] `Collection.setMeta()` silently destroys the persisted index schema
 - WCL-65 [M] A codec resolved without read access to the Collection `/meta`
   silently writes un-indexed documents
 - WCL-66 [M] `Space.deleteWithOutcome()` reports a revoked or expired capability
@@ -543,37 +542,6 @@ from its ciphertext, and a reader cannot notice, because the presence of
 `was.resource` makes `#verifyResourceSlot` take the id-comparison branch instead
 of re-deriving. `src/sync/types.ts:196-200` documents the opposite contract: a
 content-addressed cipher either omits `encryptUpdate` or throws.
-
-discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-64: [M] `Collection.setMeta()` silently destroys the persisted index schema
-
-- status: todo
-- priority: medium
-- labels: encryption, search, api, correctness
-- touches:
-  - was-client: `Collection.setMeta` (`src/Collection.ts:511-527`) and
-    `writeMeta` (`src/internal/meta.ts:120-161`)
-  - freewallet, was-react: both write Collection metadata; a refusal or an
-    implicit carry-forward changes what a full-replacement write means to them
-- acceptance:
-  - [ ] `setMeta({ custom })` on a collection with a declared schema either
-        preserves the stored `indexSchema` or refuses the write; the chosen
-        policy is stated in the method's JSDoc
-  - [ ] A regression test declares an index, calls `setMeta`, and asserts a
-        fresh handle still reads the declared indexes
-
-Execution-proven. `setMeta` is a full replacement of `custom`, and the schema
-lives inside `custom` under `indexSchema`. Neither `setMeta` nor `writeMeta`
-carries it forward, while `patchCustom` does -- which is why `setName` and
-`setTags` are safe. A scratch run declares `content.type`, calls
-`setMeta({ custom: { name: 'Docs' } })`, and a fresh handle then reads no
-indexes while the stored documents still carry their blinded tokens. The
-`@param` note says this `custom` also carries the persisted schema, but nothing
-warns that omitting it deletes it. Preserve-unless-supplied and refuse-the-drop
-are both defensible, so the policy is a maintainer decision. WCL-41 makes the
-collision sharper rather than softer, since `replaceDescription()` and
-`setMeta()` become one full-replacement write, so design the fix knowing that.
 
 discovered-from: whole-codebase review, 2026-09-11.
 

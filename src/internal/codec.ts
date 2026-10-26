@@ -62,11 +62,36 @@ import type {
  * schema read a blinded-index codec performs). `meta` is absent when the
  * resolution read no metadata at all -- a plaintext or non-indexing codec, or a
  * server with no Collection metadata surface -- and `null` when the read found
- * none (missing or not visible).
+ * none (missing or not visible). `baseline` is the same read as served, with
+ * its validator and its `custom` as opened, for the handle to keep as the
+ * baseline of a write that follows the snapshot; it travels with `meta` and
+ * is absent whenever `meta` is.
  */
 export interface CodecResolution {
   codec: ResourceCodec
   meta?: (CollectionMetadata & { etag?: string }) | null
+  baseline?: ReadBaseline
+}
+
+/**
+ * A Collection Metadata read in the shape a write composes against: the object
+ * as served, the validator the write pins to, and the `custom` as opened
+ * through the codec when the read decoded it, so the write does not open it
+ * again. `opened` is absent on a read that did not decode (`describe()`).
+ */
+export interface ReadBaseline {
+  metadata: StoredCollectionMetadata
+  etag?: string
+  opened?: ResourceMetadataCustom
+}
+
+/**
+ * What a codec resolution's Collection Metadata read yields when it decodes:
+ * the snapshot for the caller and the read behind it.
+ */
+export interface CodecSnapshot {
+  meta: CollectionMetadata & { etag?: string }
+  baseline: ReadBaseline
 }
 
 /**
@@ -102,6 +127,7 @@ export class CodecHolder {
   async get(): Promise<ResourceCodec> {
     const resolution = await this.#memo.get()
     resolution.meta = undefined
+    resolution.baseline = undefined
     return resolution.codec
   }
 
@@ -118,11 +144,15 @@ export class CodecHolder {
   async resolve(): Promise<CodecResolution> {
     const initiated = !this.#memo.started
     const resolution = await this.#memo.get()
-    const { codec, meta } = resolution
+    const { codec, meta, baseline } = resolution
     // Consume it: whether or not this caller is entitled to the snapshot, no
     // copy of it survives the call.
     resolution.meta = undefined
-    return initiated && meta !== undefined ? { codec, meta } : { codec }
+    resolution.baseline = undefined
+    if (!initiated || meta === undefined) {
+      return { codec }
+    }
+    return { codec, meta, ...(baseline !== undefined && { baseline }) }
   }
 
   /**
@@ -278,13 +308,16 @@ export async function resolveCodec(
     })
     // The override skipped the Collection Metadata read, so a searchable
     // collection's persisted index schema is fetched here.
-    const meta = await loadIndexSchema(context, {
+    const snapshot = await loadIndexSchema(context, {
       spaceId,
       collectionId,
       capability,
       codec
     })
-    return meta !== undefined ? { codec, meta } : { codec }
+    if (snapshot === undefined) {
+      return { codec }
+    }
+    return snapshot === null ? { codec, meta: null } : { codec, ...snapshot }
   }
   // 2. A plaintext-only client (no keystore) never encrypts; no round-trip.
   if (!context.encryption) {
@@ -332,8 +365,8 @@ export async function resolveCodec(
   // business -- only `meta()` and the search paths need it -- so the decode
   // failure leaves the schema empty and the snapshot absent instead of failing
   // every operation on the handle.
-  const meta = await snapshotFrom({ read, codec })
-  return meta !== undefined ? { codec, meta } : { codec }
+  const snapshot = await snapshotFrom({ read, codec })
+  return snapshot !== undefined ? { codec, ...snapshot } : { codec }
 }
 
 /**
@@ -396,7 +429,8 @@ export async function codecForDescriptor(
  * @param options {object}
  * @param options.read {object}   the stored object and its validator
  * @param options.codec {ResourceCodec}
- * @returns {Promise<(CollectionMetadata & { etag?: string }) | undefined>}
+ * @returns {Promise<CodecSnapshot | undefined>}   the decoded snapshot and
+ *   the read behind it
  */
 async function snapshotFrom({
   read,
@@ -404,23 +438,53 @@ async function snapshotFrom({
 }: {
   read: { metadata: StoredCollectionMetadata; etag?: string }
   codec: ResourceCodec
-}): Promise<(CollectionMetadata & { etag?: string }) | undefined> {
-  let custom
+}): Promise<CodecSnapshot | undefined> {
+  const opened = await openStoredCustom({ codec, stored: read.metadata })
+  if (opened === null) {
+    return undefined
+  }
+  codec.indexing?.applySchema(readIndexSchema(opened))
+  return {
+    meta: {
+      ...asCollectionMetadata(read.metadata),
+      custom: opened,
+      ...(read.etag !== undefined && { etag: read.etag })
+    },
+    baseline: { ...read, opened }
+  }
+}
+
+/**
+ * Opens a stored Collection Metadata object's `custom` through the codec in
+ * the Collection slot: the identity on a plaintext collection, a decrypt on an
+ * encrypted one. The stated slot drives the encrypting codec's binding check,
+ * so a resource-bound envelope served here is refused like any other envelope
+ * this reader cannot open. Resolves `null` for one it cannot open (a foreign
+ * or tampered envelope, an epoch this reader does not hold) rather than
+ * throwing: every caller of this helper has something else to do with the
+ * object and leaves surfacing the refusal to `meta()`.
+ *
+ * @param options {object}
+ * @param options.codec {ResourceCodec}
+ * @param options.stored {object}   the stored object, with its `custom` as
+ *   served
+ * @returns {Promise<ResourceMetadataCustom | null>}   the opened `custom`, or
+ *   `null` when it cannot be opened here
+ */
+export async function openStoredCustom({
+  codec,
+  stored
+}: {
+  codec: ResourceCodec
+  stored: { custom?: unknown }
+}): Promise<ResourceMetadataCustom | null> {
   try {
-    // The stated slot drives the encrypting codec's binding check: in the
-    // Collection slot it refuses a resource-bound envelope served there.
-    custom = await codec.decodeMeta(
-      { custom: read.metadata.custom },
+    return await codec.decodeMeta(
+      { custom: stored.custom },
       { kind: 'collection' }
     )
   } catch {
-    return undefined
-  }
-  codec.indexing?.applySchema(readIndexSchema(custom))
-  return {
-    ...asCollectionMetadata(read.metadata),
-    custom,
-    ...(read.etag !== undefined && { etag: read.etag })
+    return null
   }
 }
 
@@ -510,9 +574,9 @@ async function buildEncryptingCodec(
  * @param options.collectionId {string}
  * @param [options.capability] {IZcap}
  * @param options.codec {ResourceCodec}   the codec to install the schema on
- * @returns {Promise<(CollectionMetadata & { etag?: string }) | null | undefined>}
- *   the metadata read, `null` when there is none to read, and `undefined` when
- *   no read happened at all
+ * @returns {Promise<object | null | undefined>}   the metadata snapshot and
+ *   the read behind it, `null` when there is none to read, and `undefined`
+ *   when no read happened at all
  */
 async function loadIndexSchema(
   context: ClientContext,
@@ -527,7 +591,7 @@ async function loadIndexSchema(
     capability?: IZcap
     codec: ResourceCodec
   }
-): Promise<(CollectionMetadata & { etag?: string }) | null | undefined> {
+): Promise<CodecSnapshot | null | undefined> {
   if (!codec.indexing) {
     return undefined
   }

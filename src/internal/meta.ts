@@ -52,9 +52,11 @@ import type {
  *   encrypting codec's envelope-binding check
  * @param [options.capability] {IZcap}
  * @param [options.onStored] {function}   receives the document as served, with
- *   its validator and its `custom` still undecoded, before the decode -- so a
- *   caller whose next step is a full-replacement write of the same document
- *   can compose that write against the read it just paid for
+ *   its validator and its `custom` still undecoded, plus the decoded `custom`
+ *   beside it -- so a caller whose next step is a full-replacement write of
+ *   the same document can compose that write against the read it just paid
+ *   for, without opening the `custom` a second time. Not called when the
+ *   decode fails: a read that throws is no baseline
  * @returns {Promise<(Metadata & { etag?: string }) | null>}
  */
 export async function readMeta<
@@ -77,6 +79,7 @@ export async function readMeta<
     onStored?: (read: {
       metadata: Record<string, unknown>
       etag?: string
+      opened: ResourceMetadataCustom
     }) => void
   }
 ): Promise<(Metadata & { etag?: string }) | null> {
@@ -110,15 +113,16 @@ export async function readMeta<
   }
   const metadata = response.data as Metadata
   const etagBeforeDecode = readEtag(response)
-  onStored?.({
-    metadata: metadata as Record<string, unknown>,
-    ...(etagBeforeDecode !== undefined && { etag: etagBeforeDecode })
-  })
   // Decode the user-writable `custom` (decrypting it on an encrypted
   // collection) so callers uniformly see plaintext `{ name, tags }`. The
   // stated slot drives the encrypting codec's binding check: in the
   // Collection slot it refuses a resource-bound envelope served there.
   const custom = await codec.decodeMeta({ custom: metadata.custom }, slot)
+  onStored?.({
+    metadata: metadata as Record<string, unknown>,
+    ...(etagBeforeDecode !== undefined && { etag: etagBeforeDecode }),
+    opened: custom
+  })
   const decoded = { ...metadata, custom }
   return etagBeforeDecode !== undefined
     ? { ...decoded, etag: etagBeforeDecode }
