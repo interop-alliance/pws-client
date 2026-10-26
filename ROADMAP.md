@@ -61,10 +61,6 @@ Ready:
   decision
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
-- WCL-69 [L] `Resource.setName` / `setTags` full-replace `custom` with no
-  precondition when the `/meta` read resolves to null
-- WCL-70 [L] `Resource.meta()` reports the JWE envelope's `contentType` and
-  `size` on an encrypted collection
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
   no way to supply one
 - WCL-79 [L] Local invariants the log store adapter can enforce itself
@@ -945,60 +941,6 @@ which is the obvious operator response. The owner has already unwrapped the
 roster secret at that point, so re-wrapping costs one ephemeral ECDH.
 
 discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-69: [L] `Resource.setName` / `setTags` full-replace `custom` with no precondition when the `/meta` read resolves to null
-
-- status: todo
-- priority: low
-- labels: conditional-writes, correctness
-- acceptance:
-  - [ ] `patchCustom` passes `ifNoneMatch: true` when the read resolved to
-        `null`, so an existing `/meta` document surfaces as a
-        `PreconditionFailedError` instead of being replaced
-  - [ ] A test drives a 404 on the `/meta` GET and a successful PUT, and asserts
-        the write carries a precondition
-
-Execution-proven. `patchCustom` writes
-`{ custom: { ...current?.custom, ...patch } }` under
-`{ ifMatch: current?.etag }`. When the read resolves to `null`, both the merge
-base and the precondition vanish, and the PUT goes out bare. The reachable shape
-is narrow but real: for an existing resource the server always serves `/meta`,
-and for a missing one the PUT would 404, so a null read plus a successful PUT is
-exactly the write-but-cannot-read grant, which WAS scopes per verb. That makes
-the guard nearly free. The fix inherits the separate gap that a backend without
-`conditional-writes` ignores the header, so the two should land aware of each
-other. PARTIAL: WCL-41 rewrites `patchCustom` for the merged-validator retry and
-says nothing about the null-read case writing with no precondition at all.
-
-discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-70: [L] `Resource.meta()` reports the JWE envelope's `contentType` and `size` on an encrypted collection
-
-- status: todo
-- priority: low
-- labels: encryption, api, metadata
-- touches:
-  - was-client: `Resource.meta` (`src/Resource.ts:390`) and `readMeta`
-    (`src/internal/meta.ts:59-95`)
-  - freewallet, was-react: needed only if the projecting fix is chosen, since it
-    changes what `ResourceMetadata.contentType` means on an encrypted collection
-    for every renderer
-- acceptance:
-  - [ ] `meta()` and `add()` agree about a resource's content type on an
-        encrypted collection, or the `meta()` JSDoc states plainly that
-        `contentType` and `size` are envelope-level there
-
-`readMeta` spreads the server's metadata object through untouched and decodes
-only `custom`. On an encrypted collection the stored representation is the JWE
-envelope, written with the codec's own content type (`application/jose+json` by
-default), while the plaintext type is sealed inside the envelope's `meta`. That
-sealed value is surfaced elsewhere: `Collection.add` returns
-`encoded.resourceContentType ?? encoded.contentType`. So `add()` reports
-`image/png` and `meta()` reports `application/jose+json` for the same resource.
-The JSDoc's existing caveat covers only `custom`. A documentation caveat and a
-projecting fix are both defensible; the projecting one is the wider change and
-is what the `touches:` entry is for. discovered-from: whole-codebase review,
-2026-09-11.
 
 ### WCL-71: [L] `Space.configure()` is a read-modify-write with no precondition and no way to supply one
 

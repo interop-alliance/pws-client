@@ -4207,3 +4207,62 @@ collision sharper rather than softer, since `replaceDescription()` and
 `setMeta()` become one full-replacement write, so design the fix knowing that.
 
 discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-69: [L] `Resource.setName` / `setTags` full-replace `custom` with no precondition when the `/meta` read resolves to null
+
+- status: done (2026-10-25)
+- priority: low
+- labels: conditional-writes, correctness
+- acceptance:
+  - [x] `patchCustom` passes `ifNoneMatch: true` when the read resolved to
+        `null`, so an existing `/meta` document surfaces as a
+        `PreconditionFailedError` instead of being replaced (landed in a
+        stronger form: a null read is refused with `NotFoundError` before any
+        write; the guarded `If-None-Match: *` create is reserved for a readable
+        Resource whose `/meta` has no stamp and no validator yet)
+  - [x] A test drives a 404 on the `/meta` GET and a successful PUT, and asserts
+        the write carries a precondition (the test drives the 404 and asserts no
+        PUT goes out at all)
+
+Execution-proven. `patchCustom` writes
+`{ custom: { ...current?.custom, ...patch } }` under
+`{ ifMatch: current?.etag }`. When the read resolves to `null`, both the merge
+base and the precondition vanish, and the PUT goes out bare. The reachable shape
+is narrow but real: for an existing resource the server always serves `/meta`,
+and for a missing one the PUT would 404, so a null read plus a successful PUT is
+exactly the write-but-cannot-read grant, which WAS scopes per verb. That makes
+the guard nearly free. The fix inherits the separate gap that a backend without
+`conditional-writes` ignores the header, so the two should land aware of each
+other. PARTIAL: WCL-41 rewrites `patchCustom` for the merged-validator retry and
+says nothing about the null-read case writing with no precondition at all.
+
+discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-70: [L] `Resource.meta()` reports the JWE envelope's `contentType` and `size` on an encrypted collection
+
+- status: done (2026-10-25)
+- priority: low
+- labels: encryption, api, metadata
+- touches:
+  - was-client: `Resource.meta` (`src/Resource.ts:390`) and `readMeta`
+    (`src/internal/meta.ts:59-95`) -- shipped: documentation caveat on
+    `Resource.meta()`
+  - freewallet, was-react: needed only if the projecting fix is chosen, since it
+    changes what `ResourceMetadata.contentType` means on an encrypted collection
+    for every renderer -- unaffected: the documentation caveat was chosen
+- acceptance:
+  - [x] `meta()` and `add()` agree about a resource's content type on an
+        encrypted collection, or the `meta()` JSDoc states plainly that
+        `contentType` and `size` are envelope-level there
+
+`readMeta` spreads the server's metadata object through untouched and decodes
+only `custom`. On an encrypted collection the stored representation is the JWE
+envelope, written with the codec's own content type (`application/jose+json` by
+default), while the plaintext type is sealed inside the envelope's `meta`. That
+sealed value is surfaced elsewhere: `Collection.add` returns
+`encoded.resourceContentType ?? encoded.contentType`. So `add()` reports
+`image/png` and `meta()` reports `application/jose+json` for the same resource.
+The JSDoc's existing caveat covers only `custom`. A documentation caveat and a
+projecting fix are both defensible; the projecting one is the wider change and
+is what the `touches:` entry is for. discovered-from: whole-codebase review,
+2026-09-11.

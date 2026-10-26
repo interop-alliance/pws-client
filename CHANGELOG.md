@@ -23,8 +23,17 @@
   under a GET and HEAD delegation (the derived `GET` form) and shows the same
   grant refused on the `POST` form.
 
+### Changed
+
+- `Resource.meta()` documents that on an encrypted collection `contentType` and
+  `size` describe the stored envelope, not the plaintext sealed inside it; the
+  plaintext type comes from `get()` and the `add()` result.
+
 ### Fixed
 
+- `Resource.setName()` / `setTags()` on a `/meta` read that resolves to null
+  (404) refuse with `NotFoundError` before any write goes out; a unit test now
+  pins that path, so the full-replacement write can no longer go out bare.
 - `Collection.setMeta()` no longer clears the persisted `indexSchema` when the
   new `custom` does not name it. The stored schema is carried forward like the
   configuration members, so a `setMeta({ custom: { name } })` after a
