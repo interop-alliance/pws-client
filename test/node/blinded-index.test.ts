@@ -495,6 +495,123 @@ describe('Collection.declareIndex', () => {
   })
 })
 
+describe('Collection.setMeta on a collection with a declared schema', () => {
+  it('carries the stored schema forward when the new custom omits it', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client } = serverFor(fixture)
+    const collection = client.space('s').collection('c')
+    await collection.declareIndex({ attribute: 'content.type' })
+    await collection.setMeta({ custom: { name: 'Docs' } })
+
+    // A fresh handle reads the schema the annotation write did not name.
+    const second = client.space('s').collection('c')
+    expect(await second.indexes()).toEqual([
+      { attribute: 'content.type', addedIn: 1 }
+    ])
+    expect((await second.meta())?.custom).toEqual({
+      name: 'Docs',
+      indexSchema: {
+        revision: 1,
+        indexes: [{ attribute: 'content.type', addedIn: 1 }]
+      }
+    })
+  })
+
+  it('sends a custom that names indexSchema as given', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client } = serverFor(fixture)
+    const collection = client.space('s').collection('c')
+    await collection.declareIndex({ attribute: 'content.type' })
+    const replaced = { revision: 7, indexes: [] }
+    await collection.setMeta({ custom: { indexSchema: replaced } })
+
+    expect(await client.space('s').collection('c').indexes()).toEqual([])
+  })
+
+  it("installs the schema a custom names on the writing handle's own codec", async () => {
+    const fixture = await makeIndexableCollection()
+    const { client } = serverFor(fixture)
+    const collection = client.space('s').collection('c')
+    await collection.declareIndex({ attribute: 'content.type' })
+    await collection.setMeta({
+      custom: { indexSchema: { revision: 7, indexes: [] } }
+    })
+
+    // The same handle, not a fresh one: its codec follows what it just wrote,
+    // so a search on the attribute it no longer declares is refused here.
+    expect(await collection.indexes()).toEqual([])
+    await expect(
+      collection.find({ equals: { 'content.type': 'note' } })
+    ).rejects.toBeInstanceOf(ValidationError)
+  })
+
+  it('keeps the stored schema when custom is omitted altogether', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client } = serverFor(fixture)
+    const collection = client.space('s').collection('c')
+    await collection.declareIndex({ attribute: 'content.type' })
+    await collection.setMeta({ custom: { name: 'Docs' } })
+    await collection.setMeta()
+
+    const second = client.space('s').collection('c')
+    expect(await second.indexes()).toEqual([
+      { attribute: 'content.type', addedIn: 1 }
+    ])
+    expect((await second.meta())?.custom).toEqual({
+      indexSchema: {
+        revision: 1,
+        indexes: [{ attribute: 'content.type', addedIn: 1 }]
+      }
+    })
+  })
+
+  it('drops the stored schema when custom names indexSchema as undefined', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client } = serverFor(fixture)
+    const collection = client.space('s').collection('c')
+    await collection.declareIndex({ attribute: 'content.type' })
+    await collection.setMeta({
+      custom: { name: 'Docs', indexSchema: undefined }
+    })
+
+    const second = client.space('s').collection('c')
+    expect(await second.indexes()).toEqual([])
+    expect((await second.meta())?.custom).toEqual({ name: 'Docs' })
+  })
+
+  it('replaces a stored custom this client cannot open, as given', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client, state } = serverFor(fixture)
+    // A foreign plaintext object where an envelope belongs: nothing to carry.
+    state.meta.document = {
+      ...state.meta.document,
+      custom: { foreign: 'envelope' }
+    }
+    const collection = client.space('s').collection('c')
+    await collection.setMeta({ custom: { name: 'Docs' } })
+
+    expect(state.meta.document.custom).not.toEqual({ foreign: 'envelope' })
+    const second = client.space('s').collection('c')
+    expect((await second.meta())?.custom).toEqual({ name: 'Docs' })
+  })
+
+  it('reuses the open a preceding meta() performed instead of decrypting again', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client, calls, decodes } = serverFor(fixture)
+    const collection = client.space('s').collection('c')
+    // The very first `meta()` is answered from the codec-resolution snapshot,
+    // and the read behind that snapshot is the baseline all the same.
+    await collection.meta()
+    const before = { decodes: decodes(), gets: metaCalls(calls, 'GET') }
+    await collection.setMeta({ custom: { name: 'Docs' } })
+
+    // The write composed against the read it just paid for, opened and all:
+    // no second GET, no second decrypt.
+    expect(decodes()).toBe(before.decodes)
+    expect(metaCalls(calls, 'GET')).toBe(before.gets)
+  })
+})
+
 describe('Collection.declareIndexes', () => {
   it('declares several attributes in one metadata write, sharing one revision and addedIn', async () => {
     const fixture = await makeIndexableCollection()
@@ -701,9 +818,10 @@ describe('Collection.meta on a blinded-index collection', () => {
       0,
       calls.findIndex(call => call.method === 'PUT')
     )
-    // The codec resolution's read is the declaration's read; the write's own
-    // compose step then re-reads the object it is about to replace.
-    expect(metaCalls(beforeWrite, 'GET')).toBe(2)
+    // The codec resolution's read is the declaration's read, and the write
+    // composes against that same read rather than re-reading the object it is
+    // about to replace.
+    expect(metaCalls(beforeWrite, 'GET')).toBe(1)
   })
 
   it('re-reads /meta on the second call (no snapshot reuse)', async () => {

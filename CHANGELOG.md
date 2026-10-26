@@ -9,8 +9,8 @@
   `PreconditionFailedError` rather than have the merge rebased. A pinned
   `configure` on an unreadable Collection is `NotFoundError`, not a create. A
   unit test shows the unconditional form carrying a reader a concurrent
-  `addRecipient` escrowed forward on the rebase, instead of dropping the
-  wrapped key.
+  `addRecipient` escrowed forward on the rebase, instead of dropping the wrapped
+  key.
 - `WasClient.fromCapability(zcap, options)` takes the handle options the other
   factories take and forwards `options.encryption` to the returned handle. A
   capability-scoped handle on an encryption-capable client was unusable before,
@@ -25,6 +25,17 @@
 
 ### Fixed
 
+- `Collection.setMeta()` no longer clears the persisted `indexSchema` when the
+  new `custom` does not name it. The stored schema is carried forward like the
+  configuration members, so a `setMeta({ custom: { name } })` after a
+  `declareIndex()` leaves the collection searchable. A `custom` that names
+  `indexSchema` is still sent as given (`indexSchema: undefined` drops the
+  stored schema), and the writing handle's codec now follows what it sent.
+- An annotation write composes against the `meta()` read that preceded it
+  without opening the stored `custom` a second time, and that holds for the
+  first `meta()` on a handle too, which the codec resolution's own read answers.
+  `declareIndex()` likewise writes against that read: one `GET` and one `PUT`
+  instead of two `GET`s.
 - A signed request whose URL lies outside the attached capability's invocation
   target (a Collection Metadata read under a resource-scoped grant, say) is now
   answered by the client the way the server would answer it, with nothing sent:

@@ -1252,9 +1252,11 @@ that offers encrypted collections; one that does not answers `501`
 (`NotImplementedError`). `find()` / `declareIndex()` on a plaintext collection
 throw -- there is no client-side index there.
 
-Note that `collection.setMeta({ custom })` replaces the whole `custom` object,
-schema included; the `setName()` / `setTags()` sugar merges instead and leaves
-it intact.
+`collection.setMeta({ custom })` replaces the whole `custom` object, with one
+exception: a `custom` that does not name `indexSchema` keeps the stored schema.
+A `custom` that does name it is sent as given, so `indexSchema: undefined` drops
+the stored schema. The `setName()` / `setTags()` sugar merges and leaves it
+intact either way.
 
 ### Cross-replica sync
 
