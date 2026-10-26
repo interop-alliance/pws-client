@@ -17,6 +17,7 @@ import {
   WasClient,
   ValidationError,
   ConflictError,
+  NotFoundError,
   NotSupportedError,
   PreconditionFailedError,
   WasServerError
@@ -699,6 +700,19 @@ describe('resource.setName() / setTags()', () => {
     expect(calls[1]?.json).toEqual({ custom: { name: 'New' } })
     expect(calls[1]?.headers?.['if-none-match']).toBe('*')
     expect(calls[1]?.headers?.['if-match']).toBeUndefined()
+  })
+
+  it('refuses the write when the metadata read resolves to null (404)', async () => {
+    // A 404 on the `/meta` GET is either a missing resource or one this
+    // capability cannot read (WAS masks both). Neither is a create: the
+    // read-modify-write has no merge base and no validator, so it refuses
+    // before any write goes out instead of replacing `custom` bare.
+    const { client, calls } = storageClient({ fail: 404 })
+    await expect(
+      client.space('s').collection('c').resource('r').setName('New')
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.method).toBe('GET')
   })
 
   it('refuses the write when a written metadata read carries no ETag validator', async () => {

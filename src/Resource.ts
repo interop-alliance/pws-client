@@ -410,6 +410,12 @@ export class Resource {
    * On an encrypted collection the stored `custom` is an opaque envelope; this
    * decodes it (decrypts, via the codec) so a caller always sees plaintext
    * `{ name, tags }`. A resource with no user metadata reports `custom` as `{}`.
+   * The server-managed `contentType` and `size` stay envelope-level there: they
+   * describe the stored envelope (`application/jose+json` by default, or the
+   * codec's configured type), not the plaintext inside it, because the
+   * plaintext type is sealed in the resource body and this read never opens
+   * that body. The plaintext type comes back from `get()` and from the `add()`
+   * result.
    *
    * The result also carries the metadata's current `etag` (the `/meta`
    * object's own validator) -- pass it as `setMeta(meta, { ifMatch })` for a
