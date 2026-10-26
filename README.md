@@ -3,7 +3,7 @@
 [![Node.js CI](https://github.com/interop-alliance/was-client/workflows/CI/badge.svg)](https://github.com/interop-alliance/was-client/actions?query=workflow%3A%22CI%22)
 [![NPM Version](https://img.shields.io/npm/v/@interop/was-client.svg)](https://npm.im/@interop/was-client)
 
-> A developer-friendly client for Wallet Attached Storage (WAS) servers, with a
+> A developer-friendly client for Wallet Attached Storage (PWS) servers, with a
 > database-driver-inspired navigational API over zcap-authorized HTTP.
 
 ## Table of Contents
@@ -27,7 +27,7 @@
   - [Storage introspection: backends and quotas](#storage-introspection-backends-and-quotas)
   - [Registering a Bring-Your-Own-Storage backend](#registering-a-bring-your-own-storage-backend)
   - [Replica registration](#replica-registration)
-  - [Encrypted collections (EDV-over-WAS): pass-through encryption via the WAS client (recommended)](#encrypted-collections-edv-over-was-pass-through-encryption-via-the-was-client-recommended)
+  - [Encrypted collections (EDV-over-PWS): pass-through encryption via the PWS client (recommended)](#encrypted-collections-edv-over-was-pass-through-encryption-via-the-was-client-recommended)
   - [Cross-replica sync](#cross-replica-sync)
   - [Resource logs (co-managed key resources)](#resource-logs-co-managed-key-resources)
   - [Export and import](#export-and-import)
@@ -38,17 +38,17 @@
 
 ## Background
 
-The WAS protocol exposes a general purpose database-like container model --
+The PWS protocol exposes a general purpose database-like container model --
 `SpacesRepository > Space > Collection > Resource` -- over HTTP, authorized with
 [Authorization Capabilities (zcaps)](https://w3c-ccg.github.io/zcap-spec/).
 
 `@interop/was-client` wraps that `ZcapClient` and exposes the containment model
 through cheap, lazy navigational handles modeled on a document store's DX
-(`client > db > collection`), using WAS-specific verbs
-(`add`/`get`/`put`/`list`/`delete`) rather than `insertOne`/`findOne` (WAS has
+(`client > db > collection`), using PWS-specific verbs
+(`add`/`get`/`put`/`list`/`delete`) rather than `insertOne`/`findOne` (PWS has
 no query-by-filter yet).
 
-| Document db driver                  | WAS client                                 |
+| Document db driver                  | PWS client                                 |
 | ----------------------------------- | ------------------------------------------ |
 | `new Client(url)`                   | `new WasClient({ serverUrl, zcapClient })` |
 | `client.db('app')`                  | `was.space(spaceId)`                       |
@@ -205,7 +205,7 @@ own pace produces.
 Before its first signed request, the client reads the server's service
 description. It sends an unsigned `HEAD` to `serverUrl`, the Spaces Repository
 URL, and follows the `Link: <...>; rel="service"` header on the response,
-whatever its status. The WAS server itself answers that URL. The server root is
+whatever its status. The PWS server itself answers that URL. The server root is
 often a landing page served by something else, with no `service` link. Then it
 reads the linked document with an unsigned `GET`. The spec fixes no path for the
 document, so the client assumes none. A server that advertises its Spaces
@@ -213,7 +213,7 @@ Repository at a URL other than `serverUrl` is refused with
 `IncompatibleServerError`, since every Space path would otherwise be addressed
 at the wrong mount.
 
-From the document the client selects the WAS specification version it speaks.
+From the document the client selects the PWS specification version it speaks.
 This client speaks only v0.5. It ignores `specs` keys other than
 `https://w3id.org/pws` and entries without a `version`. If no entry names v0.5,
 or the document is malformed, every signed request rejects with
@@ -251,7 +251,7 @@ that copy without fetching, and `service({ refresh: true })` discovers afresh.
 
 ### The handle model
 
-The client exposes the WAS containment model
+The client exposes the PWS containment model
 (`SpacesRepository > Space > Collection > Resource`) as navigational handles.
 Handles are lazy and synchronous to obtain -- only the verb methods hit the
 network. Lazy chains never throw: `was.space(x).collection(y)` does no I/O and
@@ -350,7 +350,7 @@ const userSpaces = items.filter(item => !item.type.includes('AuxiliarySpace'))
 
 ### Collections
 
-A Collection lives inside a Space and holds resources. WAS does not auto-create
+A Collection lives inside a Space and holds resources. PWS does not auto-create
 parents, so `createCollection` throws `NotFoundError` if the space does not
 exist. The server generates the id unless you pass one (a handful of reserved
 ids are rejected).
@@ -502,7 +502,7 @@ handle's URL. The recipient rebuilds access from the received zcap with
 const added = await collection.add({ secret: 'value' })
 const zcap = await was.grant({
   to: bobDid,
-  actions: ['GET'], // HTTP verbs: 'GET' | 'PUT' | 'POST' | 'DELETE'
+  actions: ['GET'], // HTTP verbs: 'GET' | 'HEAD' | 'PUT' | 'POST' | 'DELETE'
   target: added.url
 })
 
@@ -522,7 +522,7 @@ descriptor (shared out of band with the grant) for an encrypted one.
 const handle = bobWas.fromCapability(zcap, { encryption: 'plaintext' })
 ```
 
-Actions are HTTP verbs (`GET` / `PUT` / `POST` / `DELETE`). The WAS server
+Actions are HTTP verbs (`GET` / `PUT` / `POST` / `DELETE`). The PWS server
 authorizes on these case-sensitively (uppercase), but `grant()` also accepts the
 lowercase forms and normalizes them to uppercase in the signed zcap -- so
 `actions: ['get']` still validates server-side.
@@ -542,7 +542,7 @@ await space.revoke(zcap) // from now on the capability is rejected
 Two parties may revoke: the Space's controller, and any controller in the
 capability's own delegation chain -- so an application can revoke the capability
 it holds, without being granted anything extra. Anyone else gets a
-`NotFoundError`, WAS's mask for "not visible to you".
+`NotFoundError`, PWS's mask for "not visible to you".
 
 Three properties are easy to get wrong:
 
@@ -768,7 +768,7 @@ const { descriptor } = await store.read() // verified head state, `history` kept
 ### Conditional writes (optimistic concurrency)
 
 Every Resource carries a strong **`ETag`** validator that changes on every write
-(conditional writes are a baseline WAS server requirement). Use it to prevent
+(conditional writes are a baseline PWS server requirement). Use it to prevent
 the lost-update problem -- two clients that both read version _N_ and each write
 _N+1_, the second silently clobbering the first.
 
@@ -1007,7 +1007,7 @@ surfaces the Space's registrations as the read-only `replicas` member, one
 `{ fromSpace, toSpace, role }` summary per peer, with no registration id and no
 capability. The server ignores `replicas` in a write body.
 
-### Encrypted collections (EDV-over-WAS): pass-through encryption via the WAS client (recommended)
+### Encrypted collections (EDV-over-PWS): pass-through encryption via the PWS client (recommended)
 
 This is the recommended way to use encrypted collections. For the low-level
 alternative -- driving an `EdvClientCore` directly via `WasTransport`, which is
@@ -1093,7 +1093,7 @@ Encrypted collections are a **stricter contract**, not a drop-in (documents-only
 scope for now):
 
 - **Ids.** `add()` mints an EDV id (a `z`-prefixed multibase value used verbatim
-  as the WAS resource id). `put(id, ...)` accepts only an EDV-format id; a
+  as the PWS resource id). `put(id, ...)` accepts only an EDV-format id; a
   human-readable id is rejected (it would leak onto the URL) -- carry a
   human-readable label inside the encrypted content instead. By default the
   minted id is random (the classic mutable-document model); pass
@@ -1225,7 +1225,7 @@ const { count } = await vault.find({
 ```
 
 Attribute names are dotted paths rooted at `content` or `meta` (the document's
-own `meta`, which carries the content type and encoding -- not the WAS `/meta`
+own `meta`, which carries the content type and encoding -- not the PWS `/meta`
 name/tags, which live in a separate envelope and are deliberately not indexed).
 Pass an array of names for a compound index, searchable by a leading prefix of
 its attributes; `unique: true` makes the server answer a colliding write with
@@ -1261,7 +1261,7 @@ intact either way.
 ### Cross-replica sync
 
 The opt-in `@interop/was-client/sync` subpath supplies everything a wallet needs
-to replicate one Space + Collection across devices, with WAS as the primary
+to replicate one Space + Collection across devices, with PWS as the primary
 copy. It is not a sync engine itself -- it provides the seams a change engine
 plugs into:
 
@@ -1417,7 +1417,7 @@ const page = await collection.changes({ method: 'GET', checkpoint, limit: 100 })
 
 ### Resource logs (co-managed key resources)
 
-The opt-in `@interop/was-client/log` subpath is the WAS binding of
+The opt-in `@interop/was-client/log` subpath is the PWS binding of
 `@interop/vh-resource-log`'s store port. Resource logs -- the hash-linked, JSON
 Lines log format (the encrypted-collections spec's Resource Log Profile)
 governing key resources co-managed between a wallet's clients and the storage
@@ -1428,8 +1428,8 @@ library: the JSON Lines codec, the `ResourceLogStore` port, the read-back
 re-exports none of them.
 
 - **`resourceLogStore({ resource })`** / **`resourceLogStore({ collection })`**
-  -- the port over one of the two places a WAS server keeps a log, stored as
-  `text/jsonl` either way: a WAS Resource whose whole body is the log (a key
+  -- the port over one of the two places a PWS server keeps a log, stored as
+  `text/jsonl` either way: a PWS Resource whose whole body is the log (a key
   roster), or a Collection's governing history log at its `/meta/log`
   sub-resource (the descriptor the server derives `encryption` from; see "The
   governing history log" above). The store does read-with-etag of the full log,
@@ -1484,7 +1484,7 @@ const response = await was.request({ path: `/space/${spaceId}`, method: 'GET' })
 ## Errors and the 404/null caveat
 
 Read methods (`describe`/`get`/`list`) return `null` on a 404, following
-MongoDB's `findOne` semantics. **WAS returns 404 for both not-found and
+MongoDB's `findOne` semantics. **PWS returns 404 for both not-found and
 unauthorized**, so `null` means "not visible to you" rather than strictly "does
 not exist". Write/delete methods throw a typed error instead.
 
@@ -1520,7 +1520,7 @@ the envelope's unroutable `kids`.
 
 `IncompatibleServerError` comes from service discovery, not from a response
 status. Any signed method, read methods included, throws it when the server
-speaks no WAS version this client understands (see
+speaks no PWS version this client understands (see
 [Service discovery](#service-discovery)). It carries no `status`, so a read
 method does not mistake it for a 404.
 

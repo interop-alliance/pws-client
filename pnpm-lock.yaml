@@ -30,8 +30,8 @@ importers:
         specifier: ^7.11.0
         version: 7.11.0
       '@interop/storage-core':
-        specifier: ^0.38.0
-        version: 0.38.0
+        specifier: ^0.39.0
+        version: 0.39.0
       '@interop/vh-resource-log':
         specifier: ^0.9.0
         version: 0.9.0
@@ -402,6 +402,10 @@ packages:
 
   '@interop/storage-core@0.38.0':
     resolution: {integrity: sha512-wavRRv4uzKz9m21sdfZtOGeBy8TSgYWRgHTfq+SE7Dak/E2u77xmn4x7EaV4q3sPgmjFhSbz+YlzG6WpQor3mA==}
+    engines: {node: '>=22.0'}
+
+  '@interop/storage-core@0.39.0':
+    resolution: {integrity: sha512-HysQd3NW8egkdYpGhuOYS7BIKYzKT4b0Y6XczpIIZYDO4kJrrCRILWVBtn42WpIqKIRQl6Gi74kCD1r9s+omng==}
     engines: {node: '>=22.0'}
 
   '@interop/vh-resource-log@0.9.0':
@@ -2213,6 +2217,10 @@ snapshots:
       '@interop/data-integrity-core': 8.9.0
 
   '@interop/storage-core@0.38.0':
+    dependencies:
+      '@interop/data-integrity-core': 8.9.0
+
+  '@interop/storage-core@0.39.0':
     dependencies:
       '@interop/data-integrity-core': 8.9.0
 

@@ -68,7 +68,7 @@ src/sync/*.ts       Sync subpath (sibling, opt-in, crypto-free)
   types.
 
 src/log/*.ts        Resource-log subpath (sibling, opt-in)
-  logStore: the WAS binding of @interop/vh-resource-log's ResourceLogStore
+  logStore: the PWS binding of @interop/vh-resource-log's ResourceLogStore
   port (the resourceLogStore adapter, over a Resource's body or a
   Collection's /meta/log history log via Collection.getHistoryLog /
   putHistoryLog; LOG_CONTENT_TYPE re-exported from internal/content); a
@@ -94,7 +94,7 @@ these entries pull the encrypted-collection graph (`@interop/edv-client/core`,
 `@interop/minimal-cipher`, `@interop/x25519-key-agreement-key`), and
 `./identity` pulls `@interop/capability-agent` and
 `@interop/x25519-key-agreement-key` for its did:key derivation. `./log` is the
-one core entry with a crypto dependency of its own: it is the WAS binding of
+one core entry with a crypto dependency of its own: it is the PWS binding of
 `@interop/vh-resource-log`'s store port, and that library's graph includes
 `@interop/did-method-webvh` and `@noble/curves` -- the hashing and proof kernel
 only, with no DID resolution. `src/codec.ts` and `src/sync/types.ts` define
@@ -228,7 +228,7 @@ controller). Per-handle state on top of that:
 `src/internal/service.ts` implements the spec's Service Description section. The
 server-level URL graph is rooted in one document, the service description, found
 by following the `Link: <...>; rel="service"` header on the response to an
-unsigned `HEAD` of `serverUrl`, the Spaces Repository URL. The WAS server itself
+unsigned `HEAD` of `serverUrl`, the Spaces Repository URL. The PWS server itself
 answers that URL. The server root need not be, since a deployment often serves a
 landing page there with no `service` link. The spec reserves no path for the
 document, so the client assumes none. The linked document is read with an
@@ -307,7 +307,7 @@ Taking `resource.put(data)` as the canonical path:
 5. **Transport** (`internal/request.ts`): the memoized service discovery is
    awaited (see Service discovery), then `zcapClient.request(...)` (ezcap) signs
    the zcap invocation. The zcap `action` is the **HTTP method**
-   (`GET`/`PUT`/...), never ezcap's `read`/`write` -- WAS scopes capabilities by
+   (`GET`/`PUT`/...), never ezcap's `read`/`write` -- PWS scopes capabilities by
    verb. With no bound capability, ezcap synthesizes the root capability for the
    target URL.
 6. **Error mapping** (`src/errors.ts`): `mapError` dispatches on the
@@ -326,7 +326,7 @@ back to `decode` plus the content layer's `decodedStream` when a codec lacks it.
 
 ### The 404-vs-null convention
 
-WAS masks unauthorized as 404, so a 404 means "missing OR not visible to you".
+PWS masks unauthorized as 404, so a 404 means "missing OR not visible to you".
 Read-shaped methods (`get`, `list`, `describe`, `Resource.meta`,
 `Collection.meta`, policy reads) resolve that to `null`; write-shaped calls
 throw `NotFoundError`. This ambiguity drives the fail-closed rules below.
@@ -436,7 +436,7 @@ descriptor declares a blinding key. Consequences worth knowing:
   through the same `indexing` capability.
 - Writes emit blinded `indexed` entries alongside the JWE once the schema
   declares an attribute. The metadata seam (`encodeMeta`) stays deliberately
-  un-blinded: that envelope is the WAS `/meta` value, a different slot the
+  un-blinded: that envelope is the PWS `/meta` value, a different slot the
   search endpoint never reads.
 - `Collection.find()` blinds through the same capability and posts the
   `blinded-index` profile to the collection `/query` endpoint (the way
@@ -462,7 +462,7 @@ Two integration levels share `src/edv/`:
   construct that transport: a `CodecTransportFactory` is injected by whichever
   build knows where the Collection lives. A codec built without one (the
   local-replica doc cipher) refuses the chunked write, and reads a chunked
-  document only from a caller's `chunkSource`. The factory over WAS is
+  document only from a caller's `chunkSource`. The factory over PWS is
   `wasTransportFactory` in `src/edv/transportFactory.ts`, which is the only
   module that calls `new WasTransport(...)`. A blob is routed on its size alone
   and passed on as a stream, so an over-threshold `Blob` is never buffered whole
@@ -496,8 +496,8 @@ Two integration levels share `src/edv/`:
   document twice, so no single ciphertext derives its id, and the write is
   refused.
 - **`WasTransport`** (EDV-native): an `@interop/edv-client` `Transport` that
-  maps EDV document operations onto WAS resource CRUD ("vault per collection",
-  EDV doc id is the WAS resource id), including blinded-index `find` and chunked
+  maps EDV document operations onto PWS resource CRUD ("vault per collection",
+  EDV doc id is the PWS resource id), including blinded-index `find` and chunked
   streams. The EDV core owns the write sequence and discards the responses, so
   the transport surfaces the outcome of its last document write
   (`lastDocumentWrite`: the id and the server's `ETag`) and offers a non-EDV
@@ -539,7 +539,7 @@ read of the Collection Metadata object (`wasDescriptorSource` over a
 `EncryptionDescriptorCache` is a client-local get/put the host has scoped to one
 Space. `acquireDescriptor` fetches, caches a success, and falls back to the
 cached copy whenever the fetch yields no descriptor -- thrown or empty, since
-WAS masks an unauthorized read as an absent one -- so `undefined` means nothing
+PWS masks an unauthorized read as an absent one -- so `undefined` means nothing
 anywhere describes the collection's encryption, and a caller that declared it
 encrypted refuses fail-closed. A resource-log refusal from a governed source is
 a security signal, not an outage: `@interop/vh-resource-log`'s
@@ -644,11 +644,11 @@ metadata served as another's.
 ## The sync layer
 
 `src/sync/` (the `./sync` subpath) is cross-replica synchronization support:
-everything a wallet needs to replicate one Space + Collection over WAS. It is
+everything a wallet needs to replicate one Space + Collection over PWS. It is
 deliberately **not** a sync engine -- it supplies the seams a change engine
 plugs into:
 
-- **`WasSyncPort`** (`types.ts`) is the injected WAS-access seam: `query` (one
+- **`WasSyncPort`** (`types.ts`) is the injected PWS-access seam: `query` (one
   page of the change feed), `putContent`/`deleteContent`/`putMeta` (conditional
   writes), and `get` (single-resource master-state re-read for the 412-conflict
   path). Every member is required, so the port type states exactly what
@@ -884,11 +884,11 @@ No locks; safety is optimistic (ETag/CAS) throughout
 
 ## Conditional writes
 
-Conditional writes are a baseline WAS server requirement: every resource read
+Conditional writes are a baseline PWS server requirement: every resource read
 serves a strong `ETag`, and a server honors `If-Match` and `If-None-Match: *` on
 every write. The client therefore sends a precondition as given and lets the
 server answer it, with no capability probe of its own. Server-wide affordances
-(`changes-query`, and the WAS-EC profile's own tokens once that profile
+(`changes-query`, and the PWS-EC profile's own tokens once that profile
 registers a version entry) live in the service description, read through
 `client.service().features`; `internal/service.ts` parses it. Serving the chunk
 endpoints and the blinded-index query profile is a conformance requirement of
@@ -992,11 +992,11 @@ this repo does not use, so a reviewer or an agent can challenge a term that
 drifts. The convention itself is canonical in isomorphic-lib-template's
 ARCHITECTURE.md Glossary section. The protocol terms -- Space, Collection,
 Resource, controller, zcap, root capability, invocation target -- are owned by
-the [WAS spec](https://github.com/w3c-ccg/wallet-attached-storage-spec)'s
+the [PWS spec](https://github.com/w3c-ccg/portable-web-spaces-spec)'s
 Terminology section; entries below restate one only to say how this client uses
 it, and otherwise cover the client-side concepts this file names.
 
-- **Handle** -- a client-side object addressing one WAS node, constructed
+- **Handle** -- a client-side object addressing one PWS node, constructed
   without network I/O. The kinds are `WasClient` (the spaces repository),
   `Space`, `Collection`, and `Resource`, each creating the next (`src/*.ts`).
   See The handle model.
@@ -1026,16 +1026,16 @@ it, and otherwise cover the client-side concepts this file names.
   handle shares by reference (`src/internal/request.ts`). See The handle model.
 - **Service description** -- the server-wide JSON document naming the
   specification versions a server speaks and its server-level URLs, found
-  through the `rel="service"` link on every response. Owned by the WAS spec.
+  through the `rel="service"` link on every response. Owned by the PWS spec.
   Avoid: well-known document, server metadata. See Service discovery.
 - **Service discovery** -- the client's memoized read of the service description
-  and its choice of WAS version (`src/internal/service.ts`, `was.service()`),
+  and its choice of PWS version (`src/internal/service.ts`, `was.service()`),
   awaited before every signed request. Its result is a `ServiceInfo`. See
   Service discovery.
 - **Bound capability** -- the delegated zcap carried on a handle and inherited
   by its children as the default for their requests. See The handle model.
-- **zcap action** -- the action named in a zcap invocation, which in WAS is the
-  HTTP method (`GET`, `PUT`, ...), because WAS scopes capabilities by verb.
+- **zcap action** -- the action named in a zcap invocation, which in PWS is the
+  HTTP method (`GET`, `PUT`, ...), because PWS scopes capabilities by verb.
   Avoid: ezcap's `read` / `write` actions.
 - **Codec seam** -- the interface-only boundary between core and any encryption
   implementation: `ResourceCodec` and `EncryptionProvider` in `src/codec.ts`.
@@ -1083,7 +1083,7 @@ it, and otherwise cover the client-side concepts this file names.
   (`src/edv/EdvCodec.ts`), reached through the `createEdvEncryption` factory
   (`src/edv/encryption.ts`). See The EDV layer.
 - **`WasTransport`** -- the EDV-native `@interop/edv-client` `Transport` that
-  maps EDV document operations onto WAS resource CRUD, one vault per collection
+  maps EDV document operations onto PWS resource CRUD, one vault per collection
   (`src/edv/`). See The EDV layer.
 - **Key epoch** -- one generation of a collection's encryption key: a fresh
   X25519 key whose secret is wrapped to each reader on the descriptor. Rotation
@@ -1113,7 +1113,7 @@ it, and otherwise cover the client-side concepts this file names.
   Recognized by the EDV doc cipher's `isPendingStub`, and removed with its
   chunks by deleting the resource. Avoid: orphan, torn document. See The EDV
   layer.
-- **`WasSyncPort`** -- the injected WAS-access seam for cross-replica
+- **`WasSyncPort`** -- the injected PWS-access seam for cross-replica
   synchronization (`src/sync/types.ts`, implemented by `createWasSyncPort`): it
   moves stored bodies verbatim and never touches keys. Avoid: sync engine (the
   sync layer supplies seams and does not drive reconciliation). See The sync
@@ -1137,7 +1137,7 @@ it, and otherwise cover the client-side concepts this file names.
   scoped to the issuing server and Collection and compared by equality only. See
   The sync layer.
 - **Masked 404** -- a 404 that means "missing OR not visible to you", because
-  WAS returns unauthorized as not-found. It is what the fail-closed rules exist
+  PWS returns unauthorized as not-found. It is what the fail-closed rules exist
   to handle. See The 404-vs-null convention.
 
 ## Where to add what

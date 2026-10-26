@@ -22,6 +22,10 @@
 - An integration test reads the `changes` feed through `collection.changes()`
   under a GET and HEAD delegation (the derived `GET` form) and shows the same
   grant refused on the `POST` form.
+- `GrantOptions.actions` accepts `'HEAD'` (via `@interop/storage-core`
+  0.39.0's `ActionInput`). The server verifies a `HEAD` request against the
+  `HEAD` action, not `GET`, so a read grant that covers a metadata probe can
+  now name it without a cast.
 
 ### Changed
 

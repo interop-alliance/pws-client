@@ -1,6 +1,6 @@
 # Contributing
 
-Editor setup and code style conventions for the Wallet Attached Storage (WAS)
+Editor setup and code style conventions for the Portable Web Spaces (PWS)
 client. Coding agents receive this file via the include in
 [AGENTS.md](AGENTS.md).
 

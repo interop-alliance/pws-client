@@ -4266,3 +4266,37 @@ The JSDoc's existing caveat covers only `custom`. A documentation caveat and a
 projecting fix are both defensible; the projecting one is the wider change and
 is what the `touches:` entry is for. discovered-from: whole-codebase review,
 2026-09-11.
+
+### WCL-91: [M] `ActionInput` cannot express HEAD, which the library itself invokes
+
+- status: done (2026-10-26)
+- priority: medium
+- labels: zcap, types, upstream, cross-repo
+- touches:
+  - storage-core: `Action` / `ActionInput` is a shared `@interop/*` API and a
+    wire vocabulary; adding `'HEAD'` needs the maintainer's sign-off --
+    shipped: `Action` includes `'HEAD'` since storage-core 0.38.0
+  - unaffected: portable-web-spaces-spec (the spec already reduces `HEAD` to
+    the `read` access kind beside `GET`; it has no per-verb action registry)
+- acceptance:
+  - [x] A delegate can be granted the HEAD action through `GrantOptions.actions`
+        without casting past the type, or `WasTransport` probes with GET instead
+
+The server does not treat HEAD as GET for the capability check. `authorize.ts`
+passes `allowedAction: method`, so a HEAD request expects the action `'HEAD'`,
+and the GET/HEAD merge a few lines earlier applies only to the policy fallback.
+`@interop/zcap` then does a strict `allowedActions.includes('HEAD')`. So a
+delegate holding `was.grant({ actions: ['GET', 'PUT'] })` cannot pass the EDV
+degraded-insert HEAD probe, and the type gives no way to name the action. The
+owner case works, because `WasTransport` passes no capability and the root
+zcap's empty `allowedAction` skips the check. The server's own allowlist already
+names HEAD (`WAS_ACTIONS = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']`), so the
+client's vocabulary is the side out of step. discovered-from: whole-codebase
+review, 2026-09-11.
+
+
+Resolution: storage-core 0.38.0 added `'HEAD'` to `Action`, so
+`GrantOptions.actions` names it with no cast; a unit test pins the lowercase
+normalization and the README's verb list now includes it. The degraded-insert
+HEAD probe this item was discovered on is gone: `WasTransport.insert` is a
+single `PUT` with `If-None-Match: *`.

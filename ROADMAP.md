@@ -1,4 +1,4 @@
-# WAS Client Roadmap (open items)
+# PWS Client Roadmap (open items)
 
 nextAvailableId: 137
 
@@ -54,7 +54,6 @@ Ready:
   errors
 - WCL-90 [M] `was.request()` signs the caller's method verbatim, so a lowercase
   method 403s
-- WCL-91 [M] `ActionInput` cannot express HEAD, which the library itself invokes
 - WCL-92 [M] Buffered listings return the first page's `totalItems` beside
   fully-aggregated items
 - WCL-58 [L] A key-wrap authentication failure is reported as a membership
@@ -142,9 +141,9 @@ Ready:
 
 <!-- roadmap-order:index:end -->
 
-Open work items for the `@interop/wallet-attached-storage-client` library,
+Open work items for the `@interop/was-client` library,
 measured against `spec.md` in the
-[w3c-ccg/wallet-attached-storage-spec](https://github.com/w3c-ccg/wallet-attached-storage-spec)
+[w3c-ccg/portable-web-spaces-spec](https://github.com/w3c-ccg/portable-web-spaces-spec)
 repo and the `was-teaching-server` feature set. The item structure is shared
 with the freewallet, was-teaching-server, was-react, and isomorphic-lib-template
 roadmaps; this file was converted to it on 2026-08-12 and re-sectioned by kind
@@ -617,7 +616,7 @@ discovered-from: whole-codebase review, 2026-09-11.
     the create response and then keeps only its id
   - was-teaching-server: confirm the description echo on Create Collection is
     contractual rather than incidental (`SpaceRequest.ts:525`)
-  - wallet-attached-storage-spec: the Create Collection response text, if the
+  - portable-web-spaces-spec: the Create Collection response text, if the
     client is going to depend on the echo
 - acceptance:
   - [ ] `createCollection` reads the create response body and pins the
@@ -839,31 +838,6 @@ parameter). It only normalizes toward the convention `grant.ts`'s header already
 documents, but wire-level conventions are the maintainer's call, so the
 direction stays open until signed off. discovered-from: whole-codebase review,
 2026-09-11.
-
-### WCL-91: [M] `ActionInput` cannot express HEAD, which the library itself invokes
-
-- status: todo
-- priority: medium
-- labels: zcap, types, upstream, cross-repo
-- touches:
-  - storage-core: `Action` / `ActionInput` is a shared `@interop/*` API and a
-    wire vocabulary; adding `'HEAD'` needs the maintainer's sign-off
-  - wallet-attached-storage-spec: whether the action registry names HEAD
-- acceptance:
-  - [ ] A delegate can be granted the HEAD action through `GrantOptions.actions`
-        without casting past the type, or `WasTransport` probes with GET instead
-
-The server does not treat HEAD as GET for the capability check. `authorize.ts`
-passes `allowedAction: method`, so a HEAD request expects the action `'HEAD'`,
-and the GET/HEAD merge a few lines earlier applies only to the policy fallback.
-`@interop/zcap` then does a strict `allowedActions.includes('HEAD')`. So a
-delegate holding `was.grant({ actions: ['GET', 'PUT'] })` cannot pass the EDV
-degraded-insert HEAD probe, and the type gives no way to name the action. The
-owner case works, because `WasTransport` passes no capability and the root
-zcap's empty `allowedAction` skips the check. The server's own allowlist already
-names HEAD (`WAS_ACTIONS = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']`), so the
-client's vocabulary is the side out of step. discovered-from: whole-codebase
-review, 2026-09-11.
 
 ### WCL-92: [M] Buffered listings return the first page's `totalItems` beside fully-aggregated items
 
@@ -1186,7 +1160,7 @@ once the spec or the server has settled them.
 - labels: spec, conditional-writes, metadata
 - discovered-from: WCL-34 (2026-10-05)
 - touches:
-  - wallet-attached-storage-spec: the Read Resource Metadata and Update Resource
+  - portable-web-spaces-spec: the Read Resource Metadata and Update Resource
     Metadata operations state what a `/meta` write leaves (the Resource's
     `updatedAt` and `ETag`) but not what a content write does to the `/meta`
     validator, nor whether the validator exists before any `/meta` write
@@ -1216,9 +1190,9 @@ settled in a test.
 - priority: medium
 - labels: service-description, authorization, spec-alignment, wire-contract
 - touches:
-  - wallet-attached-storage-spec: WASS-44. SHIPPED (2026-09-16): the zCap
+  - portable-web-spaces-spec: WASS-44. SHIPPED (2026-09-16): the zCap
     profile is the companion spec `PWS-AUTHZ`
-    (`https://w3c-ccg.github.io/wallet-attached-storage-spec/authz-profile/`),
+    (`https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/`),
     identifier `https://w3id.org/pws/authz-profile`, version `0.1`. Core's
     Selecting a Version now says a server that lists no authorization profile
     the client implements is incompatible, and the profile's entry (not core's)
@@ -1248,8 +1222,8 @@ settled in a test.
         with a core entry but no profile entry
   - [ ] README.md and ARCHITECTURE.md describe the two-key selection and cite
         the profile spec for the credential the client constructs:
-        `https://w3c-ccg.github.io/wallet-attached-storage-spec/authz-profile/#performing-authorized-api-calls`,
-        `https://w3c-ccg.github.io/wallet-attached-storage-spec/authz-profile/#request-body-integrity-digest-header`
+        `https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#performing-authorized-api-calls`,
+        `https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#request-body-integrity-digest-header`
   - [ ] CHANGELOG entry notes that a server listing no
         `https://w3id.org/pws/authz-profile` entry is now refused
 
@@ -1264,7 +1238,7 @@ the place the spec now says to look.
 - priority: low
 - labels: conditional-writes, provisioning, spec
 - touches:
-  - wallet-attached-storage-spec: WASS-31 (shipped 2026-09-07: Update Collection
+  - portable-web-spaces-spec: WASS-31 (shipped 2026-09-07: Update Collection
     documents `If-None-Match: *` and its 412; the Space Data Model gains the
     server-managed validator, Read Space the `ETag`, Update Space both
     preconditions)
@@ -1388,7 +1362,7 @@ Request or memory cost on a path that already answers correctly.
 - touches:
   - vh-resource-log: incremental verification from a held pin lives in the
     verifier
-  - wallet-attached-storage-spec, was-teaching-server: a tail read of `meta/log`
+  - portable-web-spaces-spec, was-teaching-server: a tail read of `meta/log`
     is a new wire contract; WAS-102 already covers the server re-parsing the log
     on every Collection Metadata read
 - acceptance:
@@ -1803,7 +1777,7 @@ than filed as work.
 - priority: low
 - labels: streams, chunks, spec
 - touches:
-  - "wallet-attached-storage-spec" -- the core spec reserves the `chunks`
+  - "portable-web-spaces-spec" -- the core spec reserves the `chunks`
     sub-path but defines chunk endpoints only by reference to the Encrypted
     Collections spec; a plaintext chunked Resource needs its own definition
   - "was-teaching-server" -- chunk endpoints would need to serve a plaintext

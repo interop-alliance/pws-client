@@ -60,6 +60,19 @@ describe('was.grant (delegation)', () => {
     expect(lastDelegate()?.allowedActions).toEqual(['GET'])
   })
 
+  it('grants HEAD, the action a HEAD request is verified under', async () => {
+    // Typed, not cast: `ActionInput` names HEAD, so a read grant that covers
+    // a metadata probe needs no escape hatch. The server checks a HEAD
+    // request against the `HEAD` action, not `GET`.
+    const { client, lastDelegate } = clientWithDelegateSpy()
+    await client.grant({
+      to: 'did:example:bob',
+      actions: ['GET', 'head'],
+      target: 'https://was.example/space/s/c/'
+    })
+    expect(lastDelegate()?.allowedActions).toEqual(['GET', 'HEAD'])
+  })
+
   it('passes through controller, invocationTarget, expires and capability', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     const expires = '2026-01-01T00:00:00Z'

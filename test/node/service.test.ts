@@ -44,7 +44,7 @@ function exampleDescription(): ServiceDescription {
       [PWS_SPEC_ID]: [
         {
           version: '0.5',
-          url: 'https://w3c-ccg.github.io/wallet-attached-storage-spec/v0.5/',
+          url: 'https://w3c-ccg.github.io/portable-web-spaces-spec/v0.5/',
           spaces: 'https://host.example/was/spaces/',
           features: ['listing', 'collection-management', 'future-token'],
           signatureAlgorithms: ['EdDSA'],
