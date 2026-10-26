@@ -1,8 +1,9 @@
 # Agent Guidelines
 
-This is a client implementation of the Portable Web Spaces (PWS, formerly Wallet Attached Storage / WAS) spec, a W3C CCG
-work item (home: <https://github.com/w3c-ccg/portable-web-spaces-spec>;
-rendered: <https://w3c-ccg.github.io/portable-web-spaces-spec/>).
+This is a client implementation of the Portable Web Spaces (PWS, formerly Wallet
+Attached Storage / WAS) spec, a W3C CCG work item (home:
+<https://github.com/w3c-ccg/portable-web-spaces-spec>; rendered:
+<https://w3c-ccg.github.io/portable-web-spaces-spec/>).
 
 The internal design (layering, request lifecycle, the codec/encryption seam, the
 invariants to preserve when changing things, and the glossary) is documented in

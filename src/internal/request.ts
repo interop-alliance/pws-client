@@ -86,13 +86,16 @@ export async function rawRequest(
 ): Promise<HttpResponse> {
   const url = resolveRequestUrl(context, input)
   await context.service()
-  const method = input.method ?? 'GET'
+  // Uppercase the method and the action, as `grant()` does: the server
+  // matches the signed action case-sensitively against the request method,
+  // so a lowercase `method: 'put'` or `action: 'put'` would be refused.
+  const method = (input.method ?? 'GET').toUpperCase()
   return context.zcapClient.request({
     url,
     capability: input.capability,
     method,
     // Default the capability action to the HTTP method (never `read`/`write`).
-    action: input.action ?? method,
+    action: (input.action ?? method).toUpperCase(),
     headers: input.headers,
     json: input.json,
     body: input.body

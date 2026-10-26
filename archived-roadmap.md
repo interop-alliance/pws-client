@@ -4274,10 +4274,10 @@ is what the `touches:` entry is for. discovered-from: whole-codebase review,
 - labels: zcap, types, upstream, cross-repo
 - touches:
   - storage-core: `Action` / `ActionInput` is a shared `@interop/*` API and a
-    wire vocabulary; adding `'HEAD'` needs the maintainer's sign-off --
-    shipped: `Action` includes `'HEAD'` since storage-core 0.38.0
-  - unaffected: portable-web-spaces-spec (the spec already reduces `HEAD` to
-    the `read` access kind beside `GET`; it has no per-verb action registry)
+    wire vocabulary; adding `'HEAD'` needs the maintainer's sign-off -- shipped:
+    `Action` includes `'HEAD'` since storage-core 0.38.0
+  - unaffected: portable-web-spaces-spec (the spec already reduces `HEAD` to the
+    `read` access kind beside `GET`; it has no per-verb action registry)
 - acceptance:
   - [x] A delegate can be granted the HEAD action through `GrantOptions.actions`
         without casting past the type, or `WasTransport` probes with GET instead
@@ -4294,9 +4294,39 @@ names HEAD (`WAS_ACTIONS = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']`), so the
 client's vocabulary is the side out of step. discovered-from: whole-codebase
 review, 2026-09-11.
 
-
 Resolution: storage-core 0.38.0 added `'HEAD'` to `Action`, so
 `GrantOptions.actions` names it with no cast; a unit test pins the lowercase
 normalization and the README's verb list now includes it. The degraded-insert
 HEAD probe this item was discovered on is gone: `WasTransport.insert` is a
 single `PUT` with `If-None-Match: *`.
+
+### WCL-90: [M] `was.request()` signs the caller's method verbatim, so a lowercase method 403s
+
+- status: done (2026-10-26)
+- priority: medium
+- labels: zcap, correctness, api
+- acceptance:
+  - [x] `was.request({ method: 'put' })` and an explicit lowercase
+        `input.action` produce the same zcap action as `grant()` does
+  - [x] The direction is signed off by the maintainer before it is coded
+
+`rawRequest` passes the caller's method through as the zcap action while
+`delegateGrant` uppercases, so `was.request({ method: 'put' })` signs
+`action="put"` and the server refuses. Both sides of the wire are settled. The
+reference server passes the raw `request.method` as `allowedAction`, which is
+always uppercase because Node's HTTP parser does not lowercase a method, and
+`@interop/zcap` does a strict `includes` followed by a strict inequality check
+with no case folding. So the request fails even with no delegated zcap in play,
+against the root invocation. The library's own call sites all pass uppercase, so
+this bites the public escape hatch only, but `ActionInput` is
+`Action | Lowercase<Action>` everywhere else, so lowercase is an advertised
+input. The fix changes a wire-visible value (the `capability-invocation` action
+parameter). It only normalizes toward the convention `grant.ts`'s header already
+documents, but wire-level conventions are the maintainer's call, so the
+direction stays open until signed off. discovered-from: whole-codebase review,
+2026-09-11.
+
+Resolution: signed off as "uppercase method and action" (the convention
+`grant()` already applies). `rawRequest` now uppercases both the HTTP method and
+the action, defaulted or explicit; a unit test pins `'put'` and an explicit
+`'head'` to `PUT` / `HEAD`.

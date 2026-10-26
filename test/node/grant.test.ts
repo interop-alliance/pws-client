@@ -11,7 +11,10 @@
 import { describe, it, expect } from 'vitest'
 
 import { ValidationError, WasClient, allowsAction } from '../../src/index.js'
-import { serviceDescriptionFor } from '../helpers/stubClient.js'
+import {
+  clientWithRequestSpy,
+  serviceDescriptionFor
+} from '../helpers/stubClient.js'
 
 interface DelegateArgs {
   controller?: string
@@ -270,5 +273,25 @@ describe('was.grant input validation', () => {
 
     await client.space('s').grant({ to: 'did:example:bob', actions: ['GET'] })
     expect(captured?.invocationTarget).toBe('https://was.example/space/s/')
+  })
+})
+
+describe('was.request action normalization', () => {
+  it('signs a lowercase method under the uppercase action grant() delegates', async () => {
+    const { client, lastRequest } = clientWithRequestSpy()
+    await client.request({ path: '/space/s/c/r', method: 'put' })
+    expect(lastRequest()?.method).toBe('PUT')
+    expect(lastRequest()?.action).toBe('PUT')
+  })
+
+  it('uppercases an explicit lowercase action', async () => {
+    const { client, lastRequest } = clientWithRequestSpy()
+    await client.request({
+      path: '/space/s/c/r',
+      method: 'GET',
+      action: 'head'
+    })
+    expect(lastRequest()?.method).toBe('GET')
+    expect(lastRequest()?.action).toBe('HEAD')
   })
 })

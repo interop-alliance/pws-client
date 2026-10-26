@@ -633,8 +633,9 @@ export class WasClient {
 
   /**
    * The signed escape hatch, mirroring ezcap's generic `request()`. Resolves
-   * `path` against `baseUrl`, defaults `action` to `method`, and signs via the
-   * wrapped client. Returns the raw `HttpResponse` and throws raw ky/ezcap
+   * `path` against `baseUrl`, defaults `action` to `method`, uppercases both
+   * (as {@link grant} does, so `'put'` signs `PUT`), and signs via the wrapped
+   * client. Returns the raw `HttpResponse` and throws raw ky/ezcap
    * errors -- it does not apply the null-on-404 or typed-error conveniences.
    * Like every signed request it waits on {@link service} first, and rejects
    * with its `IncompatibleServerError` before signing anything.

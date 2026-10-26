@@ -52,8 +52,6 @@ Ready:
   unreachable on every read
 - WCL-89 [M] A mid-walk 404 truncates a listing, and the walk throws untyped
   errors
-- WCL-90 [M] `was.request()` signs the caller's method verbatim, so a lowercase
-  method 403s
 - WCL-92 [M] Buffered listings return the first page's `totalItems` beside
   fully-aggregated items
 - WCL-58 [L] A key-wrap authentication failure is reported as a membership
@@ -141,8 +139,8 @@ Ready:
 
 <!-- roadmap-order:index:end -->
 
-Open work items for the `@interop/was-client` library,
-measured against `spec.md` in the
+Open work items for the `@interop/was-client` library, measured against
+`spec.md` in the
 [w3c-ccg/portable-web-spaces-spec](https://github.com/w3c-ccg/portable-web-spaces-spec)
 repo and the `was-teaching-server` feature set. The item structure is shared
 with the freewallet, was-teaching-server, was-react, and isomorphic-lib-template
@@ -616,8 +614,8 @@ discovered-from: whole-codebase review, 2026-09-11.
     the create response and then keeps only its id
   - was-teaching-server: confirm the description echo on Create Collection is
     contractual rather than incidental (`SpaceRequest.ts:525`)
-  - portable-web-spaces-spec: the Create Collection response text, if the
-    client is going to depend on the echo
+  - portable-web-spaces-spec: the Create Collection response text, if the client
+    is going to depend on the echo
 - acceptance:
   - [ ] `createCollection` reads the create response body and pins the
         per-handle override only when the stored `encryption` is present and
@@ -812,32 +810,6 @@ HTML interstitial escapes as `SyntaxError` and a wrong-shape JSON body as
 page.
 
 discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-90: [M] `was.request()` signs the caller's method verbatim, so a lowercase method 403s
-
-- status: todo
-- priority: medium
-- labels: zcap, correctness, api
-- acceptance:
-  - [ ] `was.request({ method: 'put' })` and an explicit lowercase
-        `input.action` produce the same zcap action as `grant()` does
-  - [ ] The direction is signed off by the maintainer before it is coded
-
-`rawRequest` passes the caller's method through as the zcap action while
-`delegateGrant` uppercases, so `was.request({ method: 'put' })` signs
-`action="put"` and the server refuses. Both sides of the wire are settled. The
-reference server passes the raw `request.method` as `allowedAction`, which is
-always uppercase because Node's HTTP parser does not lowercase a method, and
-`@interop/zcap` does a strict `includes` followed by a strict inequality check
-with no case folding. So the request fails even with no delegated zcap in play,
-against the root invocation. The library's own call sites all pass uppercase, so
-this bites the public escape hatch only, but `ActionInput` is
-`Action | Lowercase<Action>` everywhere else, so lowercase is an advertised
-input. The fix changes a wire-visible value (the `capability-invocation` action
-parameter). It only normalizes toward the convention `grant.ts`'s header already
-documents, but wire-level conventions are the maintainer's call, so the
-direction stays open until signed off. discovered-from: whole-codebase review,
-2026-09-11.
 
 ### WCL-92: [M] Buffered listings return the first page's `totalItems` beside fully-aggregated items
 
@@ -1190,8 +1162,8 @@ settled in a test.
 - priority: medium
 - labels: service-description, authorization, spec-alignment, wire-contract
 - touches:
-  - portable-web-spaces-spec: WASS-44. SHIPPED (2026-09-16): the zCap
-    profile is the companion spec `PWS-AUTHZ`
+  - portable-web-spaces-spec: WASS-44. SHIPPED (2026-09-16): the zCap profile is
+    the companion spec `PWS-AUTHZ`
     (`https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/`),
     identifier `https://w3id.org/pws/authz-profile`, version `0.1`. Core's
     Selecting a Version now says a server that lists no authorization profile
@@ -1362,9 +1334,9 @@ Request or memory cost on a path that already answers correctly.
 - touches:
   - vh-resource-log: incremental verification from a held pin lives in the
     verifier
-  - portable-web-spaces-spec, was-teaching-server: a tail read of `meta/log`
-    is a new wire contract; WAS-102 already covers the server re-parsing the log
-    on every Collection Metadata read
+  - portable-web-spaces-spec, was-teaching-server: a tail read of `meta/log` is
+    a new wire contract; WAS-102 already covers the server re-parsing the log on
+    every Collection Metadata read
 - acceptance:
   - [ ] A repeat acquisition verifies only the entries after the held pin, plus
         the chain link to it
@@ -1777,9 +1749,9 @@ than filed as work.
 - priority: low
 - labels: streams, chunks, spec
 - touches:
-  - "portable-web-spaces-spec" -- the core spec reserves the `chunks`
-    sub-path but defines chunk endpoints only by reference to the Encrypted
-    Collections spec; a plaintext chunked Resource needs its own definition
+  - "portable-web-spaces-spec" -- the core spec reserves the `chunks` sub-path
+    but defines chunk endpoints only by reference to the Encrypted Collections
+    spec; a plaintext chunked Resource needs its own definition
   - "was-teaching-server" -- chunk endpoints would need to serve a plaintext
     Collection's reassembled Resource on a plain `GET`
 - acceptance: none yet -- spec-blocked (see below)
