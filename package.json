@@ -99,7 +99,7 @@
     "@interop/data-integrity-proof": "3.4.8",
     "@interop/ed25519-verification-key": "^8.2.2",
     "@interop/jsonld-signatures": "11.9.0",
-    "@interop/zcap": "link:../zcap",
+    "@interop/zcap": "^11.4.0",
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.1.2",
     "@vitest/coverage-v8": "^4.1.10",
