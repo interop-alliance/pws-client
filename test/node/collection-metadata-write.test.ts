@@ -249,6 +249,46 @@ describe('configure() beside a concurrent recipient grant', () => {
     expect(writes[0]?.headers?.['if-match']).toBe('"1"')
   })
 
+  it("re-reads when the caller's current is not the version ifMatch names", async () => {
+    // The caller's `current` was read at version 1 while the write pins to
+    // version 2. Merging over the stale read would silently drop whatever
+    // changed in between, so the baseline is a fresh read instead.
+    const { client, calls } = clientWith(args =>
+      args.method === 'GET'
+        ? served(
+            {
+              id: 'c',
+              type: ['Collection'],
+              encryption: rosterOf('alice', 'bob')
+            },
+            '"2"'
+          )
+        : jsonResponse({ status: 204, headers: { etag: '"3"' } })
+    )
+    const result = await client
+      .space('s')
+      .collection('c')
+      .configure({
+        name: 'Renamed',
+        current: {
+          id: 'c',
+          type: ['Collection'],
+          encryption: rosterOf('alice'),
+          etag: '"1"'
+        } as CollectionMetadata & { etag?: string },
+        ifMatch: '"2"'
+      })
+    expect(calls.filter(call => call.method === 'GET')).toHaveLength(1)
+    const writes = calls.filter(call => call.method === 'PUT')
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.headers?.['if-match']).toBe('"2"')
+    expect(writes[0]?.json).toMatchObject({
+      name: 'Renamed',
+      encryption: rosterOf('alice', 'bob')
+    })
+    expect(result.description.encryption).toEqual(rosterOf('alice', 'bob'))
+  })
+
   it('refuses a pinned configure when the object is gone, force or not', async () => {
     // A write pinned to a validator is to an object the caller has read, so an
     // unreadable one is a lost Collection, not the upsert `force` unlocks.

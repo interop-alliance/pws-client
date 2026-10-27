@@ -41,7 +41,7 @@
 - An integration test reads the `changes` feed through `collection.changes()`
   under a GET and HEAD delegation (the derived `GET` form) and shows the same
   grant refused on the `POST` form.
-- `GrantOptions.actions` accepts `'HEAD'` (via `@interop/storage-core` 0.39.0's
+- `GrantOptions.actions` accepts `'HEAD'` (via `@interop/storage-core`'s
   `ActionInput`). The server verifies a `HEAD` request against the `HEAD`
   action, not `GET`, so a read grant that covers a metadata probe can now name
   it without a cast.
@@ -73,6 +73,11 @@
 
 ### Fixed
 
+- `Collection.configure()` with both `current` and `ifMatch` now uses the
+  supplied `current` as the merge baseline only when its `etag` is the one
+  `ifMatch` names; otherwise it re-reads. A stale `current` could previously
+  merge over the changes between the two versions, and the pinned write would
+  then be accepted.
 - `Resource.setName()` / `setTags()` on a `/meta` read that resolves to null
   (404) refuse with `NotFoundError` before any write goes out; a unit test now
   pins that path, so the full-replacement write can no longer go out bare.
@@ -99,7 +104,7 @@
 ### Changed
 
 - `@interop/zcap` 11.4.0, for the exported `isValidTarget`.
-- `@interop/storage-core` ^0.38.0: `Action` names `HEAD`, so `grant()` accepts a
+- `@interop/storage-core` ^0.39.0: `Action` names `HEAD`, so `grant()` accepts a
   GET and HEAD share grant without a cast.
 - `UnknownEpochError` now extends `WasError` (so `mapError` passes it through
   unchanged), exposes `collectionId` and `kids` as own properties, accepts a

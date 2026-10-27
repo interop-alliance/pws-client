@@ -1282,12 +1282,10 @@ recorded in the CHANGELOG, not here.
 - priority: medium
 - labels: replication, spaces, api
 - discovered-from: freewallet FW-688 (2026-10-26)
-- blocked-by: SC-11, and the was-teaching-server counterpart (the replica
-  design's delegated replicas route and the `pausedAt` pause with the in-place
-  capability replacement; not yet filed there)
+- blocked-by: SC-11
 - touches:
-  - storage-core: SC-11 (`ReplicaRegistration.pausedAt`,
-    `ReplicaStatus.state` gains `paused`), picked up by a storage-core bump
+  - storage-core: SC-11 (`ReplicaRegistration.pausedAt`, `ReplicaStatus.state`
+    gains `paused`), picked up by a storage-core bump
   - was-teaching-server: the PUT on the registration URL, its body, and its
     refusals; the replicas route admitting a delegated invocation
   - portable-web-spaces-spec: decision 0013 amended and WASS-50's text (the
@@ -1315,23 +1313,22 @@ recorded in the CHANGELOG, not here.
         reserved sub-resource target (`src/WasClient.ts:563-570`), so a
         replicas-route grant is opened with `was.space(id, { capability })`
   - [ ] `replicaStatus` documents the `paused` state
-  - [ ] Integration tests against the teaching server cover pause, the
-        `paused` status, resume, the replacement keeping the `id`, and the
-        replica methods under a delegated replicas-route grant
+  - [ ] Integration tests against the teaching server cover pause, the `paused`
+        status, resume, the replacement keeping the `id`, and the replica
+        methods under a delegated replicas-route grant
 
-Context: freewallet FW-688 lets every session kind keep a replica of the
-account Space on a second server. A credential-anchored account has no key
-that can root-invoke on the promoted replica Space, so the server's replicas
-route will admit a root-chained delegated invocation. Stopping a replica keeps
-its copy, but the server refuses to remove the registration that maps the
-Space's did:webvh controller, so Stop pauses the registration instead. The
-pause is a `pausedAt` member written and cleared by PUT on the registration
-URL, and `status.state` reads `paused` while it is set. Every pull grant dies
-when its signer is withdrawn, so the same PUT also swaps a registration's
-pull capability in place. The registration keeps its `id`, its loop, and its
-checkpoint (loop state is per id). The replication version stays `0.1`. The
-`Space` handle has only POST, GET, and DELETE on the route today
-(`src/Space.ts:784-913`).
+Context: freewallet FW-688 lets every session kind keep a replica of the account
+Space on a second server. A credential-anchored account has no key that can
+root-invoke on the promoted replica Space, so the server's replicas route will
+admit a root-chained delegated invocation. Stopping a replica keeps its copy,
+but the server refuses to remove the registration that maps the Space's
+did:webvh controller, so Stop pauses the registration instead. The pause is a
+`pausedAt` member written and cleared by PUT on the registration URL, and
+`status.state` reads `paused` while it is set. Every pull grant dies when its
+signer is withdrawn, so the same PUT also swaps a registration's pull capability
+in place. The registration keeps its `id`, its loop, and its checkpoint (loop
+state is per id). The replication version stays `0.1`. The `Space` handle has
+only POST, GET, and DELETE on the route today (`src/Space.ts:784-913`).
 
 ### WCL-138: [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
 
@@ -1340,11 +1337,11 @@ checkpoint (loop state is per id). The replication version stays `0.1`. The
 - labels: replication, paths, api
 - discovered-from: freewallet FW-688 (2026-10-26)
 - touches:
-  - wallet-core: the consumer; it mints the replicas-route maintenance grant
-    for the ladder kind and needs the route's target URL
+  - wallet-core: the consumer; it mints the replicas-route maintenance grant for
+    the ladder kind and needs the route's target URL
 - acceptance:
-  - [ ] `src/paths.ts` re-exports `spaceReplicas` and `replicaRegistration`
-        from `src/internal/paths.ts` (`:191-204`)
+  - [ ] `src/paths.ts` re-exports `spaceReplicas` and `replicaRegistration` from
+        `src/internal/paths.ts` (`:191-204`)
   - [ ] The exported JSDoc no longer says "Controller-only" and states whether
         the replicas-route grant's `invocationTarget` is the bare
         `/space/:id/replicas` path these builders return or a trailing-slash
@@ -1353,10 +1350,10 @@ checkpoint (loop state is per id). The replication version stays `0.1`. The
 
 Context: freewallet FW-688's ladder kind mints a short-lived grant on the
 replica Space's replicas route, to replace or pause a registration and to read
-its status. wallet-core builds that grant and needs the route's target URL.
-The builders exist only in `src/internal/paths.ts:191-212`. The public
-`/paths` entry (`src/paths.ts:36-52`) does not export them, so wallet-core
-would have to rebuild the path by string concatenation.
+its status. wallet-core builds that grant and needs the route's target URL. The
+builders exist only in `src/internal/paths.ts:191-212`. The public `/paths`
+entry (`src/paths.ts:36-52`) does not export them, so wallet-core would have to
+rebuild the path by string concatenation.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 
@@ -1644,15 +1641,15 @@ discovered-from: whole-codebase review, 2026-09-11.
     `#reapChunks`, `#reapFailed`, the `prior.chunked` plumbing) and
     `src/edv/WasTransport.ts` (`listChunks`, `deleteChunk`)
 - acceptance:
-  - [ ] The EDV core owns the whole chunk lifecycle of a replacing write
-        (write, count, reaping of the prior document's leftover chunks), given
-        a transport that lists and deletes chunks
-  - [ ] `EdvCodec` no longer casts the core's untyped `insert` / `update`
-        result to read the sealed chunk count
-  - [ ] `#replacingWrite` is gone: an inline document written over a chunked
-        one goes through the core's `update`, which reaps for it
-  - [ ] `listChunks` / `deleteChunk` are part of the transport contract the
-        core knows, not operations the codec drives beside it
+  - [ ] The EDV core owns the whole chunk lifecycle of a replacing write (write,
+        count, reaping of the prior document's leftover chunks), given a
+        transport that lists and deletes chunks
+  - [ ] `EdvCodec` no longer casts the core's untyped `insert` / `update` result
+        to read the sealed chunk count
+  - [ ] `#replacingWrite` is gone: an inline document written over a chunked one
+        goes through the core's `update`, which reaps for it
+  - [ ] `listChunks` / `deleteChunk` are part of the transport contract the core
+        knows, not operations the codec drives beside it
 
 The chunk lifecycle of a chunked document is owned by `EdvClientCore` upstream
 (it writes the document, streams the chunks, seals the count), but the cleanup
