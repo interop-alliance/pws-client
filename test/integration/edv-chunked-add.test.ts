@@ -15,19 +15,14 @@
  * unset, so a bare `pnpm test:integration` (no server) is not a failure.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { httpStatus, WasClient } from '../../src/index.js'
-import type { Space, Collection } from '../../src/index.js'
-import { resourceChunkPath } from '../../src/internal/paths.js'
-import {
-  createEdvEncryption,
-  ensureFirstEpoch,
-  ownerRecipient
-} from '../../src/edv/index.js'
+import type { Space, Collection, WasClient } from '../../src/index.js'
 import { bytesOf, drain } from '../helpers/bytes.js'
+import {
+  chunkedClient,
+  chunkStatus,
+  provisionVault
+} from '../helpers/chunkedVault.js'
 
 const serverUrl = process.env.TEST_SERVER_URL
 const describeLive = serverUrl ? describe : describe.skip
@@ -39,102 +34,23 @@ const describeLive = serverUrl ? describe : describe.skip
 const MAX_BLOB_BYTES = 4 * 1024
 const CHUNK_SIZE = 8 * 1024
 
-/**
- * Builds a WAS client whose EDV provider routes anything over
- * {@link MAX_BLOB_BYTES} to the chunked-stream path, plus the key-agreement key
- * the collection's first epoch is wrapped to.
- *
- * @returns {Promise<{ was: WasClient; kak: IKeyAgreementKey }>}
- */
-async function freshClient(): Promise<{
-  was: WasClient
-  kak: IKeyAgreementKey
-}> {
-  const keyPair = await Ed25519VerificationKey.generate()
-  const did = `did:key:${keyPair.fingerprint()}`
-
-  const kak = await X25519KeyAgreementKey2020.generate({ controller: did })
-  const keyResolver = async ({ id }: { id?: string }) => {
-    if (id !== kak.id) {
-      throw new Error(`Unknown key id "${id}".`)
-    }
-    return {
-      id: kak.id,
-      type: kak.type,
-      publicKeyMultibase: kak.publicKeyMultibase
-    }
-  }
-  const encryption = createEdvEncryption({
-    resolveKeys: async () => ({
-      keyAgreementKey: kak as IKeyAgreementKey,
-      keyResolver
-    }),
-    maxBlobBytes: MAX_BLOB_BYTES,
-    chunkSize: CHUNK_SIZE
-  })
-  return {
-    was: WasClient.fromSigner({
-      serverUrl: serverUrl!,
-      signer: keyPair.didKeySigner(),
-      encryption
-    }),
-    kak: kak as IKeyAgreementKey
-  }
-}
-
-/**
- * Reads one stored chunk resource of `resourceId` straight off the server,
- * past the codec, to observe which path the write took. The raw escape hatch
- * throws on a 404, so the status comes off the error in that case.
- *
- * @param options {object}
- * @param options.was {WasClient}
- * @param options.resourceId {string}
- * @param options.chunkIndex {number}
- * @returns {Promise<number | undefined>}   the response status
- */
-async function chunkStatus({
-  was,
-  resourceId,
-  chunkIndex
-}: {
-  was: WasClient
-  resourceId: string
-  chunkIndex: number
-}): Promise<number | undefined> {
-  try {
-    const response = await was.request({
-      path: resourceChunkPath(spaceId, 'vault', resourceId, chunkIndex),
-      method: 'GET'
-    })
-    return response.status
-  } catch (err) {
-    return httpStatus(err)
-  }
-}
-
-let spaceId: string
-
 describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
   let was: WasClient
   let space: Space
   let collection: Collection
 
   beforeAll(async () => {
-    let kak: IKeyAgreementKey
-    ;({ was, kak } = await freshClient())
-    space = await was.createSpace({ name: 'EDV Chunked Add Integration' })
-    spaceId = space.id
-    const declared = await space.createCollection({
-      id: 'vault',
-      name: 'Vault',
-      encryption: { scheme: 'edv' }
+    const client = await chunkedClient({
+      serverUrl: serverUrl!,
+      maxBlobBytes: MAX_BLOB_BYTES,
+      chunkSize: CHUNK_SIZE
     })
-    await ensureFirstEpoch({
-      collection: declared,
-      recipients: [ownerRecipient({ keyAgreementKey: kak })]
-    })
-    collection = was.space(space.id).collection('vault')
+    was = client.was
+    ;({ space, collection } = await provisionVault({
+      was,
+      kak: client.kak,
+      name: 'EDV Chunked Add Integration'
+    }))
   })
 
   afterAll(async () => {
@@ -161,11 +77,12 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
     // The blob spans several `CHUNK_SIZE` chunks, so the document carries
     // chunk resources on the server. A single-document write stores none.
+    const spaceId = space.id
     await expect(
-      chunkStatus({ was, resourceId: added.id, chunkIndex: 0 })
+      chunkStatus({ was, spaceId, resourceId: added.id, chunkIndex: 0 })
     ).resolves.toBe(200)
     await expect(
-      chunkStatus({ was, resourceId: added.id, chunkIndex: 1 })
+      chunkStatus({ was, spaceId, resourceId: added.id, chunkIndex: 1 })
     ).resolves.toBe(200)
   })
 
@@ -184,7 +101,12 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
     expect(await drain(streamed!.stream)).toEqual(bytes)
 
     await expect(
-      chunkStatus({ was, resourceId: added.id, chunkIndex: 2 })
+      chunkStatus({
+        was,
+        spaceId: space.id,
+        resourceId: added.id,
+        chunkIndex: 2
+      })
     ).resolves.toBe(200)
   })
 
@@ -198,7 +120,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
     // Sealed into one document: no chunk resource exists under it.
     await expect(
-      chunkStatus({ was, resourceId: id, chunkIndex: 0 })
+      chunkStatus({ was, spaceId: space.id, resourceId: id, chunkIndex: 0 })
     ).resolves.toBe(404)
   })
 })

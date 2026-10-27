@@ -384,13 +384,16 @@ describe('EdvCodec: id strategy', () => {
     // A resource authored by a client that mints its own row ids (e.g. a
     // legacy uuid): the id is already on the server, so an update (`current`
     // pre-read) must take it verbatim -- refusing it prevents no leak, it only
-    // strands the document. The create path keeps the guard.
+    // strands the document. The create path keeps the guard. The update opens
+    // the stored envelope as a read would, so the prior envelope must be
+    // bound to the uuid; the content create path refuses such an id, so it is
+    // minted through the resource `/meta` slot, which binds the id it is told.
     const codec = await makeCodec()
     const uuid = '01890a5d-ac96-774b-bcce-b302099a8057'
-    const prior = await codec.encode({ data: { v: 1 } })
-    const priorEnvelope = JSON.parse(
-      new TextDecoder().decode(prior.body as Uint8Array)
-    ) as Record<string, unknown>
+    const { custom: priorEnvelope } = await codec.encodeMeta({
+      custom: { v: 1 },
+      slot: { kind: 'resource', id: uuid }
+    })
     const updated = await codec.encode({
       id: uuid,
       data: { v: 2 },

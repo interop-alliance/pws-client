@@ -4330,3 +4330,47 @@ Resolution: signed off as "uppercase method and action" (the convention
 `grant()` already applies). `rawRequest` now uppercases both the HTTP method and
 the action, defaulted or explicit; a unit test pins `'put'` and an explicit
 `'head'` to `PUT` / `HEAD`.
+
+### WCL-12: [M] Chunked-stream auto-routing for `put()` (oversize update)
+
+- status: done (2026-10-26)
+- priority: medium
+- labels: encryption, streams, ergonomics
+- acceptance:
+  - [x] An oversize binary `put()` on an encrypted collection replaces the
+        existing document via the chunked-stream path instead of throwing
+  - [x] Chunks orphaned by a shrinking rewrite (or by an update that leaves the
+        chunked profile) are cleaned up or provably unreachable
+
+discovered-from: WCL-2. `add()` auto-routes but `put(id, bigBlob)` still refuses
+with the chunked-path guidance. An update is not a symmetric case: it must
+reconcile an existing document's chunks with the new stream
+(`EdvClientCore.update({ doc, stream })`) and deal with orphaned chunk resources
+when the new stream is shorter, so it is a real feature rather than a follow-up
+detail.
+
+Since WCL-120, `put(id, bigBlob)` at an id where no document is stored already
+takes the chunked write (a create-if-absent), so this item is the replace case
+only: a `put()` over an existing document.
+
+Raised to medium by the 2026-09-11 review, which proved the orphan half is not
+gated on the auto-routing feature. An ordinary small `put()` over a chunked
+encrypted document already strands the old chunks. They stay stored, counted
+against quota and decryptable, with no error. The second acceptance box covers
+it, so no separate item was filed, but an interim refusal can land before the
+routing work does. Detecting the chunked profile needs the pre-read envelope
+decrypted, since `meta.encoding` is sealed inside the JWE rather than known at
+encode time.
+
+Resolution: `upsertResource` runs a plan over an existing document, handing the
+codec its pre-read. The EDV codec opens the pre-read envelope to learn whether
+the stored document is chunked, drives `EdvClientCore.update({ doc, stream })`
+over a `WasTransport` seeded with the pre-read `ETag` (`baseline`), and after
+the write is stored lists the `/{id}/chunks/` container and deletes every chunk
+at or past the new count (all of them under an inline document), each delete
+pinned to the chunk `ETag` the listing reported. The chunk listing and chunk
+delete endpoints were already in the encrypted-collections spec and the teaching
+server, so no wire convention was added. A torn replace leaves the pending stub
+in place for the next write to replace. A reap that fails after the document is
+stored is reported as `EncryptionError`; the stale chunks are unreachable and go
+with a `delete()` of the resource.

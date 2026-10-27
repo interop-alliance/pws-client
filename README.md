@@ -1117,23 +1117,23 @@ scope for now):
   read back transparently by `get()`. Serving the chunk endpoints is a
   conformance requirement of a server that offers encrypted collections, so
   there is no client-side gate -- one that does not answers `501`.
-  `put(id, bigBlob)` takes the same route where no document is stored at `id`
-  yet, so a large binary can be created at an id of your choosing (pass
-  `ifNoneMatch: true` to get a `412` when the id is taken). Two limits apply.
-  `put()` over an existing document is refused, since replacing its chunks is
-  not automated. And a content-addressed collection (`idDerivation: 'content'`)
-  is refused too: a chunked write stores the document twice, so no single
-  ciphertext derives its id. A chunked write that fails partway deletes what it
-  wrote, and a `507` surfaces as `QuotaExceededError`. One that could not clean
-  up leaves a pending stub, which every read refuses; the EDV doc cipher's
-  `isPendingStub` recognizes it, and `delete()` removes it with its chunks. Tune
-  the threshold and the chunk size with
-  `createEdvEncryption({ maxBlobBytes, chunkSize })`.
+  `put(id, bigBlob)` takes the same route, creating the resource where none is
+  stored at `id` (pass `ifNoneMatch: true` to get a `412` when the id is taken)
+  and replacing the document otherwise. Replacing a chunked document, with a
+  blob of any size or a JSON value, reaps the chunks the new document does not
+  cover once it is stored. One limit applies: a content-addressed collection
+  (`idDerivation: 'content'`) refuses a chunked write, since it stores the
+  document twice and no single ciphertext derives its id. A chunked create that
+  fails partway deletes what it wrote, and a `507` surfaces as
+  `QuotaExceededError`. One that could not clean up, and a replace that fails
+  partway, leave a pending stub, which every read refuses; the EDV doc cipher's
+  `isPendingStub` recognizes it, the next `put()` at the id replaces it, and
+  `delete()` removes it with its chunks. Tune the threshold and the chunk size
+  with `createEdvEncryption({ maxBlobBytes, chunkSize })`.
 - **Streams.** A `ReadableStream<Uint8Array>` has no known size, so `add()`
   always routes it to the chunked-stream path, however short it is. It is
   encrypted and written as it is read, without buffering. `put(id, stream)`
-  takes the same route where no document is stored at `id` yet. Over an existing
-  document it is refused with `ValidationError` before the stream is read. A
+  takes the same route, creating or replacing the document at `id`. A
   content-addressed collection refuses a stream for the reason it refuses a
   large blob. A write that fails midway cancels the stream, so the source behind
   it is released. The content type is `options.contentType`, then a guess from

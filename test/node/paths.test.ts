@@ -39,6 +39,7 @@ import {
   resourcePolicy,
   resourceMeta,
   resourceChunkPath,
+  resourceChunksPath,
   toUrl,
   spacesUrl,
   baseUrlOfSpacesUrl,
@@ -133,6 +134,15 @@ describe('path builders', () => {
     )
   })
 
+  it('builds the chunk container path in trailing-slash form', () => {
+    expect(resourceChunksPath('home', 'docs', 'note')).toBe(
+      '/space/home/docs/note/chunks/'
+    )
+    expect(resourceChunksPath('a b', 'c/d', 'e#f')).toBe(
+      '/space/a%20b/c%2Fd/e%23f/chunks/'
+    )
+  })
+
   it('percent-encodes path segments so ids cannot break out of their slot', () => {
     expect(spacePath('a/b')).toBe('/space/a%2Fb/')
     expect(collectionPath('s p', 'd?x')).toBe('/space/s%20p/d%3Fx/')
@@ -188,7 +198,8 @@ describe('the trailing-slash convention', () => {
     resourcePath: resourcePath('home', 'docs', 'note'),
     resourceMeta: resourceMeta('home', 'docs', 'note'),
     resourcePolicy: resourcePolicy('home', 'docs', 'note'),
-    resourceChunkPath: resourceChunkPath('home', 'docs', 'note', 0)
+    resourceChunkPath: resourceChunkPath('home', 'docs', 'note', 0),
+    resourceChunksPath: resourceChunksPath('home', 'docs', 'note')
   }
 
   it('produces no two paths that differ only by a trailing slash', () => {
@@ -201,7 +212,11 @@ describe('the trailing-slash convention', () => {
   })
 
   it('ends every container path with a slash and no other path', () => {
-    const containers = new Set(['spacePath', 'collectionPath'])
+    const containers = new Set([
+      'spacePath',
+      'collectionPath',
+      'resourceChunksPath'
+    ])
     const slashed = Object.entries(everyPath)
       .filter(([, path]) => path.endsWith('/'))
       .map(([name]) => name)

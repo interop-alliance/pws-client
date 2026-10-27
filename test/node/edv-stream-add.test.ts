@@ -6,9 +6,9 @@
  * to end over an in-memory WAS server. On an encrypted random-id collection
  * `add(stream)` and a create by `put(stream)` always take the chunked-stream
  * path, whatever the stream's size, and `getStream()` hands the decrypted
- * bytes back as a stream. A content-addressed collection, a write by id over
- * an existing document, and a plaintext collection refuse a stream with
- * `ValidationError` before reading it.
+ * bytes back as a stream. A write by id over an existing document replaces
+ * it through the same path. A content-addressed collection and a plaintext
+ * collection refuse a stream with `ValidationError` before reading it.
  */
 import { describe, it, expect } from 'vitest'
 import { EdvClientCore } from '@interop/edv-client'
@@ -18,52 +18,13 @@ import {
   NotFoundError,
   ValidationError
 } from '../../src/index.js'
-import type { Collection } from '../../src/index.js'
 import { blobBytes } from '../../src/edv/core.js'
 import { bytesOf, drain, flipFirst, streamOf } from '../helpers/bytes.js'
-import { memoryServer, readerWithDescriptor } from '../helpers/memoryServer.js'
-
-/**
- * An encrypted collection over a fresh in-memory server.
- *
- * @param [options] {object}
- * @param [options.idDerivation] {'random' | 'content'}
- * @returns {Promise<object>}   the server and the collection handle
- */
-async function encryptedCollection({
-  idDerivation
-}: { idDerivation?: 'random' | 'content' } = {}): Promise<{
-  server: ReturnType<typeof memoryServer>
-  collection: Collection
-}> {
-  const { keys, encryption } = await readerWithDescriptor()
-  const server = memoryServer()
-  const collection = server
-    .client({ maxBlobBytes: 16, chunkSize: 24, idDerivation })
-    .space('s')
-    .collection('c', { encryption: { ...encryption, keys } })
-  return { server, collection }
-}
-
-/**
- * The stored chunk resource paths under one document.
- *
- * @param options {object}
- * @param options.server {object}
- * @param options.id {string}
- * @returns {string[]}
- */
-function chunkPaths({
-  server,
-  id
-}: {
-  server: ReturnType<typeof memoryServer>
-  id: string
-}): string[] {
-  return [...server.store.keys()].filter(path =>
-    path.startsWith(`/space/s/c/${id}/chunks/`)
-  )
-}
+import {
+  chunkPaths,
+  encryptedCollection,
+  memoryServer
+} from '../helpers/memoryServer.js'
 
 describe('add(stream) on an encrypted collection', () => {
   it('stores a document plus chunk resources and reads back byte-exact', async () => {
@@ -166,19 +127,18 @@ describe('put(stream) by id on an encrypted collection', () => {
     expect(await blobBytes(read)).toEqual(bytes)
   })
 
-  it('is refused over an existing document without reading the stream', async () => {
+  it('replaces an existing document, reading the stream as chunks', async () => {
     const { server, collection } = await encryptedCollection()
     const id = (await EdvClientCore.generateId()) as string
     await collection.put(id, { held: true })
-    const before = new Map(server.store)
+    const bytes = bytesOf(50)
 
-    const stream = streamOf({ bytes: bytesOf(50), pieceSize: 11 })
-    await expect(collection.resource(id).put(stream)).rejects.toBeInstanceOf(
-      ValidationError
-    )
-    expect(stream.locked).toBe(false)
-    expect(server.store).toEqual(before)
-    expect(await collection.get(id)).toEqual({ held: true })
+    const stream = streamOf({ bytes, pieceSize: 11 })
+    await collection.resource(id).put(stream, { contentType: 'image/png' })
+    expect(chunkPaths({ server, id }).length).toBe(3)
+    const read = (await collection.get(id)) as Blob
+    expect(read.type).toBe('image/png')
+    expect(await blobBytes(read)).toEqual(bytes)
   })
 })
 

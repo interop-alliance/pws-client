@@ -37,11 +37,14 @@
  * (`storeChunk` / `getChunk`) map each EDV chunk onto the reserved
  * `/{id}/chunks/{n}` sub-segment, storing the chunk object as an opaque JSON
  * body -- so `EdvClientCore.insert({
- * stream })` / `getStream` drive chunked encrypted blobs over a WAS server
- * unchanged. The chunk endpoints and the blinded-index query profile are
- * conformance requirements of the server profiles that serve them, so neither
- * carries a client-side gate: a server that does not implement one answers
- * `501`.
+ * stream })` / `update({ stream })` / `getStream` drive chunked encrypted
+ * blobs over a WAS server unchanged. Two more chunk operations sit outside
+ * the EDV contract, for the driver that replaces a chunked document:
+ * `listChunks` (the `/{id}/chunks/` container listing) and `deleteChunk`,
+ * with which it reaps the chunks a shorter rewrite left behind. The chunk
+ * endpoints and the blinded-index query profile are conformance requirements
+ * of the server profiles that serve them, so neither carries a client-side
+ * gate: a server that does not implement one answers `501`.
  * `insert` is an atomic `If-None-Match: *` create, and the EDV `sequence` is
  * enforced by the server's conditional writes.
  */
@@ -59,6 +62,7 @@ import { readEtag, writeHeaders } from '../internal/conditional.js'
 import {
   collectionQuery,
   resourceChunkPath,
+  resourceChunksPath,
   resourcePath
 } from '../internal/paths.js'
 import { DEFAULT_CONTENT_TYPE, envelopeBytes } from './constants.js'
@@ -73,6 +77,28 @@ import { DEFAULT_CONTENT_TYPE, envelopeBytes } from './constants.js'
  * so `getChunk` decodes and parses it back client-side.
  */
 const CHUNK_CONTENT_TYPE = 'application/octet-stream'
+
+/**
+ * A stored document as a write knows it: its id and, where the server
+ * reported one, the `ETag` validator it was last seen under (usable as
+ * `If-Match`).
+ */
+export interface StoredDocument {
+  id: string
+  etag?: string
+}
+
+/**
+ * One entry of a Resource's chunk listing: the stored chunk's index, size and
+ * content type, plus its `etag` where the server lists one (the quoted strong
+ * validator the chunk's own `GET` answers with, usable as `If-Match`).
+ */
+export interface ChunkListEntry {
+  index: number
+  size: number
+  contentType: string
+  etag?: string
+}
 
 /**
  * The message for the EDV unique-attribute collision (HTTP 409): a
@@ -151,14 +177,22 @@ export class WasTransport extends Transport {
    */
   readonly #documentHeaders: Record<string, string>
   /**
+   * The stored document a driver's first `update` replaces: its id and the
+   * `ETag` the driver pre-read it under. The update is pinned to it with
+   * `If-Match`, so a document another writer stored since the pre-read is not
+   * silently overwritten. `undefined` for a transport that creates.
+   */
+  readonly #baseline?: StoredDocument
+  /**
    * The last document write this transport completed, or `undefined` while it
    * has written none. `EdvClientCore` owns the write sequence and discards the
    * responses, so a driver (the codec's chunked-write plan) reads the outcome
    * of the document write here instead of inspecting requests: whether a
    * document was written at all, and the `ETag` validator the server acked it
-   * with. Chunk writes never touch it.
+   * with. Chunk writes never touch it, and neither does the baseline: a seeded
+   * pin is not a write.
    */
-  #lastDocumentWrite?: { id: string; etag?: string }
+  #lastDocumentWrite?: StoredDocument
 
   /**
    * @param options {object}
@@ -173,23 +207,30 @@ export class WasTransport extends Transport {
    *   sent with every document write, for a caller that needs the WAS-level
    *   stamps the codec seam applies (notably `Key-Epoch`). Chunk writes do not
    *   carry them -- a chunk is an opaque body, not a resource with metadata.
+   * @param [options.baseline] {StoredDocument}   the stored document the
+   *   first `update` replaces (its id and the `ETag` it was pre-read under),
+   *   which that update is then pinned to with `If-Match`. Omitted by a driver
+   *   that creates.
    */
   constructor({
     was,
     spaceId,
     collectionId,
     contentType = DEFAULT_CONTENT_TYPE,
-    documentHeaders
+    documentHeaders,
+    baseline
   }: {
     was: WasRequester
     spaceId: string
     collectionId: string
     contentType?: string
     documentHeaders?: Record<string, string>
+    baseline?: StoredDocument
   }) {
     super()
     this.#was = was
     this.#documentHeaders = documentHeaders ?? {}
+    this.#baseline = baseline
     this.spaceId = spaceId
     this.collectionId = collectionId
     this.contentType = contentType
@@ -201,9 +242,9 @@ export class WasTransport extends Transport {
    * document write succeeds, so a driver can tell "nothing was written" from
    * "written, but no validator came back".
    *
-   * @returns {{ id: string; etag?: string } | undefined}
+   * @returns {StoredDocument | undefined}
    */
-  get lastDocumentWrite(): { id: string; etag?: string } | undefined {
+  get lastDocumentWrite(): StoredDocument | undefined {
     return this.#lastDocumentWrite
   }
 
@@ -338,7 +379,9 @@ export class WasTransport extends Transport {
    * server acked it with an `ETag`, the update is sent with `If-Match` on that
    * validator. A multi-request write (a document, its chunks, then the final
    * document update) thereby fails with 412 instead of silently replacing a
-   * document another writer stored at that id in between.
+   * document another writer stored at that id in between. Before any write,
+   * the constructor's `baseline` plays that role, so the first update of a
+   * replacing write is pinned to the document its driver pre-read.
    *
    * @param options {object}
    * @param options.encrypted {IEncryptedDocument}   the document to update
@@ -350,7 +393,7 @@ export class WasTransport extends Transport {
     if (!encrypted) {
       throw new TypeError('"encrypted" is required.')
     }
-    const prior = this.#lastDocumentWrite
+    const prior = this.#lastDocumentWrite ?? this.#baseline
     const ifMatch = prior?.id === encrypted.id ? prior.etag : undefined
     try {
       await this.#put(
@@ -576,5 +619,66 @@ export class WasTransport extends Transport {
     // The chunk was stored as opaque bytes, so the http-client did not
     // pre-parse it: decode the body text and parse the EDV chunk object back.
     return JSON.parse(await response.text()) as IEDVChunk
+  }
+
+  /**
+   * Lists the chunks stored under a document: a signed `GET` of the
+   * `/{id}/chunks/` container, which the server answers with every stored
+   * chunk's index, size and content type (and its `etag`, where the server
+   * lists one), in ascending index order. Not part of the EDV
+   * `Transport` contract: it is how a driver that replaced a chunked document
+   * learns which chunks the new document does not cover. Errors surface as
+   * the typed client errors the request path raises (a missing document is
+   * `NotFoundError`).
+   *
+   * @param options {object}
+   * @param options.id {string}   the document id (= WAS resource id)
+   * @returns {Promise<ChunkListEntry[]>}   the stored chunks
+   */
+  async listChunks({ id }: { id: string }): Promise<ChunkListEntry[]> {
+    const response = await this.#was.request({
+      path: resourceChunksPath(this.spaceId, this.collectionId, id),
+      method: 'GET'
+    })
+    const listing = (await readJsonData(response)) as {
+      chunks?: unknown
+    } | null
+    if (!Array.isArray(listing?.chunks)) {
+      throw new Error(
+        `Malformed chunk listing for document "${id}": no \`chunks\` array.`
+      )
+    }
+    return listing.chunks as ChunkListEntry[]
+  }
+
+  /**
+   * Deletes one stored chunk of a document. Not part of the EDV `Transport`
+   * contract (the EDV core never deletes): it is how a driver reaps the chunks
+   * a shorter rewrite left beyond the new document's chunk count. Deleting an
+   * absent chunk is a `NotFoundError`, since the chunk delete is not
+   * idempotent, and a stale `ifMatch` is a `PreconditionFailedError`.
+   *
+   * @param options {object}
+   * @param options.id {string}   the document id (= WAS resource id)
+   * @param options.chunkIndex {number}   the chunk's ordinal index
+   * @param [options.ifMatch] {string}   the `ETag` the stored chunk must still
+   *   carry, so a driver deletes only the chunk it listed (a 412 means
+   *   another writer stored a new chunk there since)
+   * @returns {Promise<void>}
+   */
+  async deleteChunk({
+    id,
+    chunkIndex,
+    ifMatch
+  }: {
+    id: string
+    chunkIndex: number
+    ifMatch?: string
+  }): Promise<void> {
+    await this.#was.request({
+      path: this.#chunkPath(id, chunkIndex),
+      method: 'DELETE',
+      headers: writeHeaders({ precondition: { ifMatch } })
+    })
   }
 }
