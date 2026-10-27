@@ -78,13 +78,15 @@ import type { RecipientPublicKey } from './recipients.js'
 // `isEncryptedEnvelope` and the `DocCipher` interface live in the crypto-free
 // `../sync` module, and the decrypt-routing signals (`UnknownEpochError` for a
 // stale descriptor, `KeyUnwrapError` for a reader that is not a recipient of
-// the envelope's epoch) in the errors module; re-exported here so an
+// the envelope's epoch, `IntegrityError` for a kid-matched entry or envelope
+// that fails its integrity check) in the errors module; re-exported here so an
 // encrypted-collection consumer that imports this subpath gets them without a
 // second import.
 export { isEncryptedEnvelope } from '../sync/envelope.js'
 export type { DocCipher } from '../sync/types.js'
 export {
   EncryptOnlyCipherError,
+  IntegrityError,
   KeyUnwrapError,
   UnknownEpochError
 } from '../errors.js'
@@ -236,7 +238,9 @@ export interface EdvDocCipher extends DocCipher {
  * The reader must be a recipient of every epoch on the descriptor (the owner is
  * "recipient zero"). If it is a recipient of none, building the cipher
  * throws {@link KeyUnwrapError}; this surfaces it with a clearer error rather
- * than silently writing envelopes other recipients cannot read.
+ * than silently writing envelopes other recipients cannot read. An entry that
+ * names this reader but fails its key-wrap integrity check throws
+ * {@link IntegrityError} instead, and that propagates untouched.
  *
  * @param options {object}
  * @param options.keyAgreementKey {IKeyAgreementKey}

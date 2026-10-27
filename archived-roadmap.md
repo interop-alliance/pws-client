@@ -4398,3 +4398,47 @@ on. Related: `CollectionResourcesList.totalItems` is declared a required
 under a non-optional type.
 
 discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-58: [L] A key-wrap authentication failure is reported as a membership decision
+
+- status: done (2026-10-27)
+- priority: low
+- labels: encryption, key-epochs, errors
+- touches:
+  - freewallet: shipped as FW-692 (filed and implemented 2026-10-27); the
+    cipher-build sites surface a build-time `IntegrityError` as a tamper signal
+    and the migration cause map has an `IntegrityError` arm; the recovery path's
+    direct `unwrapEpochSecret` call lets the error propagate, which is the
+    intended outcome, so its `null` branch now covers only a malformed entry
+  - wallet-core: filed WC-306 (2026-10-27); the record ciphers propagate a build
+    failure as it is and every sync classifier asks `isIntegrityError` first, so
+    the item is log text, prose, and tests, plus the two direct
+    `unwrapEpochSecret` callers (the generation walk and the roster's rotation
+    delivery) whose `null` checks no longer see this failure
+  - was-react: shipped as WR-97 (filed and implemented 2026-10-27); the local
+    store's refresh catch and the shared-collection reader's build catch now
+    surface a rebuild's `IntegrityError` as itself
+  - wallet-backup: shipped as WBU-9 (filed and implemented 2026-10-27), not on
+    the original list; the generation walk's `KeyUnwrapError` fall-through in
+    `migrate/generations.ts` and `migrate/collectionWalk.ts` now handles an
+    `IntegrityError` as a tamper signal
+- acceptance:
+  - [x] An entry selected by kid equality with this reader's own key id, whose
+        AES-KW integrity check fails, surfaces as `IntegrityError` rather than
+        as `KeyUnwrapError`
+  - [x] The message no longer tells the reader it was never a recipient or was
+        removed and rotated, when the entry is addressed to it
+
+`unwrapEpochSecret` collapses an AES-KW integrity failure, a malformed `epk`,
+and a failed ECDH into one `null`. `unwrapEpochKey` selects the entry by kid
+equality with this reader's own key id first, so a `null` there cannot mean "not
+my entry". `lazyEpochKey` raises `KeyUnwrapError`, `isKeyMiss` treats that as
+"try the next candidate", and the loop's final message tells the user it was
+never a recipient. That is the inverse of the content path, which deliberately
+raises `IntegrityError` for a kid-matched key whose AEAD fails. No key or data
+is exposed, so the cost is a misleading message and a missing tamper signal.
+Archived WCL-9 settled the two-bucket split, reserving `UnknownEpochError` for
+an epoch the descriptor does not list and `KeyUnwrapError` for an epoch that
+wraps to no key this reader holds; this third bucket was never considered.
+
+discovered-from: whole-codebase review, 2026-09-11.

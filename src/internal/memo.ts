@@ -8,25 +8,37 @@
  * properties: concurrent callers share one round-trip, a rejection is not
  * cached (so the next call retries rather than replaying a stale failure), and
  * a reset drops whatever is held. Written once here so the three cannot drift
- * apart, which they had.
+ * apart, which they had. A user whose input cannot change under it may name
+ * the rejections it wants kept, so a permanent failure is raised once and then
+ * replayed instead of re-attempted.
  */
 
 /**
  * A memo of one lazily-resolved value. Holds the in-flight promise so
  * concurrent callers share a single resolution, drops it on rejection so a
- * transient failure does not permanently poison the memo, and exposes
- * {@link Memo.reset} for when the underlying answer is known to have changed.
+ * transient failure does not permanently poison the memo (unless `retain`
+ * claims that rejection), and exposes {@link Memo.reset} for when the
+ * underlying answer is known to have changed.
  */
 export class Memo<T> {
   #promise?: Promise<T>
   readonly #resolve: () => Promise<T>
+  readonly #retain: (err: unknown) => boolean
 
   /**
    * @param resolve {function}   resolves a fresh value; re-invoked after a
    *   rejection or a `reset()`, else called at most once
+   * @param [options] {object}
+   * @param [options.retain] {function}   given a rejection's reason, whether
+   *   to keep that rejection memoized (a failure a retry cannot change);
+   *   default: keep none
    */
-  constructor(resolve: () => Promise<T>) {
+  constructor(
+    resolve: () => Promise<T>,
+    { retain = () => false }: { retain?: (err: unknown) => boolean } = {}
+  ) {
     this.#resolve = resolve
+    this.#retain = retain
   }
 
   /**
@@ -52,10 +64,12 @@ export class Memo<T> {
     const promise = this.#resolve()
     // Memoize the in-flight promise so concurrent callers share one round-trip,
     // but drop it on rejection so a transient failure does not permanently
-    // poison the memo. The identity guard avoids clobbering a newer promise.
+    // poison the memo. A rejection `retain` claims stays, so the next `get()`
+    // replays it rather than paying for an attempt that can only fail the same
+    // way. The identity guard avoids clobbering a newer promise.
     this.#promise = promise
-    promise.catch((): void => {
-      if (this.#promise === promise) {
+    promise.catch((err: unknown): void => {
+      if (this.#promise === promise && !this.#retain(err)) {
         this.#promise = undefined
       }
     })

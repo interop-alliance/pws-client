@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 
-import { ValidationError } from '../../src/index.js'
+import { IntegrityError, ValidationError } from '../../src/index.js'
 import type { CollectionEncryption } from '../../src/index.js'
 import type { EncryptionDescriptorStore } from '../../src/edv/descriptorStore.js'
 import {
@@ -26,6 +26,7 @@ import {
   replaceRecipient,
   trustRosterDidKeys
 } from '../../src/edv/recipients.js'
+import { flipFirst } from '../helpers/bytes.js'
 
 /**
  * Generates a self-describing did:key X25519 reader (the default recipient
@@ -128,6 +129,33 @@ async function seedDescriptor(
 }
 
 describe('replaceRecipient', () => {
+  it("propagates IntegrityError when the owner's own entry fails its key-wrap check", async () => {
+    const oldUserKey = await makeUserKeyLike()
+    const newUserKey = await makeUserKeyLike()
+    const seeded = await seedDescriptor([
+      { kid: oldUserKey.kid, publicKeyMultibase: oldUserKey.publicKeyMultibase }
+    ])
+    const ownEntry = seeded.epochs![0]!.recipients[0]!
+    ownEntry.encrypted_key = flipFirst(ownEntry.encrypted_key)
+    const store = memoryStore(seeded)
+    const failure = await replaceRecipient({
+      resolveRecipientKey: trustRosterDidKeys,
+      store,
+      retire: oldUserKey.kid,
+      recipient: {
+        id: newUserKey.kid,
+        publicKeyMultibase: newUserKey.publicKeyMultibase
+      },
+      owner: { keyAgreementKey: oldUserKey.kak },
+      pull: async () => {}
+    }).catch((err: unknown) => err)
+    // The tamper signal passes through untouched: not relabeled as the
+    // authorization ValidationError a foreign or malformed entry raises.
+    expect(failure).toBeInstanceOf(IntegrityError)
+    expect(failure).not.toBeInstanceOf(ValidationError)
+    expect(store.writes).toBe(0)
+  })
+
   it('escrows the incoming key into history and rotates off the retiring key in ONE write', async () => {
     const oldUserKey = await makeUserKeyLike()
     const newUserKey = await makeUserKeyLike()

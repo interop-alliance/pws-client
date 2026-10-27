@@ -52,8 +52,6 @@ Ready:
   unreachable on every read
 - WCL-89 [M] A mid-walk 404 truncates a listing, and the walk throws untyped
   errors
-- WCL-58 [L] A key-wrap authentication failure is reported as a membership
-  decision
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -816,36 +814,6 @@ HTML interstitial escapes as `SyntaxError` and a wrong-shape JSON body as
 `parseResource` does, and treat a body without an array `items` as
 `WasServerError`, matching how `listSpaces` already treats a bodyless first
 page.
-
-discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-58: [L] A key-wrap authentication failure is reported as a membership decision
-
-- status: todo
-- priority: low
-- labels: encryption, key-epochs, errors
-- touches:
-  - freewallet, wallet-core, was-react: all three classify decrypt failures by
-    error class, so a third bucket on this path needs the same sweep archived
-    WCL-9's `touches:` block did
-- acceptance:
-  - [ ] An entry selected by kid equality with this reader's own key id, whose
-        AES-KW integrity check fails, surfaces as `IntegrityError` rather than
-        as `KeyUnwrapError`
-  - [ ] The message no longer tells the reader it was never a recipient or was
-        removed and rotated, when the entry is addressed to it
-
-`unwrapEpochSecret` collapses an AES-KW integrity failure, a malformed `epk`,
-and a failed ECDH into one `null`. `unwrapEpochKey` selects the entry by kid
-equality with this reader's own key id first, so a `null` there cannot mean "not
-my entry". `lazyEpochKey` raises `KeyUnwrapError`, `isKeyMiss` treats that as
-"try the next candidate", and the loop's final message tells the user it was
-never a recipient. That is the inverse of the content path, which deliberately
-raises `IntegrityError` for a kid-matched key whose AEAD fails. No key or data
-is exposed, so the cost is a misleading message and a missing tamper signal.
-Archived WCL-9 settled the two-bucket split, reserving `UnknownEpochError` for
-an epoch the descriptor does not list and `KeyUnwrapError` for an epoch that
-wraps to no key this reader holds; this third bucket was never considered.
 
 discovered-from: whole-codebase review, 2026-09-11.
 

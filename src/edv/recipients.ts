@@ -138,6 +138,8 @@ async function escrowInto({
         `${subject.notRecipient} to the ${reader} reader.`
     )
   }
+  // An `IntegrityError` here (the caller's own entry fails its key-wrap
+  // check) propagates: it is a tamper signal, not an authorization problem.
   const epochSecret = await unwrapEpochSecret({
     entry: ownEntry,
     keyAgreementKey: owner.keyAgreementKey

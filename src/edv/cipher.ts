@@ -61,7 +61,10 @@
  * not on the descriptor the reader holds (a re-read may fix it) and
  * `KeyUnwrapError` when the epoch IS listed but this reader has no key for it
  * (never a recipient, or removed and the epoch rotated since -- re-reading
- * cannot help). Both ship from this entry beside the cipher that raises them,
+ * cannot help). A third class is not a no-key signal at all: `IntegrityError`
+ * when the reader's own recipient entry, or an envelope a held key unwrapped,
+ * fails its integrity check (tampering, not membership). All ship from this
+ * entry beside the cipher that raises them,
  * so a consumer classifying what a cipher threw need not reach for the package
  * root. Both assign their `name` explicitly, and a consumer whose cipher
  * arrives through an injected seam matches on that name rather than
@@ -113,11 +116,12 @@ export {
   createEdvEncryptOnlyDocCipher,
   ownerRecipient,
   EncryptOnlyCipherError,
+  IntegrityError,
   KeyUnwrapError,
   UnknownEpochError,
   isEncryptedEnvelope
 } from './docCipher.js'
 export type { DocCipher, EdvDocCipher } from './docCipher.js'
-export { isKeyUnwrapError } from '../sync/predicates.js'
+export { isIntegrityError, isKeyUnwrapError } from '../sync/predicates.js'
 export { edvIdFromBytes } from './edvId.js'
 export { blobBytes } from '../internal/blob.js'

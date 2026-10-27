@@ -17,7 +17,7 @@ import type {
   IKeyResolver
 } from '@interop/data-integrity-core'
 
-import { EncryptionError } from '../../src/index.js'
+import { EncryptionError, IntegrityError } from '../../src/index.js'
 import type { EncryptionWithHmac } from '../../src/index.js'
 import type { EncryptionDescriptorStore } from '../../src/edv/descriptorStore.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
@@ -35,6 +35,7 @@ import {
   trustRosterDidKeys
 } from '../../src/edv/recipients.js'
 import { createEdvEncryption, EdvCodec } from '../../src/edv/index.js'
+import { flipFirst } from '../helpers/bytes.js'
 
 /**
  * Generates a self-describing did:key X25519 reader: its `id` is
@@ -230,6 +231,26 @@ describe('blinded-index key wrap/unwrap round-trip', () => {
     await expect(
       resolveHmacKey({ required: false, encryption, keyAgreementKey: bob.kak })
     ).resolves.toBeNull()
+  })
+
+  it("throws IntegrityError when this reader's own blinding entry fails its key-wrap check", async () => {
+    // A removal drops the entry outright, so a surviving entry addressed to
+    // this reader that does not authenticate is a tamper signal, not a
+    // membership outcome: it propagates for the current recipient and the
+    // rotated-off reader alike, and is never softened to the fail-closed
+    // EncryptionError or the rotated-off reader's null.
+    const alice = await makeReader()
+    const { encryption } = await makeDescriptor([alice])
+    const entry = encryption.hmac!.recipients[0]!
+    entry.encrypted_key = flipFirst(entry.encrypted_key)
+    for (const required of [true, false]) {
+      const failure = await resolveHmacKey({
+        required,
+        encryption,
+        keyAgreementKey: alice.kak
+      }).catch((err: unknown) => err)
+      expect(failure).toBeInstanceOf(IntegrityError)
+    }
   })
 })
 

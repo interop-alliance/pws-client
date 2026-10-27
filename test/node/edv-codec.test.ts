@@ -1539,6 +1539,46 @@ describe('EdvCodec: decrypt failure discrimination', () => {
       secret: 'still readable'
     })
   })
+
+  it('surfaces a candidate IntegrityError untouched instead of treating it as a key miss', async () => {
+    // A lazy epoch key whose kid-matched recipient entry failed its AES-KW
+    // integrity check raises IntegrityError from its own deriveSecret. That is
+    // a tamper signal, so the loop must surface that very error: not move on
+    // to the next candidate (which would hide it behind a successful decrypt),
+    // not relabel it as a membership KeyUnwrapError, and not rewrap it as an
+    // AEAD failure.
+    const { epochId, secret } = await mintEpoch()
+    const epochKeyPair = reconstructEpochKeyPair({ epochId, secret })
+    const edv = new EdvClientCore({
+      keyAgreementKey: epochKeyPair,
+      keyResolver: didKeyResolver
+    })
+    const tampered = new IntegrityError(
+      `This reader's recipient entry (kid "reader") failed to authenticate.`
+    )
+    const corrupt = {
+      id: epochKeyPair.id,
+      async deriveSecret(): Promise<Uint8Array> {
+        throw tampered
+      }
+    } as IKeyAgreementKey
+    const codec: SingleWriteCodec = new EdvCodec({
+      edv,
+      keyAgreementKey: epochKeyPair,
+      readKeys: [corrupt, epochKeyPair],
+      writeEpoch: epochId,
+      contentType: 'application/json',
+      maxBlobBytes: 512 * 1024,
+      idDerivation: 'random',
+      collectionId: 'c',
+      epochIds: [epochId]
+    })
+    const encoded = await codec.encode({ data: { secret: 'sealed' } })
+    const failure = await codec
+      .decode(responseFrom(encoded.body))
+      .catch((err: unknown) => err)
+    expect(failure).toBe(tampered)
+  })
 })
 
 describe('createEdvEncryption: provider (keystore)', () => {

@@ -48,9 +48,11 @@ export {
   createEdvEncryptOnlyDocCipher,
   ownerRecipient,
   EncryptOnlyCipherError,
+  IntegrityError,
   KeyUnwrapError,
   UnknownEpochError,
   isEncryptedEnvelope,
+  isIntegrityError,
   isKeyUnwrapError,
   edvIdFromBytes,
   blobBytes

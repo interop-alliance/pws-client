@@ -10,7 +10,8 @@
  * a resource written under an older epoch stays readable). The write epoch is
  * unwrapped eagerly; the other epochs' keys unwrap lazily on first decrypt
  * naming them, so a write-only handle does not pay to unwrap history it never
- * reads.
+ * reads. A lazy unwrap that fails its key-wrap check is remembered, so a run of
+ * resources under a damaged epoch pays for one unwrap, not one per resource.
  *
  * This is the read axis: holding an epoch key lets a reader decrypt resources
  * written under it. A reader removed from a later epoch keeps the earlier epoch
@@ -21,6 +22,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import {
   EncryptionError,
   EncryptOnlyCipherError,
+  IntegrityError,
   KeyUnwrapError
 } from '../errors.js'
 import { Memo } from '../internal/memo.js'
@@ -73,7 +75,10 @@ export interface ResolvedEpochKeys {
  * fail-closed before calling this). Throws {@link KeyUnwrapError} when the
  * descriptor HAS epochs but this reader can unwrap none of them (it is not a
  * recipient), so an encrypted collection is never silently read/written with
- * the wrong key.
+ * the wrong key. Throws {@link IntegrityError} when the entry addressed to
+ * this reader fails its key-wrap integrity check: that is a tamper signal, not
+ * a membership decision, and it propagates untouched (eagerly for the write
+ * epoch, on first decrypt for a lazily-unwrapped read epoch).
  *
  * The write epoch is always the descriptor's current epoch, whether or not
  * this reader is a recipient of it: a reader rotated off the current epoch
@@ -163,7 +168,7 @@ export async function resolveEpochKeys({
   if (!writeKey) {
     throw new KeyUnwrapError(
       `This reader's recipient entry for the write epoch ` +
-        `"${writeEpochEntry.id}" did not unwrap (a corrupt entry). Re-add ` +
+        `"${writeEpochEntry.id}" did not unwrap (a malformed entry). Re-add ` +
         'this reader with addRecipient, or supply the correct key-agreement ' +
         'key.'
     )
@@ -243,8 +248,10 @@ export async function epochWriteStandIn({
 
 /**
  * Unwraps and reconstructs a single epoch's key pair for this reader, or returns
- * `null` when the reader is not a recipient of the epoch or its entry does not
- * unwrap (a corrupt entry -- never treat `null` as a key).
+ * `null` when the reader is not a recipient of the epoch or its entry is
+ * malformed (never treat `null` as a key). An entry addressed to this reader
+ * that fails its key-wrap integrity check throws {@link IntegrityError} from
+ * `unwrapEpochSecret`, and that propagates.
  *
  * @param options {object}
  * @param options.epoch {CollectionEncryptionEpoch}   the epoch to unwrap
@@ -292,23 +299,32 @@ function lazyEpochKey({
   epoch: CollectionEncryptionEpoch
   keyAgreementKey: IKeyAgreementKey
 }): IKeyAgreementKey {
-  // The memo caches only a successful unwrap: a rejected attempt is dropped so
-  // the next read re-attempts (the failure may have been transient), rather
-  // than replaying the same cached rejection for the life of the handle.
-  const memo = new Memo(async () => {
-    const key = await unwrapEpochKey({ epoch, keyAgreementKey })
-    if (!key) {
-      // The reader was named in this epoch (else no lazy key was built) but its
-      // entry did not unwrap: a corrupt entry. The codec's `_decrypt` catches
-      // this and tries the next candidate before surfacing its own typed
-      // failure.
-      throw new KeyUnwrapError(
-        `This reader's recipient entry for epoch "${epoch.id}" did not ` +
-          'unwrap (a corrupt entry).'
-      )
-    }
-    return key
-  })
+  // The memo caches a successful unwrap, and one failure class. A rejected
+  // attempt is normally dropped so the next read re-attempts (the failure may
+  // have been transient) rather than replaying the same cached rejection for
+  // the life of the handle. A failed key-wrap check is the exception: the
+  // entry's bytes are part of the descriptor this handle was built from and do
+  // not change under it, so a second attempt could only fail the same way. The
+  // handle's codec memo deliberately does NOT retain the same failure when the
+  // eager write-epoch unwrap raises it at build time: a rebuild re-reads the
+  // descriptor, so a repaired entry (the owner re-added this reader) is
+  // observable there, where it never is here.
+  const memo = new Memo(
+    async () => {
+      const key = await unwrapEpochKey({ epoch, keyAgreementKey })
+      if (!key) {
+        // The reader was named in this epoch (else no lazy key was built) but
+        // its entry is malformed. The codec's decrypt loop catches this and
+        // tries the next candidate before surfacing its own typed failure.
+        throw new KeyUnwrapError(
+          `This reader's recipient entry for epoch "${epoch.id}" did not ` +
+            'unwrap (a malformed entry).'
+        )
+      }
+      return key
+    },
+    { retain: err => err instanceof IntegrityError }
+  )
   return {
     id: epochKeyIdFor(epoch.id),
     async deriveSecret(options: { publicKey: unknown }): Promise<Uint8Array> {

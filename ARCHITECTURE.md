@@ -836,7 +836,19 @@ stale (epoch rotation emits no Resource entry in the change feed) and the codec
 must be rebuilt from a re-read descriptor. An epoch the descriptor lists but
 wraps only to other recipients throws `KeyUnwrapError`: the descriptor is
 current and this reader is simply not a recipient of that epoch (it never was,
-or it was removed and the epoch rotated), so a refresh cannot help.
+or it was removed and the epoch rotated), so a refresh cannot help. A third
+outcome is not a membership decision at all. A recipient entry whose `kid` is
+this reader's own key id, but whose wrapped epoch key fails its AES-KW integrity
+check, throws `IntegrityError` from the unwrap itself (eagerly for the write
+epoch, on first decrypt for a lazily-unwrapped read epoch), and every caller
+lets it propagate: it is the key-wrap counterpart of a content envelope whose
+AEAD tag fails for a key that matched, and reporting it as "not a recipient"
+would hide a tamper signal. A lazy read key remembers that failure, unlike a
+transient one, since the entry it checked is part of the descriptor the codec
+was built from; every later decrypt under that epoch raises the same
+`IntegrityError` without repeating the ECDH and key unwrap. A malformed entry
+(no usable `epk`, a non-base64url `encrypted_key`) stays a `KeyUnwrapError`,
+since nothing in it authenticates one way or the other.
 
 `ensureSpaceAndCollection` (`provisioning.ts`) is the idempotent setup step:
 create the Space and the collection when absent, each through the guarded create

@@ -238,10 +238,12 @@ export class KeyUnwrapError extends EncryptionError {
 /**
  * A fail-closed integrity error: a stored EDV envelope this reader DOES hold a
  * key for failed to authenticate on decrypt -- its AEAD tag did not verify, so
- * the ciphertext is corrupt or has been tampered with -- or a stored body does
- * not verify against the resource id it was read under (an envelope bound to
- * another resource, or a content-addressed document whose content id differs
- * from its resource id). Distinct from
+ * the ciphertext is corrupt or has been tampered with -- or a descriptor
+ * recipient entry addressed to this reader (its `kid` is this reader's own key
+ * id) failed its AES-KW integrity check, or a stored body does not verify
+ * against the resource id it was read under (an envelope bound to another
+ * resource, or a content-addressed document whose content id differs from its
+ * resource id). Distinct from
  * {@link KeyUnwrapError}: that is the read/membership axis ("no key for this
  * epoch"), whereas this is a data-integrity failure by a legitimate recipient.
  * A subtype of {@link EncryptionError}, so existing `catch (EncryptionError)`

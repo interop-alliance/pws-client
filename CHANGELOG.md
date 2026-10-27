@@ -11,6 +11,16 @@
 - A listing walk whose followed `next` page is missing or unauthorized, or
   points back at a page already walked, throws `WasServerError` instead of
   returning a silently truncated listing.
+- A descriptor recipient entry addressed to this reader (its `kid` is the
+  reader's own key id) whose wrapped epoch key fails the AES-KW integrity check
+  throws `IntegrityError` instead of `KeyUnwrapError`, from every unwrap site. A
+  malformed entry still raises `KeyUnwrapError`. `unwrapEpochSecret` now throws
+  for that entry where it returned `null`, so a caller that tests its result for
+  `null` must also expect the throw. `IntegrityError` and `isIntegrityError` are
+  now also exported from `@interop/was-client/edv`.
+- A lazily unwrapped read epoch remembers that `IntegrityError` and raises it
+  again on later decrypts without repeating the unwrap.
+- `Memo` takes a `retain` predicate naming the rejections it keeps.
 
 ## 0.99.0 - 2026-10-27
 

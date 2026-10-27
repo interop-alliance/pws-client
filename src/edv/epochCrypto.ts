@@ -39,6 +39,7 @@ import {
   MULTICODEC_X25519_PUB_HEADER
 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import { IntegrityError } from '../errors.js'
 import { ENCODER } from '../internal/content.js'
 import type { CollectionEncryptionRecipient } from '../types.js'
 
@@ -142,10 +143,18 @@ export async function wrapEpochSecretTo({
 
 /**
  * Unwraps an epoch secret from a descriptor `recipients` entry using the
- * reader's own key-agreement key. Returns `null` when this key does not match
- * the entry (the wrong recipient, or a corrupt entry) -- never treat `null` as
- * a key; try the next candidate entry or epoch, and fail with a typed error
- * when nothing unwraps.
+ * reader's own key-agreement key. Returns `null` when the entry is not
+ * addressed to this key (its `kid` is another reader's id) or is malformed (no
+ * usable `epk`, a non-base64url `encrypted_key`, a failed ECDH) -- never treat
+ * `null` as a key; try the next candidate entry or epoch, and fail with a
+ * typed error when nothing unwraps.
+ *
+ * Throws {@link IntegrityError} when the entry names this reader and is
+ * well-formed but its AES-KW integrity check fails. That cannot mean "not my
+ * entry": the entry is addressed to this reader and its wrapped bytes do not
+ * authenticate under the key they were wrapped to. It is the key-wrap
+ * counterpart of a content envelope whose AEAD tag fails for a kid-matched
+ * key, and it is reported the same way rather than as a membership decision.
  *
  * @param options {object}
  * @param options.entry {CollectionEncryptionRecipient}   the descriptor entry
@@ -160,6 +169,12 @@ export async function unwrapEpochSecret({
   entry: CollectionEncryptionRecipient
   keyAgreementKey: IKeyAgreementKey
 }): Promise<Uint8Array | null> {
+  if (entry.header.kid !== keyAgreementKey.id) {
+    // Another reader's entry: the KDF binds the wrap to the recipient's key
+    // id, so this key could never unwrap it, and a failure below would say
+    // nothing about the entry's integrity.
+    return null
+  }
   const epk = entry.header.epk as { x?: unknown } | undefined
   if (!epk || typeof epk.x !== 'string') {
     return null
@@ -168,8 +183,8 @@ export async function unwrapEpochSecret({
   try {
     ephemeralPublicKey = base64urlnopad.decode(epk.x)
   } catch {
-    // A malformed (non-base64url) `epk.x` is the same corrupt-entry class as a
-    // failed unwrap: honor the documented null contract.
+    // A malformed (non-base64url) `epk.x` is the malformed-entry class:
+    // honor the documented null contract.
     return null
   }
   let secret: Uint8Array
@@ -190,14 +205,28 @@ export async function unwrapEpochSecret({
   const consumerInfo = ENCODER.encode(keyAgreementKey.id)
   const keyData = await deriveKey({ secret, producerInfo, consumerInfo })
   const kek = await createKek({ keyData })
+  let unwrapped: Uint8Array | null
   try {
-    return await kek.unwrapKey({ wrappedKey: entry.encrypted_key })
+    unwrapped = await kek.unwrapKey({ wrappedKey: entry.encrypted_key })
   } catch {
-    // `unwrapKey` returns null on an AES integrity failure but throws on a
-    // malformed (non-base64url) `encrypted_key`; both are the same "corrupt
-    // entry" class to a caller, so honor the documented null contract here.
+    // `unwrapKey` throws on a malformed (non-base64url or wrong-length)
+    // `encrypted_key`: the malformed-entry class, so honor the documented
+    // null contract.
     return null
   }
+  if (unwrapped === null) {
+    // `unwrapKey` returns null only when the bytes decoded and had a valid
+    // length but the AES-KW integrity check failed: the entry is addressed to
+    // this reader and does not authenticate under its key.
+    throw new IntegrityError(
+      `This reader's recipient entry (kid "${entry.header.kid}") failed to ` +
+        'authenticate: its wrapped epoch key did not pass the AES-KW ' +
+        'integrity check. The entry names this reader, so this is not a ' +
+        'membership problem -- the stored entry is corrupt or has been ' +
+        'tampered with.'
+    )
+  }
+  return unwrapped
 }
 
 /**

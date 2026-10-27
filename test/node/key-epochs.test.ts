@@ -16,6 +16,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 
 import {
   EncryptionError,
+  IntegrityError,
   KeyUnwrapError,
   PreconditionFailedError,
   ValidationError
@@ -44,6 +45,7 @@ import {
   removeRecipient,
   trustRosterDidKeys
 } from '../../src/edv/recipients.js'
+import { flipFirst } from '../helpers/bytes.js'
 
 /**
  * Generates a self-describing did:key X25519 reader: its `id` is
@@ -62,6 +64,29 @@ async function makeReader(): Promise<{
   kak.controller = did
   kak.id = `${did}#${publicKeyMultibase}`
   return { kak: kak as IKeyAgreementKey, publicKeyMultibase }
+}
+
+/**
+ * Wraps a reader's key-agreement key so each `deriveSecret` is counted. Every
+ * unwrap starts with one ECDH on the reader's own key, so the count is the
+ * number of unwrap attempts.
+ *
+ * @param kak {IKeyAgreementKey}
+ * @returns {{ kak: IKeyAgreementKey; calls: () => number }}
+ */
+function countingKak(kak: IKeyAgreementKey): {
+  kak: IKeyAgreementKey
+  calls: () => number
+} {
+  let calls = 0
+  const counted = {
+    id: kak.id,
+    async deriveSecret(options: { publicKey: unknown }): Promise<Uint8Array> {
+      calls += 1
+      return kak.deriveSecret(options)
+    }
+  } as IKeyAgreementKey
+  return { kak: counted, calls: () => calls }
 }
 
 describe('epoch key wrap/unwrap round-trip', () => {
@@ -163,6 +188,51 @@ describe('epoch key wrap/unwrap round-trip', () => {
     expect(got).toBeNull()
   })
 
+  it('resolves null for an entry addressed to another reader without attempting the unwrap', async () => {
+    // Bob's entry names bob, so alice's key could never unwrap it: the KDF
+    // binds the wrap to the recipient's key id. The kid guard answers before
+    // any ECDH, so a damaged foreign entry can never be mistaken for a
+    // tampered one of alice's own.
+    const alice = await makeReader()
+    const bob = await makeReader()
+    const { secret } = await mintEpoch()
+    const entry = await wrapEpochSecret({
+      epochSecret: secret,
+      recipient: { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase }
+    })
+    entry.encrypted_key = flipFirst(entry.encrypted_key)
+    const counted = countingKak(alice.kak)
+    await expect(
+      unwrapEpochSecret({ entry, keyAgreementKey: counted.kak })
+    ).resolves.toBeNull()
+    expect(counted.calls()).toBe(0)
+  })
+
+  it('throws IntegrityError (not null) when a kid-matched encrypted_key fails its AES-KW check', async () => {
+    // The entry names alice and decodes to a valid wrapped-key length, but one
+    // byte is off: the AES-KW integrity check fails. That cannot mean "not my
+    // entry", so it is the tamper signal rather than the null a malformed or
+    // foreign entry resolves to.
+    const alice = await makeReader()
+    const { secret } = await mintEpoch()
+    const entry = await wrapEpochSecret({
+      epochSecret: secret,
+      recipient: {
+        id: alice.kak.id,
+        publicKeyMultibase: alice.publicKeyMultibase
+      }
+    })
+    entry.encrypted_key = flipFirst(entry.encrypted_key)
+    const failure = await unwrapEpochSecret({
+      entry,
+      keyAgreementKey: alice.kak
+    }).catch((err: unknown) => err)
+    expect(failure).toBeInstanceOf(IntegrityError)
+    expect(failure).not.toBeInstanceOf(KeyUnwrapError)
+    expect((failure as Error).message).not.toMatch(/never a recipient/)
+    expect((failure as Error).message).not.toMatch(/rotated/)
+  })
+
   it('epoch id encodes the epoch public key (kid round-trips)', async () => {
     const { epochId } = await mintEpoch()
     expect(epochId.startsWith('did:key:z')).toBe(true)
@@ -254,6 +324,57 @@ describe('resolveEpochKeys', () => {
     await expect(
       resolveEpochKeys({ encryption, keyAgreementKey: stranger.kak })
     ).rejects.toBeInstanceOf(KeyUnwrapError)
+  })
+
+  it('throws IntegrityError when the write-epoch entry naming this reader fails its key-wrap check', async () => {
+    const alice = await makeReader()
+    const encryption = await descriptorFor([alice], 1)
+    const entry = encryption.epochs![0]!.recipients[0]!
+    entry.encrypted_key = flipFirst(entry.encrypted_key)
+    const failure = await resolveEpochKeys({
+      encryption,
+      keyAgreementKey: alice.kak
+    }).catch((err: unknown) => err)
+    expect(failure).toBeInstanceOf(IntegrityError)
+    expect(failure).not.toBeInstanceOf(KeyUnwrapError)
+  })
+
+  it('surfaces IntegrityError from a lazy read key whose entry fails its key-wrap check, and remembers it', async () => {
+    const alice = await makeReader()
+    const peer = await makeReader()
+    const encryption = await descriptorFor([alice], 2)
+    // Epoch 0 is the archive epoch (unwrapped lazily); its entry is tampered.
+    const entry = encryption.epochs![0]!.recipients[0]!
+    entry.encrypted_key = flipFirst(entry.encrypted_key)
+    const counted = countingKak(alice.kak)
+    const resolved = await resolveEpochKeys({
+      encryption,
+      keyAgreementKey: counted.kak
+    })
+    // The eager write-epoch unwrap.
+    expect(counted.calls()).toBe(1)
+    // Building the handle succeeds: the write epoch is intact, and the lazy
+    // key defers its unwrap.
+    expect(resolved!.readKeys).toHaveLength(2)
+    const lazy = resolved!.readKeys[1]!
+    expect(lazy.id).toBe(epochKeyIdFor(encryption.epochs![0]!.id))
+    const derive = () =>
+      lazy
+        .deriveSecret({
+          publicKey: {
+            type: 'X25519KeyAgreementKey2020',
+            publicKeyMultibase: peer.publicKeyMultibase
+          }
+        })
+        .catch((err: unknown) => err)
+    const failure = await derive()
+    expect(failure).toBeInstanceOf(IntegrityError)
+    expect(failure).not.toBeInstanceOf(KeyUnwrapError)
+    expect(counted.calls()).toBe(2)
+    // A failed key-wrap check is not transient: the second decrypt under the
+    // same epoch raises it again without another unwrap.
+    expect(await derive()).toBeInstanceOf(IntegrityError)
+    expect(counted.calls()).toBe(2)
   })
 
   it('still resolves read keys for a reader dropped from the latest epoch', async () => {
@@ -438,6 +559,37 @@ describe('addRecipient compare-and-swap retry', () => {
     expect(
       bobSecret && Buffer.from(bobSecret).equals(Buffer.from(seed.secret))
     ).toBe(true)
+  })
+
+  it("propagates IntegrityError when the caller's own entry fails its key-wrap check", async () => {
+    const alice = await makeReader()
+    const bob = await makeReader()
+    const seed = await mintEpoch()
+    const ownEntry = await wrapEpochSecret({
+      epochSecret: seed.secret,
+      recipient: {
+        id: alice.kak.id,
+        publicKeyMultibase: alice.publicKeyMultibase
+      }
+    })
+    ownEntry.encrypted_key = flipFirst(ownEntry.encrypted_key)
+    const descriptor: CollectionEncryption = {
+      scheme: 'edv',
+      epochs: [{ id: seed.epochId, recipients: [ownEntry] }],
+      currentEpoch: seed.epochId
+    }
+    const fake = fakeCollection(descriptor, 0)
+    const failure = await addRecipient({
+      collection: fake as unknown as Collection,
+      recipient: { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase },
+      owner: { keyAgreementKey: alice.kak }
+    }).catch((err: unknown) => err)
+    // The tamper signal passes through: it is not relabeled as the
+    // authorization ValidationError a foreign or malformed entry raises.
+    expect(failure).toBeInstanceOf(IntegrityError)
+    expect(failure).not.toBeInstanceOf(ValidationError)
+    // Nothing was written.
+    expect(fake._state.version).toBe(1)
   })
 
   it('writes nothing when the reader is already a recipient', async () => {

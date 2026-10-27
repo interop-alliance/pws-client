@@ -1294,7 +1294,10 @@ plugs into:
   does not list (a re-read may fix it) and an epoch it lists but this reader
   holds no key for (real data, permanently unreadable here, never garbage).
   `isIntegrityError` matches a stored body that does not verify against the
-  resource id it was read under. Do not apply that row.
+  resource id it was read under, a sealed envelope whose AEAD tag fails for a
+  key this reader holds, or a descriptor recipient entry addressed to this
+  reader whose wrapped epoch key fails its integrity check. Do not apply that
+  row.
 - **`SyncStatus`** (`'idle' | 'syncing' | 'synced' | 'error'`) is the closed
   vocabulary a replication driver reports one feed's state through.
 - **`DocCipher`** is the per-collection encrypt/decrypt seam sitting above the

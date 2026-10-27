@@ -42,8 +42,10 @@
  * (`KeyUnwrapError`: the epoch is on the descriptor but this reader holds no
  * key for it, so a refresh cannot help). So is the tamper signal
  * (`IntegrityError`: the stored body does not verify against the resource id
- * it was read under). `EncryptionError`, the fail-closed umbrella both
- * `KeyUnwrapError` and `IntegrityError` fall under, rides along. So does the
+ * it was read under, an envelope a held key opened fails its AEAD check, or
+ * the recipient entry addressed to this reader fails its key-wrap check).
+ * `EncryptionError`, the fail-closed umbrella both `KeyUnwrapError` and
+ * `IntegrityError` fall under, rides along. So does the
  * affordance gate (`NotSupportedError`), a permanent refusal raised before any
  * request: by a guarded write whose pinned read returned no `ETag` validator
  * (`/log`, `/edv`, and the client's own content-addressed store), and by a

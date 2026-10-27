@@ -100,7 +100,7 @@ export async function hmacKeyFromSecret({
  *
  * Fails closed when the descriptor DOES declare one, this key-agreement key
  * unwraps no entry, and `required` is set: a current recipient must be able to
- * blind, so a missing or corrupt entry is an {@link EncryptionError} rather
+ * blind, so a missing or malformed entry is an {@link EncryptionError} rather
  * than a silent "unindexable" downgrade that would write envelopes nobody can
  * find.
  *
@@ -110,6 +110,12 @@ export async function hmacKeyFromSecret({
  * taking away the history reads that rotation is meant to leave untouched. It
  * gets `null`, i.e. a cipher with no blinded index: it reads documents by id
  * and cannot search.
+ *
+ * An entry that names this reader but fails its key-wrap integrity check is
+ * neither case. It throws `IntegrityError` from the unwrap whether or not
+ * `required` is set: a removal drops the entry outright, so a surviving entry
+ * addressed to this reader that does not authenticate is a tamper signal, and
+ * that outranks the rotated-off reader's history reads.
  *
  * @param options {object}
  * @param options.encryption {EncryptionWithHmac}   the Collection's descriptor
@@ -147,8 +153,8 @@ export async function resolveHmacKey({
       'This collection declares a blinded-index key ' +
         `("${hmac.id}") that this client's key-agreement key ` +
         `("${keyAgreementKey.id}") cannot unwrap (no recipient entry names ` +
-        'it, or its entry is corrupt). Re-add this reader with addRecipient, ' +
-        'or supply the correct key-agreement key.'
+        'it, or its entry is malformed). Re-add this reader with ' +
+        'addRecipient, or supply the correct key-agreement key.'
     )
   }
   return hmacKeyFromSecret({ id: hmac.id, secret })

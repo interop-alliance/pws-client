@@ -124,6 +124,7 @@ import type {
   WasTransport
 } from './WasTransport.js'
 import { isEncryptedEnvelope } from '../sync/envelope.js'
+import { isIntegrityError, isKeyUnwrapError } from '../sync/predicates.js'
 import { epochWriteStandIn, resolveEpochKeys } from './epochKeys.js'
 import { didKeyResolver } from './epochCrypto.js'
 import { currentEpochOf, hasKeyEpochs } from './epochRoster.js'
@@ -306,38 +307,48 @@ function wasParam({
  * was-client need not import the class at all.
  *
  * Also true for a {@link KeyUnwrapError} raised by a candidate itself -- a lazy
- * epoch key whose recipient entry turned out corrupt when its first decrypt
+ * epoch key whose recipient entry turned out malformed when its first decrypt
  * forced the unwrap (see `lazyEpochKey`): that says nothing about the stored
  * envelope, so the loop must move on to the next candidate rather than report
- * tampering.
+ * tampering. Matched by name as well (the shared `isKeyUnwrapError`), since
+ * the read keys may be injected from another resolved copy of this package.
+ * Not true for the {@link IntegrityError} a lazy key raises when its
+ * kid-matched entry fails the key-wrap integrity check: that is a tamper
+ * signal in its own right and the loop surfaces it.
  *
  * @param err {unknown}
  * @returns {boolean}
  */
 function isKeyMiss(err: unknown): boolean {
   return (
-    err instanceof KeyUnwrapError ||
+    isKeyUnwrapError(err) ||
     (err instanceof Error && err.name === 'KeyMissError')
   )
 }
 
 /**
- * Whether a decrypt error means the key DID select a recipient and unwrap the
- * content key, but the content's AEAD tag did not verify: the stored
- * ciphertext is corrupt or has been tampered with. `@interop/minimal-cipher`
- * raises its `IntegrityError` for that (the runtime's raw error as `cause`),
- * matched by `err.name` for the same reason {@link isKeyMiss} matches by name.
- * Any other error is neither a key miss nor an integrity failure (a malformed
- * envelope, a bug) and is not this library's to relabel.
- *
- * This library's own {@link IntegrityError} carries the same name, so a
- * caller that may see both excludes `WasError` first.
+ * Whether a decrypt error is the cipher's integrity failure: the candidate
+ * key DID select a recipient and unwrap the content key, but the content's
+ * AEAD tag did not verify, so the stored ciphertext is corrupt or has been
+ * tampered with. `@interop/minimal-cipher` raises its `IntegrityError` for
+ * that, matched by name (the shared `isIntegrityError`) for the same reason
+ * {@link isKeyMiss} matches by name. This library's own {@link IntegrityError}
+ * carries the same name and can reach the same catch from a candidate key (a
+ * lazy epoch key whose kid-matched entry failed its key-wrap check), possibly
+ * from another resolved copy, so `instanceof` cannot tell the two apart. The
+ * cipher documents that its `IntegrityError` always carries the backend's raw
+ * error as `cause`; a key-wrap failure carries none, and is already typed and
+ * described, so it passes through untouched. Any other error is neither a key
+ * miss nor an integrity failure (a malformed envelope, a bug) and is not this
+ * library's to relabel.
  *
  * @param err {unknown}
  * @returns {boolean}
  */
-function isIntegrityFailure(err: unknown): boolean {
-  return err instanceof Error && err.name === 'IntegrityError'
+function isCipherIntegrityFailure(err: unknown): boolean {
+  return (
+    err instanceof Error && isIntegrityError(err) && err.cause !== undefined
+  )
 }
 
 /**
@@ -1698,8 +1709,9 @@ export class EdvCodec implements ResourceCodec {
    * all raises {@link UnknownEpochError} -- the signal that the cached
    * Collection Metadata object may be stale (an epoch rotation emits no
    * change-feed entry) and the codec must be rebuilt from a re-read
-   * descriptor. A candidate whose entry then fails to unwrap also surfaces
-   * {@link KeyUnwrapError}.
+   * descriptor. A candidate whose entry is malformed also surfaces
+   * {@link KeyUnwrapError}; one whose entry names this reader but fails its
+   * key-wrap integrity check surfaces the {@link IntegrityError} it raised.
    *
    * Also returns the `id` of the key that actually decrypted the envelope (its
    * JWE recipient `kid`), so {@link _verifyBinding} can check a `was.epoch`
@@ -1760,8 +1772,9 @@ export class EdvCodec implements ResourceCodec {
           // unwrap its content-encryption key; try the next candidate.
           continue
         }
-        if (!isIntegrityFailure(err)) {
-          // Neither a key miss nor an AEAD failure: rethrow as is.
+        if (!isCipherIntegrityFailure(err)) {
+          // Neither a key miss nor an AEAD failure (this library's own tamper
+          // signal from a lazy epoch key included): rethrow as is.
           throw err
         }
         // Surface the AEAD failure immediately rather than masking it as a
@@ -2355,11 +2368,11 @@ function sealedContentType(meta?: Record<string, unknown>): string | undefined {
 
 /**
  * The chunked decrypt stream of resource `id`, with the cipher's integrity
- * failure (see {@link isIntegrityFailure}) or key miss (see {@link isKeyMiss})
- * replaced by an {@link EncryptionError} that carries the original as `cause`.
- * Every other error passes through as it is, this library's own typed errors
- * included (a chunk source or lazy epoch key may raise one that the two
- * predicates would match by name). Cancellation is forwarded.
+ * failure (see {@link isCipherIntegrityFailure}) or key miss (see
+ * {@link isKeyMiss}) replaced by an {@link EncryptionError} that carries the
+ * original as `cause`. Every other error passes through as it is, this
+ * library's own typed errors included (a chunk source or lazy epoch key may
+ * raise one that `isKeyMiss` would match by name). Cancellation is forwarded.
  *
  * @param options {object}
  * @param options.id {string}   the resource id, for the error message
@@ -2384,7 +2397,7 @@ function chunkDecryptErrors({
           // Already one of this library's errors: not the cipher's.
           throw err
         }
-        if (!isIntegrityFailure(err) && !isKeyMiss(err)) {
+        if (!isCipherIntegrityFailure(err) && !isKeyMiss(err)) {
           // Neither tampering nor a key the reader lacks: rethrow as is.
           throw err
         }
