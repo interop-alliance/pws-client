@@ -19,7 +19,8 @@
  * The helpers are generic over the listing envelope, so they serve all three
  * paginated WAS listings: List Collection items (`CollectionResourcesList`),
  * List Collections (`CollectionsList`), and List Spaces (`SpaceListing`). Each
- * envelope shares the `{ items, next? }` shape the traversal relies on.
+ * envelope shares the `{ items, next?, totalItems? }` shape (`PageEnvelope`)
+ * that the traversal and the aggregation rely on.
  */
 import type {
   CollectionResourcesList,
@@ -39,16 +40,19 @@ import { WasServerError } from '../errors.js'
 export const DEFAULT_MAX_PAGES = 10_000
 
 /**
- * The shared shape of every paginated listing envelope: an `items` array and an
- * optional `next` continuation URL. The traversal core only ever touches these
- * two fields, so it works uniformly across the concrete listing types.
+ * The shared shape of every paginated listing envelope: an `items` array, an
+ * optional `next` continuation URL, and the whole listing's `totalItems` count
+ * (required on some listing types upstream, optional on others). The traversal
+ * core only touches `items` and `next`; `collectPages` also sets `totalItems`.
  */
-type PageEnvelope = { items: unknown[]; next?: string }
+type PageEnvelope = { items: unknown[]; next?: string; totalItems?: number }
 
 /**
  * The first page (already read) plus the means to fetch each following page.
  * The `fetchPage` callback fetches a single page by absolute URL, returning
- * `null` if it is missing/unauthorized (which ends the traversal).
+ * `null` if it is missing/unauthorized. A `null` first page makes the walk
+ * itself `null`; a `null` page mid-walk fails the walk, since a `next` the
+ * server handed out has to resolve.
  */
 export interface PageWalk<T extends PageEnvelope = CollectionResourcesList> {
   first: T
@@ -173,21 +177,24 @@ function resolveNext({
 /**
  * Lazily walks a list response page by page, yielding the first page and then
  * each page reached by following `next`. Each `next` is resolved relative to the
- * URL of the page that produced it, and a self-referential or already-seen
- * `next` ends the traversal defensively rather than looping forever. Yields one
- * page at a time, so a consumer can stop early without fetching the rest.
+ * URL of the page that produced it. Yields one page at a time, so a consumer
+ * can stop early without fetching the rest.
  *
- * A `next` outside the first page's origin or base path, a `next` carrying a
- * username or password, or a walk that would
- * exceed `maxPages` pages, fails with a `WasServerError` naming the listing URL
- * instead of fetching.
+ * The walk either reaches the server's end-of-list signal (a page with no
+ * `next`) or fails. A `next` outside the first page's origin or base path, a
+ * `next` carrying a username or password, a `next` pointing at an already-seen
+ * page (a cycle), a page that walks past `maxPages`, or a followed page that
+ * comes back `null` (missing/unauthorized) each fail with a `WasServerError`
+ * naming the listing URL. Ending silently on any of these would hand the
+ * consumer a short listing it cannot tell from a complete one.
  *
  * @param walk {PageWalk<T>}
  * @param [options] {object}
  * @param [options.maxPages] {number}   the most pages to yield, counting the
  *   first (defaults to {@link DEFAULT_MAX_PAGES})
  * @returns {AsyncGenerator<T>}
- * @throws {WasServerError}   when `next` leaves the listing or the bound is hit
+ * @throws {WasServerError}   when `next` leaves the listing, repeats a page, or
+ *   fails to resolve, or when the page bound is hit
  */
 export async function* walkPages<
   T extends PageEnvelope = CollectionResourcesList
@@ -202,27 +209,37 @@ export async function* walkPages<
   // an explicit default port) would let a next-link back to page 1 defeat the
   // guard and yield its items twice.
   const firstUrl = new URL(walk.firstUrl)
+  const listingUrl = firstUrl.toString()
   yield first
-  const seen = new Set<string>([firstUrl.toString()])
+  const seen = new Set<string>([listingUrl])
   let pageCount = 1
-  let baseUrl = firstUrl.toString()
+  let baseUrl = listingUrl
   let next = first.next
   while (next) {
     const pageUrl = resolveNext({ next, baseUrl, firstUrl })
     if (seen.has(pageUrl)) {
-      break
+      throw new WasServerError(
+        `The listing at "${listingUrl}" served a \`next\` link ` +
+          `("${pageUrl}") back to a page already walked.`,
+        { requestUrl: listingUrl }
+      )
     }
     if (pageCount >= maxPages) {
       throw new WasServerError(
-        `The listing at "${firstUrl.toString()}" did not end within ` +
+        `The listing at "${listingUrl}" did not end within ` +
           `${maxPages} pages.`,
-        { requestUrl: firstUrl.toString() }
+        { requestUrl: listingUrl }
       )
     }
     seen.add(pageUrl)
     const page = await fetchPage(pageUrl)
     if (page === null) {
-      break
+      throw new WasServerError(
+        `The listing at "${listingUrl}" served a \`next\` link ` +
+          `("${pageUrl}") that answered with no listing (missing or ` +
+          'unauthorized).',
+        { requestUrl: pageUrl }
+      )
     }
     pageCount += 1
     yield page
@@ -233,12 +250,19 @@ export async function* walkPages<
 
 /**
  * Eagerly follows every `next` link, aggregating all pages' items into a single
- * envelope shaped like the first page (with `next` dropped, since the whole list
- * has been collected). Buffers the entire collection in memory; for a large
+ * envelope shaped like the first page, with `next` dropped since the whole list
+ * has been collected. Buffers the entire collection in memory; for a large
  * collection prefer `walkPages` (one page at a time) or an item iterator.
+ *
+ * `totalItems` on the aggregate is always the count of the collected items.
+ * The server's value is not used, since a paginating server may omit it on a
+ * truncated page and the first page's value may be stale by the time the last
+ * page is read. The count is sound because `walkPages` either completes the
+ * listing or throws.
  *
  * @param walk {PageWalk<T>}
  * @returns {Promise<T>}
+ * @throws {WasServerError}   when the walk cannot complete the listing
  */
 export async function collectPages<
   T extends PageEnvelope = CollectionResourcesList
@@ -254,7 +278,7 @@ export async function collectPages<
     }
   }
   // `walkPages` always yields `first`, so `aggregate` is set here.
-  const result: T = { ...aggregate!, items }
+  const result: T = { ...aggregate!, items, totalItems: items.length }
   delete result.next
   return result
 }

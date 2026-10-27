@@ -138,7 +138,7 @@ afterEach(() => {
 })
 
 describe('collectPages()', () => {
-  it('returns the single page unchanged when there is no `next`', async () => {
+  it('returns the single page with totalItems recomputed when there is no `next`', async () => {
     const first = page(['a', 'b'])
     const result = await collectPages({
       first,
@@ -148,7 +148,32 @@ describe('collectPages()', () => {
       }
     })
     expect(result.items.map(item => item.id)).toEqual(['a', 'b'])
+    expect(result.totalItems).toBe(2)
     expect(result.next).toBeUndefined()
+  })
+
+  it('recomputes `totalItems` from the collected items, not the server', async () => {
+    // Each page declares `totalItems: 5`; the walk yields three items in all.
+    const result = await collectPages({
+      first: page(['a', 'b'], '/space/s/c/?cursor=2'),
+      firstUrl: 'https://was.example/space/s/c/',
+      fetchPage: async () => page(['c'])
+    })
+    expect(result.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
+    expect(result.totalItems).toBe(3)
+  })
+
+  it('sets `totalItems` when the first page omits it', async () => {
+    const first = page(['a', 'b'])
+    delete (first as Partial<CollectionResourcesList>).totalItems
+    const result = await collectPages({
+      first,
+      firstUrl: 'https://was.example/space/s/c/',
+      fetchPage: async () => {
+        throw new Error('should not fetch')
+      }
+    })
+    expect(result.totalItems).toBe(2)
   })
 
   it('follows `next`, resolving a relative link against the page URL', async () => {
@@ -166,46 +191,50 @@ describe('collectPages()', () => {
     expect(result.next).toBeUndefined()
   })
 
-  it('stops on a self-referential `next` rather than looping forever', async () => {
+  it('fails on a self-referential `next` rather than looping forever', async () => {
     let calls = 0
-    const result = await collectPages({
-      first: page(['a'], 'https://was.example/space/s/c/'),
-      firstUrl: 'https://was.example/space/s/c/',
-      fetchPage: async () => {
-        calls += 1
-        return page(['b'], 'https://was.example/space/s/c/')
-      }
-    })
+    await expect(
+      collectPages({
+        first: page(['a'], 'https://was.example/space/s/c/'),
+        firstUrl: 'https://was.example/space/s/c/',
+        fetchPage: async () => {
+          calls += 1
+          return page(['b'], 'https://was.example/space/s/c/')
+        }
+      })
+    ).rejects.toThrow(WasServerError)
     // `next` points back at the first (already-seen) URL, so no fetch happens.
     expect(calls).toBe(0)
-    expect(result.items.map(item => item.id)).toEqual(['a'])
   })
 
-  it('ends the traversal when a page comes back null (missing/unauthorized)', async () => {
-    const result = await collectPages({
-      first: page(['a'], '/space/s/c/?cursor=2'),
-      firstUrl: 'https://was.example/space/s/c/',
-      fetchPage: async () => null
-    })
-    expect(result.items.map(item => item.id)).toEqual(['a'])
+  it('fails when a followed page comes back null (missing/unauthorized)', async () => {
+    // A silently short listing would be indistinguishable from a complete one.
+    await expect(
+      collectPages({
+        first: page(['a'], '/space/s/c/?cursor=2'),
+        firstUrl: 'https://was.example/space/s/c/',
+        fetchPage: async () => null
+      })
+    ).rejects.toThrow(WasServerError)
   })
 
   it('detects a cycle even when the first URL is not in canonical form', async () => {
     // The cycle guard seed must be canonicalized the same way followed links
     // are: `https://host:443/...` (explicit default port) and the portless form
-    // are the same URL, so a next-link back to page 1 must end the traversal
+    // are the same URL, so a next-link back to page 1 must fail the traversal
     // instead of yielding its items twice.
     let calls = 0
-    const result = await collectPages({
-      first: page(['a'], 'https://was.example/space/s/c/'),
-      firstUrl: 'https://was.example:443/space/s/c/',
-      fetchPage: async () => {
-        calls += 1
-        return page(['b'])
-      }
-    })
+    await expect(
+      collectPages({
+        first: page(['a'], 'https://was.example/space/s/c/'),
+        firstUrl: 'https://was.example:443/space/s/c/',
+        fetchPage: async () => {
+          calls += 1
+          return page(['b'])
+        }
+      })
+    ).rejects.toThrow(WasServerError)
     expect(calls).toBe(0)
-    expect(result.items.map(item => item.id)).toEqual(['a'])
   })
 })
 
@@ -225,7 +254,8 @@ describe('Collection.list() pagination', () => {
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result?.next).toBeUndefined()
-    expect(result?.totalItems).toBe(5)
+    // Recomputed from the walk, not the first page's `totalItems: 5`.
+    expect(result?.totalItems).toBe(3)
   })
 })
 
@@ -328,6 +358,7 @@ describe('publicListCollection() pagination', () => {
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result?.next).toBeUndefined()
+    expect(result?.totalItems).toBe(3)
   })
 
   it('publicListCollectionItems() streams items and stops early', async () => {
@@ -379,16 +410,18 @@ describe('Space.collections() pagination', () => {
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result?.next).toBeUndefined()
-    expect(result?.totalItems).toBe(5)
+    // Recomputed from the walk, not the first page's `totalItems: 5`.
+    expect(result?.totalItems).toBe(3)
   })
 
-  it('returns the single page unchanged when there is no `next`', async () => {
+  it('returns the single page with totalItems recomputed when there is no `next`', async () => {
     const { client, urls } = clientWithPages({
       'https://was.example/space/s/': collectionsPage(['a', 'b'])
     })
     const result = await client.space('s').collections()
     expect(urls).toEqual(['https://was.example/space/s/'])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b'])
+    expect(result?.totalItems).toBe(2)
     expect(result?.next).toBeUndefined()
   })
 

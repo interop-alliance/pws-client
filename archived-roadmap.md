@@ -4374,3 +4374,27 @@ server, so no wire convention was added. A torn replace leaves the pending stub
 in place for the next write to replace. A reap that fails after the document is
 stored is reported as `EncryptionError`; the stale chunks are unreachable and go
 with a `delete()` of the resource.
+
+### WCL-92: [M] Buffered listings return the first page's `totalItems` beside fully-aggregated items
+
+- status: done (2026-10-27)
+- priority: medium
+- labels: correctness, reuse
+- acceptance:
+  - [x] `collectPages` recomputes `totalItems` from the completed walk, and the
+        duplicated recompute in `listSpaces` is removed
+  - [x] A first page that omits `totalItems` does not leave the field
+        `undefined` under a type that declares it required
+
+A two-page public collection (first page declaring `totalItems: 100` with 100
+items, second page carrying 150) returns `{ items: 250, totalItems: 100 }`.
+`collectPages` spreads the first page and replaces only `items`, so every
+buffering call site other than `listSpaces` inherits the first page's count --
+`publicListCollection` and `Collection.list` both. `listSpaces` is correct only
+because it recomputes the field itself afterwards, which is the duplication this
+item removes. Sequence with 89, which corrects the premise that recompute rests
+on. Related: `CollectionResourcesList.totalItems` is declared a required
+`number` upstream, so a first page that legitimately omits it yields `undefined`
+under a non-optional type.
+
+discovered-from: whole-codebase review, 2026-09-11.

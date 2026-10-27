@@ -52,8 +52,6 @@ Ready:
   unreachable on every read
 - WCL-89 [M] A mid-walk 404 truncates a listing, and the walk throws untyped
   errors
-- WCL-92 [M] Buffered listings return the first page's `totalItems` beside
-  fully-aggregated items
 - WCL-58 [L] A key-wrap authentication failure is reported as a membership
   decision
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
@@ -793,51 +791,31 @@ with the `deleteWithOutcome` item (the same raw-status short-circuit ahead of
 - priority: medium
 - labels: correctness, errors
 - acceptance:
-  - [ ] A followed `next` page that resolves to `null` ends the walk with a
+  - [x] A followed `next` page that resolves to `null` ends the walk with a
         `WasServerError` rather than a silently short listing
-  - [ ] `listSpaces` does not assert the truncated count as `totalItems`
+  - [x] No buffered listing (`collectPages`, behind `Collection.list()`,
+        `Space.collections()`, `publicListCollection()` and `listSpaces()`)
+        asserts a truncated count as `totalItems`
   - [ ] A non-JSON body or a 200 carrying well-formed JSON that is not a listing
         surfaces as a typed `WasError` from the public walk
 
 Reproduced against a local server: page 1 carrying 100 items and
 `totalItems: 250`, then a 404 on page 2, makes `listSpaces()` resolve
 `{ items: 100, totalItems: 100 }` with no error. `signedPageWalk` fetches every
-page with `read: true`, so `send` maps the 404 to `null` and `walkPages` cannot
-tell that from end-of-list. `listSpaces` then recomputes `totalItems` from the
-truncated set, and the one comment explaining why the recompute is sound ("the
-walk has gathered the complete listing") marks exactly where the premise fails.
-The read-shaped flag belongs on the first page alone. The same walk is also the
-landing site for untyped failures: the public page fetcher calls `readJsonData`
+page with `read: true`, so `send` maps the 404 to `null` and `walkPages` could
+not tell that from end-of-list. `collectPages` then recomputed `totalItems` from
+the truncated set, for every buffered listing. Done so far (2026-10-27):
+`walkPages` fails with `WasServerError` on a `null` followed page and on a
+`next` back to an already-walked page, so the recompute in `collectPages` only
+ever sees a complete walk. Still open: the read-shaped flag belongs on the first
+page alone, and the untyped failures below. The same walk is also the landing
+site for untyped failures: the public page fetcher calls `readJsonData`
 unconditionally with no content-type gate and casts the body to a listing, so an
 HTML interstitial escapes as `SyntaxError` and a wrong-shape JSON body as
 `TypeError: page.items is not iterable`. Gate on content type the way
 `parseResource` does, and treat a body without an array `items` as
 `WasServerError`, matching how `listSpaces` already treats a bodyless first
 page.
-
-discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-92: [M] Buffered listings return the first page's `totalItems` beside fully-aggregated items
-
-- status: todo
-- priority: medium
-- labels: correctness, reuse
-- acceptance:
-  - [ ] `collectPages` recomputes `totalItems` from the completed walk, and the
-        duplicated recompute in `listSpaces` is removed
-  - [ ] A first page that omits `totalItems` does not leave the field
-        `undefined` under a type that declares it required
-
-A two-page public collection (first page declaring `totalItems: 100` with 100
-items, second page carrying 150) returns `{ items: 250, totalItems: 100 }`.
-`collectPages` spreads the first page and replaces only `items`, so every
-buffering call site other than `listSpaces` inherits the first page's count --
-`publicListCollection` and `Collection.list` both. `listSpaces` is correct only
-because it recomputes the field itself afterwards, which is the duplication this
-item removes. Sequence with 89, which corrects the premise that recompute rests
-on. Related: `CollectionResourcesList.totalItems` is declared a required
-`number` upstream, so a first page that legitimately omits it yields `undefined`
-under a non-optional type.
 
 discovered-from: whole-codebase review, 2026-09-11.
 
@@ -1287,7 +1265,11 @@ recorded in the CHANGELOG, not here.
   - storage-core: SC-11 (`ReplicaRegistration.pausedAt`, `ReplicaStatus.state`
     gains `paused`), picked up by a storage-core bump
   - was-teaching-server: the PUT on the registration URL, its body, and its
-    refusals; the replicas route admitting a delegated invocation
+    refusals -- shipped 2026-10-27 (full record as POST carries it, only
+    `capability` and `pausedAt` may differ, 400 on the member's pointer
+    otherwise; 201 on create, 204 on replace; optional `If-Match` /
+    `If-None-Match: *`, 412; `pausedAt` server-set; four-segment `ETag`); the
+    replicas route admitting a delegated invocation is still open there
   - portable-web-spaces-spec: decision 0013 amended and WASS-50's text (the
     pause, the in-place replacement, the delegated replicas route)
   - wallet-core, freewallet: the consumers (the replica pass, Stop, re-start,

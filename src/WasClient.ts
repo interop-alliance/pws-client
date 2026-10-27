@@ -369,13 +369,12 @@ export class WasClient {
    * masking), so nothing is revealed about which spaces exist.
    *
    * Transparently follows the server's `next` pagination links, buffering every
-   * page into a single listing (the returned envelope omits `next`). Because a
-   * paginating server omits `totalItems` on a truncated page, `totalItems` on
-   * the aggregate is recomputed from the collected items -- sound here, since
-   * the walk has gathered the complete listing.
+   * page into a single listing. The returned envelope omits `next`, and its
+   * `totalItems` counts the collected items.
    *
    * @returns {Promise<SpaceListing>}
    * @throws {NotSupportedError}   when the server has no Spaces Repository
+   * @throws {WasServerError}   when the listing cannot be read in full
    */
   async listSpaces(): Promise<SpaceListing> {
     await this.#assertSpacesRepository()
@@ -392,11 +391,7 @@ export class WasClient {
         `The space listing at "${this.serverUrl}" answered with no JSON body.`
       )
     }
-    const listing = await collectPages(walk)
-    // A paginating server omits `totalItems` on truncated pages; the walk has
-    // now collected the complete listing, so recompute it from the items.
-    listing.totalItems = listing.items.length
-    return listing
+    return collectPages(walk)
   }
 
   /**

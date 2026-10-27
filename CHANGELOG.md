@@ -1,5 +1,17 @@
 # @interop/was-client Changelog
 
+## 0.99.1 - TBD
+
+### Fixed
+
+- Buffered listings (`Collection.list()`, `Space.collections()`,
+  `was.publicListCollection()`, `was.listSpaces()`) always report `totalItems`
+  as the count of the collected items, instead of passing through the first
+  page's value (omitted or stale on a paginating server).
+- A listing walk whose followed `next` page is missing or unauthorized, or
+  points back at a page already walked, throws `WasServerError` instead of
+  returning a silently truncated listing.
+
 ## 0.99.0 - 2026-10-27
 
 ### Added
