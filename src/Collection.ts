@@ -604,7 +604,11 @@ export class Collection {
         ? compose(null)
         : compose(baseline.metadata, baseline.opened)
     if (ifMatch !== undefined) {
-      const attempt = seed ?? (await read())
+      // The caller's read is the baseline only when it is the version the
+      // write pins against; a stale one would merge over the changes between
+      // the two versions, and the server would accept the result.
+      const attempt =
+        seed !== undefined && seed.etag === ifMatch ? seed : await read()
       return put(await composeFrom(attempt.value), { ifMatch })
     }
     return composeAndSwap({

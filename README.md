@@ -27,7 +27,7 @@
   - [Storage introspection: backends and quotas](#storage-introspection-backends-and-quotas)
   - [Registering a Bring-Your-Own-Storage backend](#registering-a-bring-your-own-storage-backend)
   - [Replica registration](#replica-registration)
-  - [Encrypted collections (EDV-over-PWS): pass-through encryption via the PWS client (recommended)](#encrypted-collections-edv-over-was-pass-through-encryption-via-the-was-client-recommended)
+  - [Encrypted collections (EDV-over-PWS): pass-through encryption via the PWS client (recommended)](#encrypted-collections-edv-over-pws-pass-through-encryption-via-the-pws-client-recommended)
   - [Cross-replica sync](#cross-replica-sync)
   - [Resource logs (co-managed key resources)](#resource-logs-co-managed-key-resources)
   - [Export and import](#export-and-import)
@@ -451,7 +451,7 @@ Writes detect the payload: a plain object/array is sent as JSON; a
 `Blob`/`Uint8Array`/`Buffer` is sent as binary, with the content-type taken from
 `options.contentType`, the `Blob.type`, or `application/octet-stream`. A
 `ReadableStream<Uint8Array>` is accepted only by an encrypted collection (see
-[Encrypted collections](#encrypted-collections-edv-over-was-pass-through-encryption-via-the-was-client-recommended)).
+[Encrypted collections](#encrypted-collections-edv-over-pws-pass-through-encryption-via-the-pws-client-recommended)).
 A plaintext collection refuses it with `ValidationError`. A plaintext resource
 has no chunked representation, and a signed request carries a `Digest` of its
 whole body. Buffer the stream into a `Blob` there.
