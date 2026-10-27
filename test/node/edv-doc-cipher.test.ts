@@ -38,6 +38,7 @@ import type {
 } from '../../src/index.js'
 import { blobBytes } from '../../src/edv/core.js'
 import { edvIdFromBytes } from '../../src/edv/cipher.js'
+import { buildEdvCodec } from '../../src/edv/EdvCodec.js'
 import type { ChunkSource, EdvDocCipher } from '../../src/edv/core.js'
 import { EdvCodec } from '../../src/edv/EdvCodec.js'
 import {
@@ -914,7 +915,11 @@ describe('createEdvDocCipher (random derivation, encryptUpdate)', () => {
     // A head document authored by a client that minted its own row id (e.g. a
     // legacy freewallet uuidv7 contact): the id is already the server resource
     // id, so the update path takes it verbatim instead of asserting the EDV
-    // multibase format (which only guards creates against URL leaks).
+    // multibase format (which only guards creates against URL leaks). The
+    // update opens the stored envelope as a read would, so the prior envelope
+    // has to be bound to the uuid; the content create path refuses such an
+    // id, so it is minted here through the resource `/meta` slot, which binds
+    // whatever resource id it is told.
     const { encryption, ...keys } = await makeReaderWithDescriptor()
     const cipher = await createEdvDocCipher({
       ...keys,
@@ -924,11 +929,20 @@ describe('createEdvDocCipher (random derivation, encryptUpdate)', () => {
     })
 
     const uuid = '01890a5d-ac96-774b-bcce-b302099a8057'
-    const { envelope } = await cipher.encrypt({ data: { v: 1 } })
+    const codec = await buildEdvCodec({
+      collectionId: 'contacts',
+      encryption,
+      keys,
+      idDerivation: 'random'
+    })
+    const { custom: envelope } = await codec.encodeMeta({
+      custom: { v: 1 },
+      slot: { kind: 'resource', id: uuid }
+    })
     const updated = await cipher.encryptUpdate!({
       id: uuid,
       data: { v: 2 },
-      current: envelope
+      current: envelope as Json
     })
     expect(updated.id).toBe(uuid)
     expect(

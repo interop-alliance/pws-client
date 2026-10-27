@@ -380,18 +380,20 @@ function docCipherOverCodec({
   const readEncoded = (
     write: CodecWrite
   ): { id: string; envelope: Json; epoch?: string } => {
-    // A payload over the codec's single-document threshold answers with a
-    // multi-request plan (a document plus chunk resources on a live server),
-    // which has no one envelope to hand a replica. This seam is
-    // envelope-in/envelope-out, so it refuses the payload instead.
+    // A payload over the codec's single-document threshold, or a write over
+    // a chunked prior envelope, answers with a multi-request plan (a document
+    // plus chunk resources on a live server, or the reaping of a prior
+    // document's chunks), which has no one envelope to hand a replica. This
+    // seam is envelope-in/envelope-out, so it refuses the write instead.
     if (isChunkedWrite(write)) {
       throw new ValidationError(
         `Cannot encrypt this value for collection "${collectionId}": the ` +
-          'binary payload exceeds the single-document threshold, so it can ' +
-          'only be stored as a document plus chunk resources -- a ' +
-          'multi-request server write with no single envelope, which this ' +
-          'local-replica cipher does not support. Store a large blob through ' +
-          'a Collection handle, or split it before encrypting.'
+          'write needs several server requests (a binary payload over the ' +
+          'single-document threshold is stored as a document plus chunk ' +
+          'resources, and a write over such a document reaps its chunks), ' +
+          'so it has no single envelope, which this local-replica cipher ' +
+          'does not support. Write it through a Collection handle, or keep ' +
+          'the value under the threshold.'
       )
     }
     const encoded = write

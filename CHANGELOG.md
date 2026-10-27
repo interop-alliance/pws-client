@@ -4,6 +4,25 @@
 
 ### Added
 
+- `Resource.put()` on an encrypted collection replaces a stored document through
+  the chunked-stream path: a binary over `maxBlobBytes`, or a `ReadableStream`,
+  over an existing document is written as a document plus chunk resources
+  (`EdvClientCore.update({ doc, stream })`), pinned to the pre-read's `ETag`.
+  Before, such a write was refused with `ValidationError`.
+- Replacing a chunked encrypted document, with any payload, reaps the chunks the
+  new document does not cover once it is stored: every chunk under an inline
+  document, those at or past the new count under a chunked one. A small `put()`
+  over a chunked document used to strand its chunks, stored and counted against
+  quota. Each delete is pinned to the chunk `etag` the listing reports, where
+  the server lists one, so a chunk a later writer stored since is left alone;
+  the deletes run eight at a time, and a resource another client deleted before
+  the reap is nothing to reap. A reap that fails after the document is stored
+  surfaces as `EncryptionError` saying the write landed.
+- `WasTransport` takes a `baseline` (the pre-read document's id and `ETag`),
+  which its first `update` is pinned to, and gains `listChunks` and
+  `deleteChunk` over the chunk container and member endpoints. The chunk
+  container path is `resourceChunksPath`.
+
 - `Collection.configure()` accepts `ifMatch`, the validator from
   `describeWithEtag()`, for a caller that wants to see a lost race as
   `PreconditionFailedError` rather than have the merge rebased. A pinned
@@ -29,6 +48,21 @@
 
 ### Changed
 
+- Updating an encrypted document whose envelope carries a cleartext `stream`
+  member (the cue a chunked write leaves) now opens the pre-read envelope
+  (decrypts it and verifies its binding, as a read would), since only the sealed
+  `meta.encoding` says whether the stored document's bytes live in chunk
+  resources. An envelope without the cue is not opened, so an ordinary update
+  pays no key unwrap. The cue is server-controlled, but a server that strips it
+  can only strand the prior chunks against quota (deleting the resource removes
+  them), and one that adds it costs the write a decrypt.
+- A replace through the chunked-stream path that fails partway leaves the
+  pending stub in place, where a create deletes it: deleting the stub would turn
+  a torn update into a missing resource. The next `put()` at the id replaces the
+  stub and reaps its chunks.
+- `ChunkedWrite` loses its `guidance` member: no write path refuses a plan any
+  more. The local-replica doc cipher's refusal of a plan now names both causes,
+  an oversize payload and a write over a chunked envelope.
 - `was.request()` uppercases `method` and `action` before signing, as `grant()`
   already does, so `was.request({ method: 'put' })` and an explicit lowercase
   `action` invoke the same `PUT` action the server verifies against. A lowercase

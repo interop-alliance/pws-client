@@ -375,6 +375,24 @@ export function resourceChunkPath(
 }
 
 /**
+ * `/space/:spaceId/:collectionId/:resourceId/chunks/` -- the chunk container
+ * of a chunked Resource: its stored chunks, listed. Container form, trailing
+ * slash (the member form, {@link resourceChunkPath}, has none).
+ *
+ * @param spaceId {string}
+ * @param collectionId {string}
+ * @param resourceId {string}
+ * @returns {string}
+ */
+export function resourceChunksPath(
+  spaceId: string,
+  collectionId: string,
+  resourceId: string
+): string {
+  return `${resourcePath(spaceId, collectionId, resourceId)}/chunks/`
+}
+
+/**
  * The Spaces Repository URL beneath a server base URL: the reserved `spaces`
  * segment at the server root, in canonical trailing-slash form. This is the
  * URL a `WasClient` is constructed with (its `serverUrl`), so a consumer that

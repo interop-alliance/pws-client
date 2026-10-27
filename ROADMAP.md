@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 137
+nextAvailableId: 140
 
 <!-- roadmap-order:index:start -->
 
@@ -87,8 +87,13 @@ Ready:
 
 Ready:
 
-- WCL-12 [M] Chunked-stream auto-routing for `put()` (oversize update)
+- WCL-138 [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
+
+Waiting on another repo:
+
+- WCL-137 [M] Pause, resume, and replace the capability of a replica
+  registration (after SC-11)
 
 **Performance**
 
@@ -111,6 +116,7 @@ Ready:
 - WCL-88 [L] Record the upstream-owned `NotFoundError` / `DuplicateError` names
   in decisions/0001
 - WCL-97 [L] Docstring corrections in the EDV transport and the refresh policy
+- WCL-139 [L] Move chunk reaping on a replacing write into the EDV core
 
 **Someday / Maybe**
 
@@ -1270,36 +1276,87 @@ front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
 
-### WCL-12: [M] Chunked-stream auto-routing for `put()` (oversize update)
+### WCL-137: [M] [after SC-11] Pause, resume, and replace the capability of a replica registration
 
 - status: todo
 - priority: medium
-- labels: encryption, streams, ergonomics
+- labels: replication, spaces, api
+- discovered-from: freewallet FW-688 (2026-10-26)
+- blocked-by: SC-11, and the was-teaching-server counterpart (the replica
+  design's delegated replicas route and the `pausedAt` pause with the in-place
+  capability replacement; not yet filed there)
+- touches:
+  - storage-core: SC-11 (`ReplicaRegistration.pausedAt`,
+    `ReplicaStatus.state` gains `paused`), picked up by a storage-core bump
+  - was-teaching-server: the PUT on the registration URL, its body, and its
+    refusals; the replicas route admitting a delegated invocation
+  - portable-web-spaces-spec: decision 0013 amended and WASS-50's text (the
+    pause, the in-place replacement, the delegated replicas route)
+  - wallet-core, freewallet: the consumers (the replica pass, Stop, re-start,
+    and the pre-strike replacement in freewallet FW-688 / FW-638)
 - acceptance:
-  - [ ] An oversize binary `put()` on an encrypted collection replaces the
-        existing document via the chunked-stream path instead of throwing
-  - [ ] Chunks orphaned by a shrinking rewrite (or by an update that leaves the
-        chunked profile) are cleaned up or provably unreachable
+  - [ ] `Space` gains `pauseReplica(replicaId)` and `resumeReplica(replicaId)`:
+        a PUT on the registration URL that sets `pausedAt` (an ISO 8601 UTC
+        time) or clears it
+  - [ ] `Space` gains a call that replaces a registration's pull capability in
+        place by the same PUT (working name `replaceReplicaCapability`). The
+        registration keeps its `id` and its checkpoint
+  - [ ] The PUT body, any precondition, and the refusals map onto the server
+        item's settled shape, with each refusal's problem `type` documented as
+        `registerReplica` documents its own
+  - [ ] The "Controller-only" JSDoc on the replica methods is revised: on
+        `registerReplica` (`src/Space.ts:791`), `replicas` (`:833`), `replica`
+        (`:850`), `deregisterReplica` (`:870`), `replicaStatus` (`:902-903`),
+        and on `spaceReplicas` in `src/internal/paths.ts:189`. The route admits
+        a delegated invocation whose chain roots in the Space's root, for GET,
+        POST, PUT, and DELETE. A delegated POST may only name a `fromSpace`
+        already registered on the Space
+  - [ ] The JSDoc says how to hold such a grant: `fromCapability` refuses a
+        reserved sub-resource target (`src/WasClient.ts:563-570`), so a
+        replicas-route grant is opened with `was.space(id, { capability })`
+  - [ ] `replicaStatus` documents the `paused` state
+  - [ ] Integration tests against the teaching server cover pause, the
+        `paused` status, resume, the replacement keeping the `id`, and the
+        replica methods under a delegated replicas-route grant
 
-discovered-from: WCL-2. `add()` auto-routes but `put(id, bigBlob)` still refuses
-with the chunked-path guidance. An update is not a symmetric case: it must
-reconcile an existing document's chunks with the new stream
-(`EdvClientCore.update({ doc, stream })`) and deal with orphaned chunk resources
-when the new stream is shorter, so it is a real feature rather than a follow-up
-detail.
+Context: freewallet FW-688 lets every session kind keep a replica of the
+account Space on a second server. A credential-anchored account has no key
+that can root-invoke on the promoted replica Space, so the server's replicas
+route will admit a root-chained delegated invocation. Stopping a replica keeps
+its copy, but the server refuses to remove the registration that maps the
+Space's did:webvh controller, so Stop pauses the registration instead. The
+pause is a `pausedAt` member written and cleared by PUT on the registration
+URL, and `status.state` reads `paused` while it is set. Every pull grant dies
+when its signer is withdrawn, so the same PUT also swaps a registration's
+pull capability in place. The registration keeps its `id`, its loop, and its
+checkpoint (loop state is per id). The replication version stays `0.1`. The
+`Space` handle has only POST, GET, and DELETE on the route today
+(`src/Space.ts:784-913`).
 
-Since WCL-120, `put(id, bigBlob)` at an id where no document is stored already
-takes the chunked write (a create-if-absent), so this item is the replace case
-only: a `put()` over an existing document.
+### WCL-138: [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
 
-Raised to medium by the 2026-09-11 review, which proved the orphan half is not
-gated on the auto-routing feature. An ordinary small `put()` over a chunked
-encrypted document already strands the old chunks. They stay stored, counted
-against quota and decryptable, with no error. The second acceptance box covers
-it, so no separate item was filed, but an interim refusal can land before the
-routing work does. Detecting the chunked profile needs the pre-read envelope
-decrypted, since `meta.encoding` is sealed inside the JWE rather than known at
-encode time.
+- status: todo
+- priority: medium
+- labels: replication, paths, api
+- discovered-from: freewallet FW-688 (2026-10-26)
+- touches:
+  - wallet-core: the consumer; it mints the replicas-route maintenance grant
+    for the ladder kind and needs the route's target URL
+- acceptance:
+  - [ ] `src/paths.ts` re-exports `spaceReplicas` and `replicaRegistration`
+        from `src/internal/paths.ts` (`:191-204`)
+  - [ ] The exported JSDoc no longer says "Controller-only" and states whether
+        the replicas-route grant's `invocationTarget` is the bare
+        `/space/:id/replicas` path these builders return or a trailing-slash
+        form, per the server item
+  - [ ] A unit test pins both builders on the `/paths` entry
+
+Context: freewallet FW-688's ladder kind mints a short-lived grant on the
+replica Space's replicas route, to replace or pause a registration and to read
+its status. wallet-core builds that grant and needs the route's target URL.
+The builders exist only in `src/internal/paths.ts:191-212`. The public
+`/paths` entry (`src/paths.ts:36-52`) does not export them, so wallet-core
+would have to rebuild the path by string concatenation.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 
@@ -1571,6 +1628,45 @@ unknown-epoch row. Correct the class docstring, or add a short cooldown on
 repeated refresh failures.
 
 discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-139: [L] Move chunk reaping on a replacing write into the EDV core
+
+- status: todo
+- priority: low
+- labels: encryption, upstream, cleanup
+- touches:
+  - "@interop/edv-client" -- `EdvClientCore.update({ doc, stream, transport })`
+    and the non-stream `update` over a chunked prior document would reap the
+    chunks at or past the new count through optional `listChunks` /
+    `deleteChunk` transport methods, and report the sealed chunk count in a
+    typed result
+  - was-client: `src/edv/EdvCodec.ts` (`#writePlan`, `#replacingWrite`,
+    `#reapChunks`, `#reapFailed`, the `prior.chunked` plumbing) and
+    `src/edv/WasTransport.ts` (`listChunks`, `deleteChunk`)
+- acceptance:
+  - [ ] The EDV core owns the whole chunk lifecycle of a replacing write
+        (write, count, reaping of the prior document's leftover chunks), given
+        a transport that lists and deletes chunks
+  - [ ] `EdvCodec` no longer casts the core's untyped `insert` / `update`
+        result to read the sealed chunk count
+  - [ ] `#replacingWrite` is gone: an inline document written over a chunked
+        one goes through the core's `update`, which reaps for it
+  - [ ] `listChunks` / `deleteChunk` are part of the transport contract the
+        core knows, not operations the codec drives beside it
+
+The chunk lifecycle of a chunked document is owned by `EdvClientCore` upstream
+(it writes the document, streams the chunks, seals the count), but the cleanup
+half of a replacing write lives in this client: `#reapChunks` lists and deletes
+the chunks the new document does not cover, over two `WasTransport` methods the
+EDV `Transport` contract does not know, and the chunk count it keeps is read off
+the core's result through a cast. `#replacingWrite` exists only because the core
+cannot write an inline document over a chunked one and reap for it. Any other
+`Transport` implementation cannot reap at all. Moving the reaping into the core
+removes the cast, the extra plan kind and the `prior.chunked` plumbing from the
+codec, and gives every transport the same behavior.
+
+discovered-from: simplify review of the chunked `put()` replace work,
+2026-10-26.
 
 ## Someday / Maybe
 

@@ -193,6 +193,100 @@ describe('WasTransport — update', () => {
       transport(request).update({ encrypted: encryptedDoc() })
     ).rejects.toMatchObject({ name: 'DuplicateError' })
   })
+
+  it('pins the first update to the baseline, then to its own last write', async () => {
+    const acked = ['"w1"', '"w2"']
+    const request = vi.fn(async (_input: Record<string, unknown>) =>
+      writeResponse(acked.shift())
+    )
+    const pinned = new WasTransport({
+      was: { request } as never,
+      spaceId: 'space 1',
+      collectionId: 'docs',
+      baseline: { id: 'zUpd', etag: '"b1"' }
+    })
+    // A seeded baseline is a pin, not a write.
+    expect(pinned.lastDocumentWrite).toBeUndefined()
+
+    await pinned.update({ encrypted: encryptedDoc('zUpd') })
+    await pinned.update({ encrypted: encryptedDoc('zUpd') })
+    const headersOf = (call: number) =>
+      (request.mock.calls[call]![0] as { headers: Record<string, string> })
+        .headers
+    expect(headersOf(0)['if-match']).toBe('"b1"')
+    expect(headersOf(1)['if-match']).toBe('"w1"')
+    expect(pinned.lastDocumentWrite).toEqual({ id: 'zUpd', etag: '"w2"' })
+  })
+
+  it('does not pin an update to a baseline for another id', async () => {
+    const request = vi.fn(async (_input: Record<string, unknown>) =>
+      writeResponse()
+    )
+    const pinned = new WasTransport({
+      was: { request } as never,
+      spaceId: 'space 1',
+      collectionId: 'docs',
+      baseline: { id: 'zOther', etag: '"b1"' }
+    })
+    await pinned.update({ encrypted: encryptedDoc('zUpd') })
+    const put = request.mock.calls[0]![0] as {
+      headers: Record<string, string>
+    }
+    expect(put.headers['if-match']).toBeUndefined()
+  })
+})
+
+describe('WasTransport -- chunk listing and delete (listChunks / deleteChunk)', () => {
+  it('GETs the chunks/ container and returns its entries', async () => {
+    const chunks = [
+      {
+        index: 0,
+        size: 10,
+        contentType: 'application/octet-stream',
+        etag: '"3mJr7AoUXx2.1767225600000.0.zOrigin"'
+      },
+      { index: 1, size: 4, contentType: 'application/octet-stream' }
+    ]
+    const request = vi.fn(async (_input: Record<string, unknown>) =>
+      dataResponse({ resourceId: 'doc1', count: 2, chunks })
+    )
+    await expect(
+      transport(request).listChunks({ id: 'doc1' })
+    ).resolves.toEqual(chunks)
+    const get = request.mock.calls[0]![0] as { path: string; method: string }
+    expect(get.method).toBe('GET')
+    expect(get.path).toBe('/space/space%201/docs/doc1/chunks/')
+  })
+
+  it('refuses a listing with no chunks array', async () => {
+    const request = vi.fn(async () => dataResponse({ count: 0 }))
+    await expect(transport(request).listChunks({ id: 'doc1' })).rejects.toThrow(
+      /Malformed chunk listing/
+    )
+  })
+
+  it('DELETEs one chunk at its own URL, pinned when an ETag is given', async () => {
+    const request = vi.fn(
+      async (_input: Record<string, unknown>) => ({}) as HttpResponse
+    )
+    await transport(request).deleteChunk({
+      id: 'doc1',
+      chunkIndex: 2,
+      ifMatch: '"7"'
+    })
+    await transport(request).deleteChunk({ id: 'doc1', chunkIndex: 3 })
+    const callOf = (call: number) =>
+      request.mock.calls[call]![0] as {
+        path: string
+        method: string
+        headers?: Record<string, string>
+      }
+    expect(callOf(0).method).toBe('DELETE')
+    expect(callOf(0).path).toBe('/space/space%201/docs/doc1/chunks/2')
+    expect(callOf(0).headers).toEqual({ 'if-match': '"7"' })
+    expect(callOf(1).path).toBe('/space/space%201/docs/doc1/chunks/3')
+    expect(callOf(1).headers).toBeUndefined()
+  })
 })
 
 describe('WasTransport — get', () => {

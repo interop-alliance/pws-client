@@ -119,6 +119,7 @@ export type {
 export { createEdvEncryption } from './encryption.js'
 export { wasTransportFactory } from './transportFactory.js'
 export { WasTransport } from './WasTransport.js'
+export type { ChunkListEntry, StoredDocument } from './WasTransport.js'
 export { collectionDescriptorStore } from './descriptorStore.js'
 export {
   acquireDescriptor,

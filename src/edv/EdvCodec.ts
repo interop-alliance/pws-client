@@ -38,13 +38,15 @@
  *   is encrypted as one document -- stored as a legible UTF-8 string for a
  *   text-family type (else base64) -- with the plaintext content type and the
  *   encoding carried in the document `meta`. A blob over `maxBlobBytes`, and
- *   any `ReadableStream` (whose size is unknown), is auto-routed by `add()` to
- *   the chunked-stream path instead: `encode` returns a multi-request plan the
- *   write path executes, storing one document plus its chunk resources over a
- *   `WasTransport` supplied by the injected `CodecTransportFactory`. Reads
- *   reassemble transparently, so `get()` returns the same `Blob` either way,
- *   and `decodeStream` hands a chunked document's decrypt stream back
- *   unbuffered.
+ *   any `ReadableStream` (whose size is unknown), is auto-routed by `add()` and
+ *   `put()` alike to the chunked-stream path instead: `encode` returns a
+ *   multi-request plan the write path executes, storing one document plus its
+ *   chunk resources over a `WasTransport` supplied by the injected
+ *   `CodecTransportFactory`. A `put()` over a chunked document is a plan too,
+ *   whatever its payload: the prior document's chunks that the new one does
+ *   not cover are reaped after the write. Reads reassemble transparently, so
+ *   `get()` returns the same `Blob` either way, and `decodeStream` hands a
+ *   chunked document's decrypt stream back unbuffered.
  * - **Enforced sequence (conditional writes).** The codec sets
  *   `conditionalWrites`, so the write path pre-reads the current envelope and
  *   hands it to `encode`: an update advances `sequence` from its prior value and
@@ -116,7 +118,11 @@ import {
 } from '../internal/blob.js'
 import { readEtag, writeHeaders } from '../internal/conditional.js'
 import type { WritePrecondition } from '../internal/conditional.js'
-import type { WasTransport } from './WasTransport.js'
+import type {
+  ChunkListEntry,
+  StoredDocument,
+  WasTransport
+} from './WasTransport.js'
 import { isEncryptedEnvelope } from '../sync/envelope.js'
 import { epochWriteStandIn, resolveEpochKeys } from './epochKeys.js'
 import { didKeyResolver } from './epochCrypto.js'
@@ -183,7 +189,44 @@ const CHUNKED_ENCODING = 'chunked'
 export type CodecTransportFactory = (options: {
   context: CodecRequestContext
   documentHeaders?: Record<string, string>
+  baseline?: StoredDocument
 }) => WasTransport
+
+/**
+ * What an update knows about the stored document it replaces, read off the
+ * write path's pre-read: the `sequence` to advance and the blinded `indexed`
+ * entries to carry forward (both cleartext on the envelope), the `ETag` the
+ * write is pinned to, and whether the document's bytes live in chunk
+ * resources (sealed in its `meta`, so known only once the envelope is opened).
+ */
+type PriorDocument = {
+  sequence: number
+  indexed?: IEncryptedDocument['indexed']
+  etag?: string
+  chunked: boolean
+}
+
+/**
+ * A stored envelope once opened: its decrypted members, the key it was
+ * unwrapped with, the verified `was` binding and the resource id that binding
+ * carries (the only trustworthy one on a stored document).
+ */
+type OpenedEnvelope = {
+  content?: unknown
+  meta?: Record<string, unknown>
+  stream?: unknown
+  keyId: string
+  binding: Record<string, unknown>
+  resourceId?: string
+}
+
+/**
+ * How many stale chunks a reap deletes at once. Each delete is one signed
+ * request that is independent of the others (pinned and 404-tolerant, in no
+ * required order), so a shrunk document's leftovers go a few at a time rather
+ * than one awaited round trip per chunk.
+ */
+const REAP_CONCURRENCY = 8
 
 /**
  * Serves the chunks of a chunked encrypted document from bytes the caller
@@ -632,6 +675,44 @@ export class EdvCodec implements ResourceCodec {
         ? undefined
         : ((await this.#edv.generateId()) as string))
     const parts = await this.#toDocument(data, contentType, docId)
+
+    // When the write path pre-read a current envelope, this is an update:
+    // `sequence` advances from the prior value (`encrypt({ update: true })`
+    // increments it), the write is pinned to the server's current ETag with
+    // `If-Match`, and the write learns whether the prior document's bytes
+    // live in chunk resources, so they can be reaped once this write lands.
+    // Only the sealed `meta.encoding` says so for certain, and reading it
+    // means opening the envelope (decrypting it, with its binding verified
+    // against this id, as a read would): a key unwrap per update. The
+    // cleartext `stream` member a chunked write leaves on the envelope is the
+    // cue to pay for that; an envelope without one is taken as inline and is
+    // not opened. The cue is server-controlled, but nothing rests on it: a
+    // server that strips it can only leave the prior chunks stranded (stored
+    // and counted against quota, unreachable, removed with the resource), and
+    // one that adds it costs this write a decrypt that finds an inline
+    // encoding. With no prior envelope this is a fresh insert (`sequence: 0`)
+    // guarded by `If-None-Match: *` (create-if-absent), so a concurrent first
+    // writer cannot be clobbered.
+    let prior: PriorDocument | null = null
+    if (current) {
+      const read = await readJsonData(current)
+      this.#assertEnvelope(read, 'update')
+      const chunked =
+        read.stream !== undefined &&
+        (await this.#openEnvelope({ doc: read, expectedId: id })).meta
+          ?.encoding === CHUNKED_ENCODING
+      // The caller's own compare-and-swap baseline wins when they named one:
+      // the write path has already checked it against the pre-read, so the
+      // two agree by the time this runs.
+      const etag = precondition?.ifMatch ?? readEtag(current)
+      prior = {
+        sequence: read.sequence,
+        ...(read.indexed !== undefined && { indexed: read.indexed }),
+        ...(etag !== undefined && { etag }),
+        chunked
+      }
+    }
+
     if (parts.kind === 'chunked') {
       if (docId === undefined) {
         // A stream is chunked whatever its size, so only a sized payload can
@@ -657,22 +738,11 @@ export class EdvCodec implements ResourceCodec {
       return this.#chunkedWrite({
         id: docId,
         stream: parts.stream,
-        meta: parts.meta
+        meta: parts.meta,
+        prior
       })
     }
     const { content, meta } = parts
-
-    // When the write path pre-read a current envelope, advance `sequence` from
-    // its prior value (`encrypt({ update: true })` increments it) and pin the
-    // write to the server's current ETag with `If-Match`. With no prior envelope
-    // this is a fresh insert (`sequence: 0`) guarded by `If-None-Match: *`
-    // (create-if-absent), so a concurrent first writer cannot be clobbered.
-    let priorDoc: IEncryptedDocument | null = null
-    if (current) {
-      const read = await readJsonData(current)
-      this.#assertEnvelope(read, 'update')
-      priorDoc = read
-    }
 
     const { documentCipher } = this.#edv
     const encrypted = await documentCipher.encrypt({
@@ -683,14 +753,14 @@ export class EdvCodec implements ResourceCodec {
         // the plaintext content type and the inline-encoding discriminator,
         // taken fresh from this write (the new type/encoding wins on update).
         meta,
-        ...(priorDoc && { sequence: priorDoc.sequence }),
+        ...(prior && { sequence: prior.sequence }),
         // Carry the prior envelope's blinded `indexed` entries into the
         // update. With no blinding key edv-client stores `doc.indexed`
         // verbatim; omitting it would replace the entries with `[]` and
         // silently drop the record from `find()`. With a blinding key the
         // entries are recomputed from the schema and this copy is the prior
         // state that recomputation updates.
-        ...(priorDoc?.indexed !== undefined && { indexed: priorDoc.indexed })
+        ...(prior?.indexed !== undefined && { indexed: prior.indexed })
       },
       // Bind an AEAD-authenticated `was` parameter into the JWE protected
       // header: the scheme version, the resource id when known at encrypt time
@@ -707,7 +777,7 @@ export class EdvCodec implements ResourceCodec {
         ...(docId !== undefined && { resource: docId }),
         hmac: this.#writeBlindingKey()
       }),
-      update: priorDoc !== null
+      update: prior !== null
     })
     if (docId === undefined) {
       // Encrypt-then-stamp: the id lives in the cleartext envelope, outside the
@@ -715,6 +785,12 @@ export class EdvCodec implements ResourceCodec {
       // not invalidate the envelope.
       docId = await documentCipher.deriveId({ jwe: encrypted.jwe })
       encrypted.id = docId
+    }
+    if (prior?.chunked) {
+      // The envelope replaces a document whose bytes live in chunk resources,
+      // which the inline document leaves behind: a plan writes it and reaps
+      // them, since one request cannot do both.
+      return this.#replacingWrite({ id: docId, encrypted, meta, prior })
     }
     // Serialized on first read of `body` and kept for any later read, so the
     // wire bytes are built once per write and only when someone asks for them.
@@ -750,9 +826,7 @@ export class EdvCodec implements ResourceCodec {
       // (create-only-if-absent), and the server enforces it, so a masked-404
       // pre-read cannot silently overwrite an existing document.
       ...(precondition ??
-        (priorDoc
-          ? { ifMatch: readEtag(current ?? null) }
-          : { ifNoneMatch: true })),
+        (prior ? { ifMatch: prior.etag } : { ifNoneMatch: true })),
       // Stamp the key epoch this write encrypted under (the `currentEpoch`), so
       // the server records it and a reader can pick the epoch key.
       epoch: this.#writeEpoch
@@ -766,11 +840,14 @@ export class EdvCodec implements ResourceCodec {
    * @param context {CodecRequestContext}
    * @param [documentHeaders] {Record<string, string>}   extra headers for
    *   document writes (the `Key-Epoch` stamp the codec seam applies)
+   * @param [baseline] {StoredDocument}   the stored document the transport's
+   *   first update replaces, which it pins that update to
    * @returns {WasTransport}
    */
   #transportFor(
     context: CodecRequestContext,
-    documentHeaders?: Record<string, string>
+    documentHeaders?: Record<string, string>,
+    baseline?: StoredDocument
   ): WasTransport {
     if (this.#transportFactory === undefined) {
       throw new NotSupportedError(
@@ -783,15 +860,20 @@ export class EdvCodec implements ResourceCodec {
           '`decrypt` in place of a request context.'
       )
     }
-    return this.#transportFactory({ context, documentHeaders })
+    return this.#transportFactory({
+      context,
+      documentHeaders,
+      ...(baseline !== undefined && { baseline })
+    })
   }
 
   /**
    * The plan for a binary payload over the single-document threshold, or for
    * a stream of any size: one EDV document plus its chunk resources, written
-   * by `EdvClientCore.insert({ doc, stream, transport })` over a transport
-   * built from the write context. The document id is minted before the plan
-   * is returned, so the caller can report it without waiting for the write.
+   * by `EdvClientCore.insert({ doc, stream, transport })` (or, over a stored
+   * document, `update`) on a transport built from the write context. The
+   * document id is minted before the plan is returned, so the caller can
+   * report it without waiting for the write.
    *
    * The `was` binding, the recipients and the write epoch are exactly the
    * single-document path's, and `additionalProtectedParams` carries the binding
@@ -802,79 +884,291 @@ export class EdvCodec implements ResourceCodec {
    * payload, so that discriminator is what the read side routes on: a server
    * cannot mint it, and cannot suppress it to hide the chunks either.
    *
-   * The write is a create-if-absent: the first document write carries
-   * `If-None-Match: *`, so the plan also serves a write by id (`put()`) at an
-   * id that holds no document yet. A 412 there surfaces as the
-   * `PreconditionFailedError` the request path raised.
+   * With no prior document the write is a create-if-absent: the first
+   * document write carries `If-None-Match: *`, so the plan serves `add()` and
+   * a write by id (`put()`) at an id that holds no document alike. A 412 there
+   * surfaces as the `PreconditionFailedError` the request path raised. Over a
+   * prior document the first write is pinned to the pre-read's `ETag`, so a
+   * 412 is the ordinary lost-update signal, and the new chunks overwrite the
+   * prior ones index by index. Once the write is stored, a prior document
+   * that was itself chunked has every chunk beyond the new count reaped
+   * ({@link #reapChunks}): the new document's sealed count already makes them
+   * unreachable, and the reaping frees them.
    *
-   * The write is two-phase (`EdvClientCore.insert` writes the document, then
-   * streams the chunks), so a failure partway leaves a pending stub: a
-   * document whose sealed stream state is still `{ pending: true }`,
-   * undecryptable and listed. The plan therefore compensates: if the document
-   * was written and the write then failed, it best-effort deletes the stub
-   * before rethrowing. A stub that survives (the process died, or the cleanup
-   * failed) is recognized with {@link isPendingStub}. The EDV core cancels the
-   * caller's source stream on such a failure, so the source behind it is
-   * released.
+   * The write is two-phase (the EDV core writes the document, then streams
+   * the chunks, then writes the document again), so a failure partway leaves
+   * a pending stub: a document whose sealed stream state is still
+   * `{ pending: true }`, undecryptable and listed. A create compensates: if
+   * the document was written and the write then failed, the plan best-effort
+   * deletes the stub before rethrowing. A replace cannot restore the document
+   * it overwrote, so the stub is left in place for the next write at the id
+   * to replace, or for a `delete()`. A stub that survives is recognized with
+   * {@link isPendingStub}. The EDV core cancels the caller's source stream on
+   * such a failure, so the source behind it is released.
    *
    * @param options {object}
    * @param options.id {string}   the document id (minted, or the caller's)
    * @param options.stream {ReadableStream<Uint8Array>}   the payload, as the
    *   stream the EDV core re-chunks (never buffered whole by this codec)
    * @param options.meta {Record<string, unknown>}     the document meta to seal
+   * @param options.prior {PriorDocument | null}   the stored document this
+   *   write replaces, or `null` for a create
    * @returns {ChunkedWrite}
    */
   #chunkedWrite({
     id,
     stream,
-    meta
+    meta,
+    prior
   }: {
     id: string
     stream: ReadableStream<Uint8Array>
     meta: Record<string, unknown>
+    prior: PriorDocument | null
+  }): ChunkedWrite {
+    return this.#writePlan({
+      id,
+      meta,
+      prior,
+      write: async transport => {
+        const write = {
+          stream,
+          ...(this.#chunkSize !== undefined && {
+            chunkSize: this.#chunkSize
+          }),
+          ...this.#sealParams({
+            resource: id,
+            hmac: this.#writeBlindingKey()
+          }),
+          transport
+        }
+        const stored =
+          prior === null
+            ? await this.#edv.insert({
+                doc: { id, content: {}, meta },
+                ...write
+              })
+            : await this.#edv.update({
+                doc: {
+                  id,
+                  content: {},
+                  meta,
+                  sequence: prior.sequence,
+                  ...(prior.indexed !== undefined && {
+                    indexed: prior.indexed
+                  })
+                },
+                ...write
+              })
+        // The EDV core reports the chunk count it sealed into the final
+        // document write; every stored chunk at or past it is the prior
+        // document's.
+        return (stored as { stream: { chunks: number } }).stream.chunks
+      }
+    })
+  }
+
+  /**
+   * The plan for an inline document that replaces a chunked one: the sealed
+   * envelope is written as the single-document path would write it, pinned to
+   * the pre-read's `ETag` and stamped with the write epoch, and the prior
+   * document's chunks are then reaped ({@link #reapChunks}). One request
+   * cannot do both, which is why the write is a plan rather than an
+   * `EncodedWrite`. The envelope's sealed `meta.encoding` is inline, so a
+   * reader of the new document never looks for chunks, and the reaping only
+   * frees what is already unreachable.
+   *
+   * @param options {object}
+   * @param options.id {string}   the document id
+   * @param options.encrypted {IEncryptedDocument}   the sealed envelope
+   * @param options.meta {Record<string, unknown>}   the document meta sealed
+   *   in it, for the plaintext content type
+   * @param options.prior {PriorDocument}   the chunked document it replaces
+   * @returns {ChunkedWrite}
+   */
+  #replacingWrite({
+    id,
+    encrypted,
+    meta,
+    prior
+  }: {
+    id: string
+    encrypted: IEncryptedDocument
+    meta: Record<string, unknown>
+    prior: PriorDocument
+  }): ChunkedWrite {
+    return this.#writePlan({
+      id,
+      meta,
+      prior,
+      write: async transport => {
+        await transport.update({ encrypted })
+        return 0
+      }
+    })
+  }
+
+  /**
+   * The lifecycle shared by every plan ({@link #chunkedWrite},
+   * {@link #replacingWrite}): a transport is built from the write context,
+   * stamped with the write epoch and, over a prior document, given the
+   * pre-read as its baseline; `write` runs on it and reports the chunk count
+   * the stored document covers; a failure is compensated and rethrown by
+   * {@link #chunkedWriteFailed}; a prior document that was chunked has the
+   * chunks past that count reaped ({@link #reapChunks}); and the result
+   * carries the validator the server acked the last document write with. The
+   * EDV core owns a chunked write and swallows the responses, which is why the
+   * transport is what reports the document write it made.
+   *
+   * @param options {object}
+   * @param options.id {string}   the document id
+   * @param options.meta {Record<string, unknown>}   the document meta sealed
+   *   in the write, for the plaintext content type
+   * @param options.prior {PriorDocument | null}   the stored document the
+   *   write replaces, or `null` for a create
+   * @param options.write {(transport: WasTransport) => Promise<number>}   the
+   *   write itself, resolving the chunk count the stored document covers
+   * @returns {ChunkedWrite}
+   */
+  #writePlan({
+    id,
+    meta,
+    prior,
+    write
+  }: {
+    id: string
+    meta: Record<string, unknown>
+    prior: PriorDocument | null
+    write: (transport: WasTransport) => Promise<number>
   }): ChunkedWrite {
     return {
       chunked: true,
       id,
       resourceContentType: meta.contentType as string,
-      // What the scheme-agnostic write path appends when it refuses this plan
-      // for a write by id over an existing document: only this codec knows
-      // why the payload needs several requests, and which low-level API
-      // writes one directly.
-      guidance:
-        'This payload is too large for a single encrypted document, or is a ' +
-        'stream, so it is stored as a document plus chunk resources. Drive ' +
-        'the write yourself with `EdvClientCore.update({ doc, stream, ' +
-        'transport })` over a `WasTransport`.',
       execute: async (context: CodecRequestContext) => {
-        // The EDV core owns the write and swallows the responses, so the
-        // transport reports the document write it made: whether one landed at
-        // all (the cleanup decision below) and the validator the server acked
-        // it with.
         const transport = this.#transportFor(
           context,
-          writeHeaders({ epoch: this.#writeEpoch })
+          writeHeaders({ epoch: this.#writeEpoch }),
+          prior === null ? undefined : { id, etag: prior.etag }
         )
+        let keep: number
         try {
-          await this.#edv.insert({
-            doc: { id, content: {}, meta },
-            stream,
-            ...(this.#chunkSize !== undefined && {
-              chunkSize: this.#chunkSize
-            }),
-            ...this.#sealParams({
-              resource: id,
-              hmac: this.#writeBlindingKey()
-            }),
-            transport
-          })
+          keep = await write(transport)
         } catch (err) {
-          throw await this.#chunkedWriteFailed({ err, id, transport })
+          throw await this.#chunkedWriteFailed({
+            err,
+            id,
+            transport,
+            replace: prior !== null
+          })
+        }
+        if (prior?.chunked) {
+          await this.#reapChunks({ transport, id, keep })
         }
         const etag = transport.lastDocumentWrite?.etag
         return { id, ...(etag !== undefined && { etag }) }
       }
     }
+  }
+
+  /**
+   * Reaps the chunks a replaced document left behind: lists the chunks stored
+   * under the document and deletes every one at or past `keep`, the chunk
+   * count the new document covers (`0` for an inline document). The listing,
+   * not the prior envelope's sealed count, says what is stored, so a pending
+   * stub's chunks (whose count was never sealed) and a longer stale set are
+   * reaped the same way. Each delete is pinned to the chunk `etag` the listing
+   * reported, where it reported one, so a chunk a later writer has since
+   * stored at that index is left to it; such a 412, and a chunk already gone
+   * (404), are not failures. The deletes run {@link REAP_CONCURRENCY} at a
+   * time. A listing that finds no resource (404) means another client deleted
+   * it since the write landed, and its chunks with it: nothing is left to
+   * reap.
+   *
+   * Runs only after the new document is stored, and the new document's sealed
+   * state already makes these chunks unreachable, so a failure here loses no
+   * data: it is reported as {@link EncryptionError} naming what is still
+   * stored. A later write at the id reaps again only if the stored document
+   * is still chunked (a pending stub, say); under an inline document the
+   * stale chunks stay until the resource is deleted, which takes them.
+   *
+   * @param options {object}
+   * @param options.transport {WasTransport}   the transport the write ran on
+   * @param options.id {string}   the document id
+   * @param options.keep {number}   the chunk count the stored document covers
+   * @returns {Promise<void>}
+   */
+  async #reapChunks({
+    transport,
+    id,
+    keep
+  }: {
+    transport: WasTransport
+    id: string
+    keep: number
+  }): Promise<void> {
+    let stale: ChunkListEntry[]
+    try {
+      stale = (await transport.listChunks({ id })).filter(
+        chunk => chunk.index >= keep
+      )
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return
+      }
+      throw this.#reapFailed(id, err)
+    }
+    const reapOne = async (chunk: ChunkListEntry): Promise<void> => {
+      try {
+        await transport.deleteChunk({
+          id,
+          chunkIndex: chunk.index,
+          ...(chunk.etag !== undefined && { ifMatch: chunk.etag })
+        })
+      } catch (err) {
+        if (
+          err instanceof NotFoundError ||
+          err instanceof PreconditionFailedError
+        ) {
+          return
+        }
+        throw err
+      }
+    }
+    // A fixed number of workers each take the next stale chunk until none is
+    // left, so at most `REAP_CONCURRENCY` deletes are in flight.
+    let next = 0
+    const worker = async (): Promise<void> => {
+      while (next < stale.length) {
+        await reapOne(stale[next++]!)
+      }
+    }
+    try {
+      await Promise.all(
+        Array.from({ length: Math.min(REAP_CONCURRENCY, stale.length) }, worker)
+      )
+    } catch (err) {
+      throw this.#reapFailed(id, err)
+    }
+  }
+
+  /**
+   * The error a failed {@link #reapChunks} throws: the write landed, and what
+   * it did not reap is still stored.
+   *
+   * @param id {string}   the document id
+   * @param cause {unknown}   the failure
+   * @returns {EncryptionError}
+   */
+  #reapFailed(id: string, cause: unknown): EncryptionError {
+    return new EncryptionError(
+      `The encrypted write of resource "${id}" is stored, but the chunk ` +
+        'resources of the document it replaced could not all be deleted. ' +
+        'They are unreachable through a read, which follows the chunk ' +
+        'count sealed in the stored document, but stay stored and counted ' +
+        'against quota; deleting the resource removes them.',
+      { cause }
+    )
   }
 
   /**
@@ -887,6 +1181,11 @@ export class EdvCodec implements ResourceCodec {
    * cleanup, and its own failure must not mask the failure that caused it --
    * so its outcome only shapes the message. Deleting the document deletes the
    * chunks already stored under it.
+   *
+   * A replace (`replace`) deletes nothing: the stub stands where the document
+   * it overwrote stood, and deleting it would turn a torn update into a
+   * missing resource. The message says the stub is there to be written over
+   * or deleted.
    *
    * Three failures keep their own type, so a caller can dispatch on them as it
    * does for a single-request write. A 412 on the first document write (the
@@ -902,17 +1201,21 @@ export class EdvCodec implements ResourceCodec {
    * @param options.err {unknown}   the failure from the chunked write
    * @param options.id {string}     the document id the write targeted
    * @param options.transport {WasTransport}   the transport the write ran on
+   * @param options.replace {boolean}   whether the write replaced a stored
+   *   document (no stub delete) rather than created one
    * @returns {Promise<Error>}   the error to throw, carrying `err` as its cause
    *   when it wraps it
    */
   async #chunkedWriteFailed({
     err,
     id,
-    transport
+    transport,
+    replace
   }: {
     err: unknown
     id: string
     transport: WasTransport
+    replace: boolean
   }): Promise<Error> {
     // The transport rethrows a 412 or 409 as the named error the EDV core
     // dispatches on, with the typed HTTP error as its cause.
@@ -939,16 +1242,24 @@ export class EdvCodec implements ResourceCodec {
     let outcome =
       'The incomplete document and any chunks stored under it were deleted.'
     let removed = true
-    try {
-      await transport.deleteDocument({ id, ifMatch: written.etag })
-    } catch (deleteErr) {
+    if (replace) {
       removed = false
       outcome =
-        deleteErr instanceof PreconditionFailedError
-          ? 'Another writer has since replaced the document, so it was left ' +
-            'in place.'
-          : 'The incomplete document could NOT be deleted and is still ' +
-            'stored; delete it before writing again.'
+        'The document it replaced is gone, and the resource now holds this ' +
+        "write's pending stub, which no read can open: write the resource " +
+        'again, or delete it.'
+    } else {
+      try {
+        await transport.deleteDocument({ id, ifMatch: written.etag })
+      } catch (deleteErr) {
+        removed = false
+        outcome =
+          deleteErr instanceof PreconditionFailedError
+            ? 'Another writer has since replaced the document, so it was ' +
+              'left in place.'
+            : 'The incomplete document could NOT be deleted and is still ' +
+              'stored; delete it before writing again.'
+      }
     }
     if (
       httpError instanceof QuotaExceededError ||
@@ -1348,14 +1659,7 @@ export class EdvCodec implements ResourceCodec {
     doc: unknown
     expectedId?: string
     collectionSlot?: boolean
-  }): Promise<{
-    content?: unknown
-    meta?: Record<string, unknown>
-    stream?: unknown
-    keyId: string
-    binding: Record<string, unknown>
-    resourceId?: string
-  }> {
+  }): Promise<OpenedEnvelope> {
     this.#assertEnvelope(doc, 'read')
     const decrypted = await this.#decrypt(doc)
     const binding = await this.#verifyBinding({

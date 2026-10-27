@@ -134,15 +134,16 @@ export interface CodecRequestContext {
  * that cannot be expressed as one request, returned by {@link
  * ResourceCodec.encode} instead of an `EncodedWrite`. The EDV codec returns one
  * for a binary payload above its single-document threshold, where the stored
- * form is a document envelope plus a series of chunk resources.
+ * form is a document envelope plus a series of chunk resources, and for any
+ * write that replaces such a document, where the prior chunks must be reaped.
  *
  * `chunked` is the discriminant, and `id` is the resource id the plan will
  * write to (known before `execute` runs, so a caller can report it without
  * waiting). `execute` performs the whole write over the supplied context and
  * resolves what the caller needs to shape its result. The insert path
- * (`Collection.add`) drives a plan. The write-by-id path (`Resource.put`)
- * drives one only to create a resource at an id that holds no document, and
- * refuses it over an existing document.
+ * (`Collection.add`) drives a plan, and so does the write-by-id path
+ * (`Resource.put`), whether it creates or replaces: the plan owns its own
+ * preconditions, pinned to the pre-read the codec was handed.
  */
 export interface ChunkedWrite {
   chunked: true
@@ -152,14 +153,6 @@ export interface ChunkedWrite {
    * resource's type (there is no single stored body whose type to report).
    */
   resourceContentType?: string
-  /**
-   * Scheme-specific guidance the core write path appends to the generic error
-   * it throws when it refuses the plan (a write by id over an existing
-   * document, which a plan cannot replace). Only the codec knows why its payload needs several requests and
-   * which low-level API drives that write directly, so the wording is supplied
-   * here rather than hardcoded in the scheme-agnostic core.
-   */
-  guidance?: string
   /**
    * Runs the multi-request write.
    *
@@ -346,8 +339,7 @@ export interface ResourceCodec {
    *   collection whose codec computes its own preconditions.
    * @returns {Promise<CodecWrite>}   the single-request encoding, or -- for a
    *   payload the codec cannot store in one request -- a {@link ChunkedWrite}
-   *   plan. `add()` drives a plan; a write by id drives one only where no
-   *   document is stored yet.
+   *   plan. `add()` and a write by id both drive a plan.
    */
   encode(input: {
     id?: string

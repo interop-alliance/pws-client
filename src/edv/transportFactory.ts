@@ -31,12 +31,13 @@ export function wasTransportFactory({
   collectionId: string
   contentType: string
 }): CodecTransportFactory {
-  return ({ context, documentHeaders }) =>
+  return ({ context, documentHeaders, baseline }) =>
     new WasTransport({
       was: { request: input => context.request(input) },
       spaceId,
       collectionId,
       contentType,
-      ...(documentHeaders !== undefined && { documentHeaders })
+      ...(documentHeaders !== undefined && { documentHeaders }),
+      ...(baseline !== undefined && { baseline })
     })
 }

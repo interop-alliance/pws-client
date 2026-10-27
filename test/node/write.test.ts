@@ -260,61 +260,73 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   })
 })
 
-describe('upsertResource: chunked plans create only', () => {
-  it('refuses a chunked plan over an existing document', async () => {
-    // A plan writes a fresh document: reconciling an existing document's
-    // chunks with a fresh stream is not this path's job, so the plan is
-    // refused before anything is written.
-    const chunkedCodec: ResourceCodec = {
+describe('upsertResource: chunked plans', () => {
+  it('runs a plan over an existing document, handing it the pre-read', async () => {
+    // The plan owns its precondition: it pins its write to the validator the
+    // pre-read observed, which `encode` received as `current`.
+    const seen: string[] = []
+    const replacePlanCodec: ResourceCodec = {
       ...conditionalCodec,
-      async encode() {
+      async encode({ id, current }) {
+        seen.push(current?.headers.get('etag') ?? 'none')
         return {
           chunked: true,
-          id: 'r',
-          async execute() {
-            throw new Error('the plan must never be executed here')
+          id: id!,
+          async execute(codecContext) {
+            const response = await codecContext.request({
+              path: `/space/s/c/${id}`,
+              method: 'PUT',
+              body: new Uint8Array([1, 2, 3]),
+              headers: { 'if-match': current!.headers.get('etag')! }
+            })
+            return { id: id!, etag: response.headers.get('etag') ?? undefined }
           }
         }
       }
     }
     const { context, calls } = contextWithStatuses()
-    const failure = await upsertResource(context, {
+    const result = await upsertResource(context, {
       path: '/space/s/c/r',
-      codec: chunkedCodec,
+      codec: replacePlanCodec,
       id: 'r',
       data: { v: 1 }
-    }).catch((err: unknown) => err)
-    expect(failure).toBeInstanceOf(ValidationError)
-    expect((failure as Error).message).toMatch(/add\(\)/)
-    // Only the conditional pre-read went out; no PUT was attempted.
-    expect(calls.map(call => call.method)).toEqual(['GET'])
+    })
+    expect(result).toEqual({ etag: '"v2"' })
+    expect(seen).toEqual(['"v2"'])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'PUT'])
+    expect(calls[1]!.headers).toEqual({ 'if-match': '"v2"' })
   })
 
-  it("appends the codec's own guidance to the generic refusal", async () => {
-    // This layer is scheme-agnostic, so the recovery advice (which low-level
-    // API drives the write directly) comes from the plan, not from here.
-    const guidedCodec: ResourceCodec = {
+  it('passes a 412 from a plan over an existing document through unchanged', async () => {
+    // After a pre-read that found a document, a 412 is the ordinary
+    // lost-update signal, not the masked-404 case.
+    const replacePlanCodec: ResourceCodec = {
       ...conditionalCodec,
-      async encode() {
+      async encode({ id }) {
         return {
           chunked: true,
-          id: 'r',
-          guidance: 'Drive it with the low-level API instead.',
-          async execute() {
-            throw new Error('the plan must never be executed here')
+          id: id!,
+          async execute(codecContext) {
+            await codecContext.request({
+              path: `/space/s/c/${id}`,
+              method: 'PUT',
+              body: new Uint8Array([1, 2, 3])
+            })
+            return { id: id! }
           }
         }
       }
     }
-    const { context } = contextWithStatuses()
+    const { context } = contextWithStatuses({ putStatus: 412 })
     const failure = await upsertResource(context, {
       path: '/space/s/c/r',
-      codec: guidedCodec,
+      codec: replacePlanCodec,
       id: 'r',
       data: { v: 1 }
     }).catch((err: unknown) => err)
-    expect((failure as Error).message).toContain(
-      'Drive it with the low-level API instead.'
+    expect(failure).toBeInstanceOf(PreconditionFailedError)
+    expect((failure as Error).message).not.toMatch(
+      /not readable with this capability/
     )
   })
 

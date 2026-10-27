@@ -14,10 +14,9 @@
  * but is not readable with the bound capability).
  *
  * A codec may also answer `encode` with a multi-request `ChunkedWrite` plan
- * rather than an `EncodedWrite`. `insertResource` runs the plan over the
- * signed-request context built here (`codecRequestContext`). `upsertResource`
- * runs one only to create a resource at an id that holds none, and refuses it
- * over an existing document, since a plan cannot replace one.
+ * rather than an `EncodedWrite`. Both flows run the plan over the
+ * signed-request context built here (`codecRequestContext`); the plan owns its
+ * own preconditions, pinned to the pre-read `upsertResource` handed the codec.
  */
 import type { HttpResponse } from '@interop/http-client'
 import type {
@@ -27,7 +26,7 @@ import type {
   ResourceCodec
 } from '../codec.js'
 import { isChunkedWrite } from '../codec.js'
-import { PreconditionFailedError, ValidationError } from '../errors.js'
+import { PreconditionFailedError } from '../errors.js'
 import type { IZcap, ResourceData } from '../types.js'
 import type { ClientContext } from './request.js'
 import { send } from './request.js'
@@ -236,12 +235,13 @@ export async function insertResource(
  *   as an inexplicable failed create. Conditional codecs therefore need read
  *   access to update an existing document.
  * - A codec may answer with a multi-request `ChunkedWrite` plan (the EDV
- *   codec's large binary write). When the pre-read found no document, the
- *   plan runs over the handle's signed-request context and creates the
- *   resource at this id, guarded like any fresh insert: a 412 surfaces as
- *   `PreconditionFailedError`, under the same masked-404 message. Over an
- *   existing document the plan is refused with `ValidationError`, since a
- *   plan cannot replace a document.
+ *   codec's large binary write, or any write over a document whose bytes live
+ *   in chunk resources). The plan runs over the handle's signed-request
+ *   context and owns its preconditions: with no document at this id it
+ *   creates one, guarded like any fresh insert, so a 412 surfaces as
+ *   `PreconditionFailedError` under the same masked-404 message; over an
+ *   existing document it replaces it, pinned to the pre-read's validator, so
+ *   a 412 is the ordinary lost-update signal.
  *
  * @param context {ClientContext}
  * @param options {object}
@@ -306,7 +306,7 @@ export async function upsertResource(
       })
   })
   if (isChunkedWrite(write)) {
-    return await runChunkedCreate(context, {
+    return await runChunkedPlan(context, {
       path,
       write,
       capability,
@@ -342,18 +342,17 @@ export async function upsertResource(
 }
 
 /**
- * Runs a codec's multi-request plan for a write by id, which creates the
- * resource at that id. Only a pre-read that found no document (`current`
- * is `null`) lets it run: over an existing document, and after no pre-read at
- * all, the plan is refused, since a plan writes a fresh document and cannot
- * reconcile an existing one's stored parts with the new payload. The codec
- * supplies the scheme-specific recovery advice; this layer knows nothing
- * about how it stores things.
+ * Runs a codec's multi-request plan for a write by id. The plan owns its
+ * preconditions, pinned to the pre-read the codec was handed: it creates the
+ * resource where the pre-read found none, and replaces the stored document
+ * otherwise. This layer knows nothing about how the codec stores things.
  *
- * The plan guards its own first write as create-if-absent, so a 412 means
- * the id was taken after the pre-read, or is held by a document the
- * capability cannot read. It surfaces as `PreconditionFailedError` with the
- * masked-404 message of any other fresh insert by id.
+ * After a pre-read that found nothing, the plan's first write is
+ * create-if-absent, so a 412 means the id was taken after the pre-read, or is
+ * held by a document the capability cannot read. It surfaces as
+ * `PreconditionFailedError` with the masked-404 message of any other fresh
+ * insert by id. After a pre-read that found a document, a 412 is the ordinary
+ * lost-update signal and passes through as the plan raised it.
  *
  * @param context {ClientContext}
  * @param options {object}
@@ -364,7 +363,7 @@ export async function upsertResource(
  *   result, `undefined` when the codec asked for none
  * @returns {Promise<{ etag?: string }>}   the stored resource's new ETag
  */
-async function runChunkedCreate(
+async function runChunkedPlan(
   context: ClientContext,
   {
     path,
@@ -378,24 +377,15 @@ async function runChunkedCreate(
     current: HttpResponse | null | undefined
   }
 ): Promise<{ etag?: string }> {
-  if (current !== null) {
-    throw new ValidationError(
-      `Cannot write this payload to "${path}": the collection's codec ` +
-        'answered with a multi-request write plan, which can only create a ' +
-        'resource at an id that holds none, and a document is stored here. ' +
-        'Delete the resource first, or add the payload as a new resource ' +
-        '(add())' +
-        (write.guidance === undefined ? '.' : `. ${write.guidance}`)
-    )
-  }
   try {
     const { etag } = await write.execute(
       codecRequestContext(context, { capability })
     )
     return { etag }
   } catch (err) {
-    // `current` is `null`, so a conditional codec pre-read and found nothing.
-    if (err instanceof PreconditionFailedError) {
+    // A `null` pre-read means a conditional codec looked and found nothing,
+    // so the plan wrote create-if-absent.
+    if (err instanceof PreconditionFailedError && current === null) {
       throw maskedInsertRejected({ err, path })
     }
     throw err

@@ -331,20 +331,29 @@ export class Resource {
    *
    * On an encrypted collection, a binary payload over the codec's
    * `maxBlobBytes` is stored as a document plus chunk resources, as `add()`
-   * stores it, but only where no document is stored at this id yet: it
-   * creates the resource, and over an existing document it throws
-   * `ValidationError`. A 412 surfaces as for any other create, and a 507 as
-   * `QuotaExceededError`. A write that fails partway deletes what it wrote;
-   * one that could not leaves a pending stub, which the EDV doc cipher's
-   * `isPendingStub` recognizes and `delete()` removes with its chunks.
+   * stores it, whether it creates the resource or replaces the document
+   * stored at this id. A 412 surfaces as for any other write by id, and a 507
+   * as `QuotaExceededError`. A create that fails partway deletes what it
+   * wrote; one that could not leaves a pending stub, which the EDV doc
+   * cipher's `isPendingStub` recognizes and `delete()` removes with its
+   * chunks. A replace that fails partway leaves the stub in place of the
+   * document it overwrote, for the next `put()` at this id to replace, or for
+   * `delete()`.
+   *
+   * Replacing a document whose bytes live in chunk resources, with any
+   * payload, reaps the chunks the new document does not cover once it is
+   * stored: all of them under an inline document, those at or past the new
+   * count under a chunked one. The new document's sealed state already makes
+   * them unreachable, so a reap that fails after the write is stored surfaces
+   * as `EncryptionError` naming the chunks still stored; deleting the resource
+   * removes them.
    *
    * A `ReadableStream<Uint8Array>` is accepted on an encrypted collection,
    * where it is always written through the same chunked-stream path, without
-   * buffering, whatever its size. It is subject to the same create-only rule:
-   * over an existing document it is refused with `ValidationError` before the
-   * stream is read. On a plaintext collection a stream is refused with
-   * `ValidationError`, since a signed request carries a `Digest` of its whole
-   * body; buffer it into a `Blob` there.
+   * buffering, whatever its size, creating or replacing alike. On a plaintext
+   * collection a stream is refused with `ValidationError`, since a signed
+   * request carries a `Digest` of its whole body; buffer it into a `Blob`
+   * there.
    *
    * @param data {ResourceData}
    * @param options {object}

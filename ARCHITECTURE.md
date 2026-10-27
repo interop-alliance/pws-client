@@ -293,8 +293,8 @@ Taking `resource.put(data)` as the canonical path:
 2. **Encode** (`codec.encode`): identity codec is byte-exact pass-through; the
    EDV codec seals content into a JWE envelope and attaches its own write
    precondition. A codec may instead answer with a `ChunkedWrite` plan -- a
-   payload that cannot be one request -- which the insert path runs, and the
-   write-by-id path runs only to create a resource at an id that holds none.
+   write that cannot be one request -- which the insert path and the write-by-id
+   path both run; the plan owns its preconditions.
 3. **Conditional-write orchestration** (`internal/write.ts`, `upsertResource`):
    conditional codecs trigger a pre-read of the current document (to advance the
    EDV `sequence`); plaintext writes use the caller's explicit
@@ -370,30 +370,27 @@ handle's signed `request` primitive -- instead of sending one request. That
 write fails with the typed `WasError` subclasses the calling method documents
 (the raw `HttpResponse` still comes back, and the typed errors carry the HTTP
 `status`, so a status-dispatching driver such as `WasTransport` is unaffected).
-`upsertResource` runs a plan only when its pre-read found no document, so a
-write by id can create a chunked resource at a caller-chosen id. The plan's
-first write is create-if-absent, and a 412 surfaces as `PreconditionFailedError`
-under the same masked-404 message as any other fresh insert by id. Over an
-existing document the plan is refused, since it cannot replace one. The refusal
-message is scheme-agnostic and appends the plan's own `guidance` string, since
-only the codec knows which low-level API drives that write directly. `decode`
-takes the same context, so a codec whose stored form spans several resources can
-read the remainder. The sync `DocCipher` forwards a context when its caller
-passes one (`collection.codecContext()`), and reads chunks through it only when
-it was built with the collection's `spaceId`, which gives its codec a route to
-the chunk resources. The EDV doc cipher also takes a `chunkSource` in place of a
-context: a function that serves each chunk from bytes the caller already holds,
-such as an archive's chunk files. It needs no `spaceId` and issues no request. A
-caller that supplies neither fails loudly on a chunked document rather than
-decoding it to a stub.
+`upsertResource` runs a plan too, and hands the codec its pre-read, so the plan
+owns its preconditions: where the pre-read found no document the plan's first
+write is create-if-absent, and a 412 surfaces as `PreconditionFailedError` under
+the same masked-404 message as any other fresh insert by id; where it found one,
+the first write is pinned to that document's `ETag`, and a 412 is the ordinary
+lost-update signal. `decode` takes the same context, so a codec whose stored
+form spans several resources can read the remainder. The sync `DocCipher`
+forwards a context when its caller passes one (`collection.codecContext()`), and
+reads chunks through it only when it was built with the collection's `spaceId`,
+which gives its codec a route to the chunk resources. The EDV doc cipher also
+takes a `chunkSource` in place of a context: a function that serves each chunk
+from bytes the caller already holds, such as an archive's chunk files. It needs
+no `spaceId` and issues no request. A caller that supplies neither fails loudly
+on a chunked document rather than decoding it to a stub.
 
 A `ReadableStream<Uint8Array>` payload has no single-request form. Its size is
 unknown until it is read. The identity codec refuses it with `ValidationError`
 (in `prepareBody`). A plaintext resource has no chunked representation, and a
 signed request carries a `Digest` of its whole body. An encrypting codec answers
 a stream with a `ChunkedWrite` plan whatever its length, so a stream takes the
-same insert and write-by-id rules as an over-threshold blob. A write by id over
-an existing document is refused before the stream is read.
+same insert and write-by-id rules as an over-threshold blob.
 
 `decodeStream` is the streaming counterpart of `decode`, behind
 `Resource.getStream()`. It takes the same inputs and runs the same checks, but
@@ -458,7 +455,10 @@ Two integration levels share `src/edv/`:
   documents). A binary `add()` over `maxBlobBytes`, or any `ReadableStream`
   payload, is routed to the chunked path: the codec returns a plan that drives
   `EdvClientCore.insert({ doc, stream, transport })` over a `WasTransport`, and
-  so is a `put()` of one at an id that holds no document. The codec does not
+  so is a `put()` of one, which drives `update({ doc, stream, transport })`
+  instead where the pre-read found a document. The transport is then seeded with
+  that document's `ETag` (its `baseline`), so the core's first document write is
+  pinned to the pre-read like the inline path's single write. The codec does not
   construct that transport: a `CodecTransportFactory` is injected by whichever
   build knows where the Collection lives. A codec built without one (the
   local-replica doc cipher) refuses the chunked write, and reads a chunked
@@ -487,14 +487,45 @@ Two integration levels share `src/edv/`:
   unbuffered, so chunks are fetched and decrypted as the caller reads, and a
   missing or tampered chunk errors the stream rather than the call. The two
   share the envelope opening and binding checks (`#openStored`). The write is
-  two-phase, so a failure partway would leave a pending stub: the plan
-  best-effort deletes it (the delete takes its chunks with it) and rethrows. A
-  507 stays a `QuotaExceededError`, and any other failure becomes an
+  two-phase, so a failure partway would leave a pending stub: a create
+  best-effort deletes it (the delete takes its chunks with it) and rethrows,
+  while a replace leaves it standing where the document it overwrote stood,
+  since deleting it would turn a torn update into a missing resource. A 507
+  stays a `QuotaExceededError`, and any other failure becomes an
   `EncryptionError`, with the original failure as `cause` in both cases. A stub
   that outlives its write is recognized by the EDV doc cipher's `isPendingStub`.
   Content-addressed collections are the exception: a chunked write stores the
   document twice, so no single ciphertext derives its id, and the write is
   refused.
+
+  A `put()` over a document whose bytes live in chunk resources is a plan
+  whatever its payload. Only the sealed `meta.encoding` says the document is
+  chunked, so the update path opens the pre-read envelope (decrypts it and
+  verifies its binding, as a read would) when the envelope carries the cleartext
+  `stream` member a chunked write leaves, and takes an envelope without one as
+  inline, unopened. That cue is server-controlled, but nothing rests on it: a
+  server that strips it can only leave the prior chunks stranded (removed with
+  the resource), and one that adds it costs the write a decrypt that finds an
+  inline encoding. An inline payload is sealed as usual and written through the
+  same transport, pinned to the pre-read; a chunked one goes through the core's
+  `update`, whose chunks overwrite the prior ones index by index. Once the new
+  document is stored, the plan reaps the prior chunks it does not cover
+  (`#reapChunks`): it lists the `/{id}/chunks/` container through the
+  transport's `listChunks` and deletes, with `deleteChunk`, every chunk at or
+  past the new count (all of them under an inline document). The listing, not
+  the prior envelope's sealed count, says what is stored, so a pending stub's
+  chunks are reaped the same way. Each delete is pinned to the chunk `etag` the
+  listing reports, where the server lists one, so a chunk a later writer has
+  stored at that index since is left to it; that 412, and a chunk already gone,
+  are not failures, and the deletes run a few at a time. A listing that finds no
+  resource means another client deleted it, chunks and all, so there is nothing
+  to reap. The reap runs after the document write because the document's
+  conditional write is what proves no other writer intervened; the new
+  document's sealed state already makes the stale chunks unreachable, so a reap
+  that fails loses no data and is reported as `EncryptionError` naming what is
+  still stored, which a `delete()` of the resource removes. An update over an
+  inline document lists nothing.
+
 - **`WasTransport`** (EDV-native): an `@interop/edv-client` `Transport` that
   maps EDV document operations onto PWS resource CRUD ("vault per collection",
   EDV doc id is the PWS resource id), including blinded-index `find` and chunked
@@ -1055,10 +1086,10 @@ it, and otherwise cover the client-side concepts this file names.
   with child handles and invalidated by `reset()` when the encryption descriptor
   changes. See The handle model and Concurrency.
 - **`ChunkedWrite` plan** -- what `encode` answers with instead of an
-  `EncodedWrite` when a payload cannot be one request (a blob over
-  `maxBlobBytes`, or any `ReadableStream`): a resource id plus an `execute`
-  method the insert path runs over a `CodecRequestContext`, and the write-by-id
-  path runs where no document is stored yet. See The codec seam.
+  `EncodedWrite` when a write cannot be one request (a blob over `maxBlobBytes`,
+  any `ReadableStream`, or any payload replacing a chunked document): a resource
+  id plus an `execute` method the insert path and the write-by-id path run over
+  a `CodecRequestContext`. The plan owns its preconditions. See The codec seam.
 - **Indexing capability** -- the optional per-codec state and methods
   (`applySchema` / `schema` / `buildQuery`) that let an encrypted collection
   carry a persisted index schema and blind its query terms. Present only where
@@ -1110,9 +1141,13 @@ it, and otherwise cover the client-side concepts this file names.
 - **Pending stub** -- the document a chunked write leaves when it stops between
   its first document write and its final update: its sealed stream state is
   still `{ pending: true }`, with no chunk count, so no read can open it.
-  Recognized by the EDV doc cipher's `isPendingStub`, and removed with its
-  chunks by deleting the resource. Avoid: orphan, torn document. See The EDV
-  layer.
+  Recognized by the EDV doc cipher's `isPendingStub`, replaced (with its chunks
+  reaped) by the next write at the id, and removed with its chunks by deleting
+  the resource. Avoid: orphan, torn document. See The EDV layer.
+- **Chunk reaping** -- the deletion, after a replacing write is stored, of the
+  prior document's chunk resources the new document does not cover
+  (`EdvCodec#reapChunks`, over `WasTransport.listChunks` / `deleteChunk`).
+  Avoid: garbage collection, orphan cleanup. See The EDV layer.
 - **`WasSyncPort`** -- the injected PWS-access seam for cross-replica
   synchronization (`src/sync/types.ts`, implemented by `createWasSyncPort`): it
   moves stored bodies verbatim and never touches keys. Avoid: sync engine (the
