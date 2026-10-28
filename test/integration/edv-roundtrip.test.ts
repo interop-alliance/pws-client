@@ -24,8 +24,8 @@ import { WasClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
 import { WasTransport, JOSE_CONTENT_TYPE } from '../../src/edv/index.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Builds a fresh did:key Ed25519 signer and a WAS client over it.
@@ -35,7 +35,7 @@ const describeLive = serverUrl ? describe : describe.skip
 async function freshWasClient(): Promise<WasClient> {
   const keyPair = await Ed25519VerificationKey.generate()
   return WasClient.fromSigner({
-    serverUrl: serverUrl!,
+    serviceUrl: serviceUrl!,
     signer: keyPair.didKeySigner()
   })
 }
@@ -76,7 +76,7 @@ describeLive('EDV-over-WAS round trip (live server)', () => {
     })
     transport = new WasTransport({
       was,
-      spaceId: space.id,
+      spaceUrl: space.url,
       collectionId: collection.id
     })
   })
@@ -146,7 +146,7 @@ describeLive('EDV-over-WAS round trip (live server)', () => {
     // reference server does) accepts the preferred EDV descriptor.
     const edvTransport = new WasTransport({
       was,
-      spaceId: space.id,
+      spaceUrl: space.url,
       collectionId: collection.id,
       contentType: JOSE_CONTENT_TYPE
     })
@@ -231,7 +231,7 @@ describeLive('EDV-over-WAS blinded-index query (live server)', () => {
 
     transport = new WasTransport({
       was,
-      spaceId: space.id,
+      spaceUrl: space.url,
       collectionId: collection.id
     })
   })

@@ -2,522 +2,700 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Unit tests for the URL path builders. The trailing-slash rules and
+ * Unit tests for the URL grammar beneath a Space. Every builder derives a URL
+ * from a Space URL the server named, and the trailing-slash rules and
  * percent-encoding here must match the server's per-operation `allowedTarget`
  * exactly, since the zcap `invocationTarget` is derived from the request URL.
  * The convention under test: a trailing slash marks a container in canonical
- * form, everything else has none, and no two paths differ only by a trailing
- * slash.
+ * form, everything else has none, and no two URLs differ only by a trailing
+ * slash. The inverse grammar (`parseSpaceTarget`) and the chain-root reading
+ * (`rootCapabilityTarget`, `spaceUrlOf`) are tested here too.
  */
 import { describe, it, expect } from 'vitest'
-import type { ZcapClient } from '@interop/ezcap'
 
-import { ValidationError, WasClient } from '../../src/index.js'
+import { ValidationError } from '../../src/index.js'
+import type { IDelegatedZcap, IZcap } from '../../src/index.js'
 import type { IRootZcap } from '../../src/paths.js'
 import {
-  spacePath,
-  spaceMeta,
-  spaceExport,
-  spaceImport,
-  spaceBackends,
-  registeredBackend,
-  spaceQuotas,
-  spacePolicy,
-  spaceLinkset,
-  spaceReplicas,
-  replicaRegistration,
-  replicaStatus,
-  collectionPath,
-  collectionPolicy,
-  collectionLinkset,
-  collectionBackend,
-  collectionQuota,
-  collectionQuery,
-  collectionMeta,
-  collectionLog,
-  resourcePath,
-  resourcePolicy,
-  resourceMeta,
-  resourceChunkPath,
-  resourceChunksPath,
-  toUrl,
-  spacesUrl,
-  baseUrlOfSpacesUrl,
-  parseSpacePath,
-  parseAbsoluteSpaceTarget,
+  canonicalSpaceUrl,
+  spaceIdOfUrl,
+  spaceMetaUrl,
+  spaceExportUrl,
+  spaceImportUrl,
+  spaceBackendsUrl,
+  registeredBackendUrl,
+  spaceQuotasUrl,
+  spacePolicyUrl,
+  spaceLinksetUrl,
+  spaceReplicasUrl,
+  replicaRegistrationUrl,
+  replicaStatusUrl,
+  spaceRevocationUrl,
+  collectionUrl,
+  collectionPolicyUrl,
+  collectionLinksetUrl,
+  collectionBackendUrl,
+  collectionQuotaUrl,
+  collectionQueryUrl,
+  collectionMetaUrl,
+  collectionLogUrl,
+  canonicalContainerUrl,
+  resourceUrl,
+  resourcePolicyUrl,
+  resourceMetaUrl,
+  resourceChunkUrl,
+  resourceChunksUrl,
   parseSpaceTarget
 } from '../../src/internal/paths.js'
+import {
+  rootCapabilityId,
+  rootCapabilityTarget,
+  spaceUrlOf
+} from '../../src/internal/revoke.js'
 
-describe('path builders', () => {
-  it('uses the trailing-slash canonical form for the space container', () => {
-    expect(spacePath('home')).toBe('/space/home/')
+const SPACE_URL = 'https://was.example/space/home/'
+
+/**
+ * Every builder, applied to one Space URL and fixed ids, so the whole grammar
+ * can be checked at once.
+ *
+ * @param spaceUrl {string}
+ * @returns {Record<string, string>}
+ */
+function everyUrl(spaceUrl: string): Record<string, string> {
+  const inCollection = { spaceUrl, collectionId: 'docs' }
+  const inResource = { ...inCollection, resourceId: 'note' }
+  return {
+    spaceMetaUrl: spaceMetaUrl({ spaceUrl }),
+    spaceExportUrl: spaceExportUrl({ spaceUrl }),
+    spaceImportUrl: spaceImportUrl({ spaceUrl }),
+    spaceBackendsUrl: spaceBackendsUrl({ spaceUrl }),
+    registeredBackendUrl: registeredBackendUrl({ spaceUrl, backendId: 'b1' }),
+    spaceQuotasUrl: spaceQuotasUrl({ spaceUrl }),
+    spacePolicyUrl: spacePolicyUrl({ spaceUrl }),
+    spaceLinksetUrl: spaceLinksetUrl({ spaceUrl }),
+    spaceReplicasUrl: spaceReplicasUrl({ spaceUrl }),
+    replicaRegistrationUrl: replicaRegistrationUrl({
+      spaceUrl,
+      replicaId: 'r1'
+    }),
+    replicaStatusUrl: replicaStatusUrl({ spaceUrl, replicaId: 'r1' }),
+    spaceRevocationUrl: spaceRevocationUrl({
+      spaceUrl,
+      capabilityId: 'urn:uuid:1'
+    }),
+    collectionUrl: collectionUrl(inCollection),
+    collectionMetaUrl: collectionMetaUrl(inCollection),
+    collectionLogUrl: collectionLogUrl(inCollection),
+    collectionPolicyUrl: collectionPolicyUrl(inCollection),
+    collectionLinksetUrl: collectionLinksetUrl(inCollection),
+    collectionBackendUrl: collectionBackendUrl(inCollection),
+    collectionQuotaUrl: collectionQuotaUrl(inCollection),
+    collectionQueryUrl: collectionQueryUrl(inCollection),
+    resourceUrl: resourceUrl(inResource),
+    resourceMetaUrl: resourceMetaUrl(inResource),
+    resourcePolicyUrl: resourcePolicyUrl(inResource),
+    resourceChunkUrl: resourceChunkUrl({ ...inResource, chunkIndex: 0 }),
+    resourceChunksUrl: resourceChunksUrl(inResource)
+  }
+}
+
+describe('URL builders', () => {
+  it('builds every URL beneath a canonical Space URL', () => {
+    expect(everyUrl(SPACE_URL)).toEqual({
+      spaceMetaUrl: 'https://was.example/space/home/meta',
+      spaceExportUrl: 'https://was.example/space/home/export',
+      spaceImportUrl: 'https://was.example/space/home/import',
+      spaceBackendsUrl: 'https://was.example/space/home/backends',
+      registeredBackendUrl: 'https://was.example/space/home/backends/b1',
+      spaceQuotasUrl: 'https://was.example/space/home/quotas',
+      spacePolicyUrl: 'https://was.example/space/home/policy',
+      spaceLinksetUrl: 'https://was.example/space/home/linkset',
+      spaceReplicasUrl: 'https://was.example/space/home/replicas',
+      replicaRegistrationUrl: 'https://was.example/space/home/replicas/r1',
+      replicaStatusUrl: 'https://was.example/space/home/replicas/r1/status',
+      spaceRevocationUrl:
+        'https://was.example/space/home/zcaps/revocations/urn%3Auuid%3A1',
+      collectionUrl: 'https://was.example/space/home/docs/',
+      collectionMetaUrl: 'https://was.example/space/home/docs/meta',
+      collectionLogUrl: 'https://was.example/space/home/docs/meta/log',
+      collectionPolicyUrl: 'https://was.example/space/home/docs/policy',
+      collectionLinksetUrl: 'https://was.example/space/home/docs/linkset',
+      collectionBackendUrl: 'https://was.example/space/home/docs/backend',
+      collectionQuotaUrl: 'https://was.example/space/home/docs/quota',
+      collectionQueryUrl: 'https://was.example/space/home/docs/query',
+      resourceUrl: 'https://was.example/space/home/docs/note',
+      resourceMetaUrl: 'https://was.example/space/home/docs/note/meta',
+      resourcePolicyUrl: 'https://was.example/space/home/docs/note/policy',
+      resourceChunkUrl: 'https://was.example/space/home/docs/note/chunks/0',
+      resourceChunksUrl: 'https://was.example/space/home/docs/note/chunks/'
+    })
   })
 
-  it('reads and writes the space description at its meta segment', () => {
-    expect(spaceMeta('home')).toBe('/space/home/meta')
-  })
-
-  it('builds the export and import paths', () => {
-    expect(spaceExport('home')).toBe('/space/home/export')
-    expect(spaceImport('home')).toBe('/space/home/import')
-  })
-
-  it('uses the trailing-slash canonical form for a collection container', () => {
-    // The container is one URL under one builder: it lists the Collection's
-    // Resources, adds one, and deletes the Collection.
-    expect(collectionPath('home', 'docs')).toBe('/space/home/docs/')
-  })
-
-  it('omits the trailing slash for a resource by id', () => {
-    expect(resourcePath('home', 'docs', 'note')).toBe('/space/home/docs/note')
-  })
-
-  it('builds the policy resource paths at each level', () => {
-    expect(spacePolicy('home')).toBe('/space/home/policy')
-    expect(collectionPolicy('home', 'docs')).toBe('/space/home/docs/policy')
-    expect(resourcePolicy('home', 'docs', 'note')).toBe(
-      '/space/home/docs/note/policy'
+  it('keeps a path prefix the Space URL carries', () => {
+    const spaceUrl = 'http://localhost:9787/was/v1/space/s/'
+    for (const url of Object.values(everyUrl(spaceUrl))) {
+      expect(url.startsWith(spaceUrl)).toBe(true)
+    }
+    expect(collectionUrl({ spaceUrl, collectionId: 'c' })).toBe(
+      'http://localhost:9787/was/v1/space/s/c/'
     )
   })
 
-  it('builds the linkset paths (space and collection)', () => {
-    expect(spaceLinkset('home')).toBe('/space/home/linkset')
-    expect(collectionLinkset('home', 'docs')).toBe('/space/home/docs/linkset')
+  it('emits a chunk index verbatim', () => {
+    expect(
+      resourceChunkUrl({
+        spaceUrl: SPACE_URL,
+        collectionId: 'docs',
+        resourceId: 'note',
+        chunkIndex: 12
+      })
+    ).toBe('https://was.example/space/home/docs/note/chunks/12')
   })
 
-  it('builds the backends and quotas paths (space level)', () => {
-    expect(spaceBackends('home')).toBe('/space/home/backends')
-    expect(spaceQuotas('home')).toBe('/space/home/quotas')
+  it('percent-encodes ids so they cannot break out of their slot', () => {
+    expect(collectionUrl({ spaceUrl: SPACE_URL, collectionId: 'd?x' })).toBe(
+      'https://was.example/space/home/d%3Fx/'
+    )
+    expect(
+      resourceUrl({
+        spaceUrl: SPACE_URL,
+        collectionId: 'c/d',
+        resourceId: 'r#1'
+      })
+    ).toBe('https://was.example/space/home/c%2Fd/r%231')
+    expect(
+      collectionQueryUrl({ spaceUrl: SPACE_URL, collectionId: 'a b' })
+    ).toBe('https://was.example/space/home/a%20b/query')
+    expect(
+      resourceChunksUrl({
+        spaceUrl: SPACE_URL,
+        collectionId: 'c/d',
+        resourceId: 'e#f'
+      })
+    ).toBe('https://was.example/space/home/c%2Fd/e%23f/chunks/')
+    expect(
+      replicaRegistrationUrl({ spaceUrl: SPACE_URL, replicaId: 'a/b' })
+    ).toBe('https://was.example/space/home/replicas/a%2Fb')
+    expect(
+      registeredBackendUrl({ spaceUrl: SPACE_URL, backendId: 'g drive' })
+    ).toBe('https://was.example/space/home/backends/g%20drive')
   })
 
-  it('builds the per-id registered backend path (replace / deregister)', () => {
-    expect(registeredBackend('home', 'gdrive')).toBe(
-      '/space/home/backends/gdrive'
-    )
-  })
-
-  it('builds the replica registration paths (space level)', () => {
-    expect(spaceReplicas('home')).toBe('/space/home/replicas')
-    expect(replicaRegistration('home', 'peer-1')).toBe(
-      '/space/home/replicas/peer-1'
-    )
-    expect(replicaStatus('home', 'peer-1')).toBe(
-      '/space/home/replicas/peer-1/status'
-    )
-    expect(replicaRegistration('home', 'a/b')).toBe(
-      '/space/home/replicas/a%2Fb'
-    )
-  })
-
-  it('builds the backend and quota paths (collection level)', () => {
-    expect(collectionBackend('home', 'docs')).toBe('/space/home/docs/backend')
-    expect(collectionQuota('home', 'docs')).toBe('/space/home/docs/quota')
-  })
-
-  it('builds the collection query path and encodes its ids', () => {
-    expect(collectionQuery('home', 'docs')).toBe('/space/home/docs/query')
-    expect(collectionQuery('a b', 'c/d')).toBe('/space/a%20b/c%2Fd/query')
-  })
-
-  it('builds the resource metadata path', () => {
-    expect(resourceMeta('home', 'docs', 'note')).toBe(
-      '/space/home/docs/note/meta'
-    )
-  })
-
-  it('builds a chunk member path (no trailing slash) with the index verbatim', () => {
-    expect(resourceChunkPath('home', 'docs', 'note', 0)).toBe(
-      '/space/home/docs/note/chunks/0'
-    )
-    expect(resourceChunkPath('a b', 'c/d', 'e#f', 12)).toBe(
-      '/space/a%20b/c%2Fd/e%23f/chunks/12'
-    )
-  })
-
-  it('builds the chunk container path in trailing-slash form', () => {
-    expect(resourceChunksPath('home', 'docs', 'note')).toBe(
-      '/space/home/docs/note/chunks/'
-    )
-    expect(resourceChunksPath('a b', 'c/d', 'e#f')).toBe(
-      '/space/a%20b/c%2Fd/e%23f/chunks/'
-    )
-  })
-
-  it('percent-encodes path segments so ids cannot break out of their slot', () => {
-    expect(spacePath('a/b')).toBe('/space/a%2Fb/')
-    expect(collectionPath('s p', 'd?x')).toBe('/space/s%20p/d%3Fx/')
-    expect(resourcePath('s', 'c', 'r#1')).toBe('/space/s/c/r%231')
+  it('rejects a reserved id in a collection or resource slot', () => {
+    // `collectionUrl` of `policy` would be byte-identical to the space policy
+    // URL, and `resourceUrl` of `meta` to the collection metadata URL.
+    expect(() =>
+      collectionUrl({ spaceUrl: SPACE_URL, collectionId: 'policy' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      collectionMetaUrl({ spaceUrl: SPACE_URL, collectionId: 'meta' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      resourceUrl({
+        spaceUrl: SPACE_URL,
+        collectionId: 'c',
+        resourceId: 'meta'
+      })
+    ).toThrow(ValidationError)
+    expect(() =>
+      resourceMetaUrl({
+        spaceUrl: SPACE_URL,
+        collectionId: 'c',
+        resourceId: 'policy'
+      })
+    ).toThrow(ValidationError)
   })
 
   it('rejects dot-segment ids, which URL resolution would collapse', () => {
     // `encodeURIComponent` leaves `.`/`..` intact, and `new URL()` collapses
-    // them -- `/space/s/c/.` is the collection items endpoint and
-    // `/space/s/c/..` the space -- so a delete would target the wrong thing.
-    expect(() => resourcePath('s', 'c', '.')).toThrow(ValidationError)
-    expect(() => resourcePath('s', 'c', '..')).toThrow(ValidationError)
-    expect(() => collectionPath('s', '.')).toThrow(ValidationError)
-    expect(() => spacePath('..')).toThrow(ValidationError)
+    // them -- `{spaceUrl}c/.` is the collection items endpoint and
+    // `{spaceUrl}c/..` the space -- so a delete would target the wrong thing.
+    expect(() =>
+      resourceUrl({ spaceUrl: SPACE_URL, collectionId: 'c', resourceId: '.' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      resourceUrl({ spaceUrl: SPACE_URL, collectionId: 'c', resourceId: '..' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      collectionUrl({ spaceUrl: SPACE_URL, collectionId: '.' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      replicaRegistrationUrl({ spaceUrl: SPACE_URL, replicaId: '..' })
+    ).toThrow(ValidationError)
   })
 
   it('rejects an empty id, which collapses into the parent endpoint', () => {
-    expect(() => resourcePath('s', 'c', '')).toThrow(ValidationError)
-    expect(() => collectionPath('s', '')).toThrow(ValidationError)
-    expect(() => spacePath('')).toThrow(ValidationError)
+    expect(() =>
+      resourceUrl({ spaceUrl: SPACE_URL, collectionId: 'c', resourceId: '' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      collectionUrl({ spaceUrl: SPACE_URL, collectionId: '' })
+    ).toThrow(ValidationError)
+    expect(() =>
+      registeredBackendUrl({ spaceUrl: SPACE_URL, backendId: '' })
+    ).toThrow(ValidationError)
+  })
+
+  it('canonicalizes the Space URL before joining onto it', () => {
+    // A missing trailing slash, a run of them, an upper-case host and a
+    // default port all name the same Space, so they yield the same URLs.
+    const canonical = everyUrl(SPACE_URL)
+    for (const spaceUrl of [
+      'https://was.example/space/home',
+      'https://was.example/space/home///',
+      'https://WAS.Example/space/home/',
+      'https://was.example:443/space/home/'
+    ]) {
+      expect(everyUrl(spaceUrl)).toEqual(canonical)
+    }
+  })
+
+  it('throws ValidationError when the Space URL is not one', () => {
+    for (const spaceUrl of [
+      'not a url',
+      '/space/home/',
+      'ftp://was.example/space/home/',
+      'https://was.example/space/home/?q=1',
+      'https://was.example/space/home/#f',
+      'https://was.example',
+      'https://was.example/',
+      'https://was.example/space//home/'
+    ]) {
+      expect(() => spaceMetaUrl({ spaceUrl })).toThrow(ValidationError)
+      expect(() => collectionUrl({ spaceUrl, collectionId: 'c' })).toThrow(
+        ValidationError
+      )
+      expect(() =>
+        resourceUrl({ spaceUrl, collectionId: 'c', resourceId: 'r' })
+      ).toThrow(ValidationError)
+    }
   })
 })
 
 describe('the trailing-slash convention', () => {
   /**
-   * Every builder, applied to the same ids -- so the whole grammar can be
-   * checked at once rather than one assertion per path. A capability's
-   * `invocationTarget` covers its URL and everything under it by prefix, so
-   * two paths differing only by a trailing slash could not be granted
-   * separately; the server's route table has none, and neither may this.
+   * A capability's `invocationTarget` covers its URL and everything under it
+   * by prefix, so two URLs differing only by a trailing slash could not be
+   * granted separately; the server's route table has none, and neither may
+   * the builders.
    */
-  const everyPath = {
-    spacePath: spacePath('home'),
-    spaceMeta: spaceMeta('home'),
-    spaceExport: spaceExport('home'),
-    spaceImport: spaceImport('home'),
-    spaceBackends: spaceBackends('home'),
-    registeredBackend: registeredBackend('home', 'b1'),
-    spaceQuotas: spaceQuotas('home'),
-    spacePolicy: spacePolicy('home'),
-    spaceLinkset: spaceLinkset('home'),
-    spaceReplicas: spaceReplicas('home'),
-    replicaRegistration: replicaRegistration('home', 'r1'),
-    replicaStatus: replicaStatus('home', 'r1'),
-    collectionPath: collectionPath('home', 'docs'),
-    collectionMeta: collectionMeta('home', 'docs'),
-    collectionLog: collectionLog('home', 'docs'),
-    collectionPolicy: collectionPolicy('home', 'docs'),
-    collectionLinkset: collectionLinkset('home', 'docs'),
-    collectionBackend: collectionBackend('home', 'docs'),
-    collectionQuota: collectionQuota('home', 'docs'),
-    collectionQuery: collectionQuery('home', 'docs'),
-    resourcePath: resourcePath('home', 'docs', 'note'),
-    resourceMeta: resourceMeta('home', 'docs', 'note'),
-    resourcePolicy: resourcePolicy('home', 'docs', 'note'),
-    resourceChunkPath: resourceChunkPath('home', 'docs', 'note', 0),
-    resourceChunksPath: resourceChunksPath('home', 'docs', 'note')
-  }
+  const urls = { space: SPACE_URL, ...everyUrl(SPACE_URL) }
 
-  it('produces no two paths that differ only by a trailing slash', () => {
-    const collisions = Object.entries(everyPath).filter(([, path]) =>
-      Object.entries(everyPath).some(
-        ([, other]) => other !== path && `${other}/` === path
-      )
+  it('produces no two URLs that differ only by a trailing slash', () => {
+    const collisions = Object.entries(urls).filter(([, url]) =>
+      Object.values(urls).some(other => other !== url && `${other}/` === url)
     )
     expect(collisions).toEqual([])
   })
 
-  it('ends every container path with a slash and no other path', () => {
-    const containers = new Set([
-      'spacePath',
-      'collectionPath',
-      'resourceChunksPath'
-    ])
-    const slashed = Object.entries(everyPath)
-      .filter(([, path]) => path.endsWith('/'))
+  it('ends every container URL with a slash and no other URL', () => {
+    const slashed = Object.entries(urls)
+      .filter(([, url]) => url.endsWith('/'))
       .map(([name]) => name)
-    expect(new Set(slashed)).toEqual(containers)
+    expect(new Set(slashed)).toEqual(
+      new Set(['space', 'collectionUrl', 'resourceChunksUrl'])
+    )
   })
 })
 
-describe('parseSpacePath', () => {
-  it('classifies space / collection / resource depths', () => {
-    expect(parseSpacePath('/space/s')).toEqual({ kind: 'space', spaceId: 's' })
-    expect(parseSpacePath('/space/s/c')).toEqual({
-      kind: 'collection',
-      spaceId: 's',
-      collectionId: 'c'
-    })
-    expect(parseSpacePath('/space/s/c/r')).toEqual({
-      kind: 'resource',
-      spaceId: 's',
-      collectionId: 'c',
-      resourceId: 'r'
-    })
-  })
-
-  it('percent-decodes each segment (the builders re-encode them)', () => {
-    expect(parseSpacePath('/space/a%20b/c%2Fd')).toEqual({
-      kind: 'collection',
-      spaceId: 'a b',
-      collectionId: 'c/d'
-    })
-  })
-
-  it('classifies reserved space-level sub-endpoints as sub-resources', () => {
-    expect(parseSpacePath('/space/s/policy')).toMatchObject({
-      kind: 'sub-resource',
-      spaceId: 's'
-    })
-    expect(parseSpacePath('/space/s/backends/gdrive')).toMatchObject({
-      kind: 'sub-resource',
-      spaceId: 's'
-    })
-    expect(parseSpacePath('/space/s/replicas/peer-1/status')).toEqual({
-      kind: 'sub-resource',
-      spaceId: 's',
-      segments: ['replicas', 'peer-1', 'status']
-    })
-    expect(parseSpacePath('/space/s/zcaps/revocations/urn:x')).toMatchObject({
-      kind: 'sub-resource',
-      spaceId: 's'
-    })
-    // The Space Metadata object sits at the Collection-id position, so `meta`
-    // directly under a Space is a space-level sub-endpoint rather than a
-    // Collection named `meta`.
-    expect(parseSpacePath('/space/s/meta')).toEqual({
-      kind: 'sub-resource',
-      spaceId: 's',
-      segments: ['meta']
-    })
-  })
-
-  it('reads the canonical trailing-slash container forms', () => {
-    // The empty final segment is filtered, so a container URL classifies as
-    // the container it names.
-    expect(parseSpacePath('/space/s/')).toEqual({ kind: 'space', spaceId: 's' })
-    expect(parseSpacePath('/space/s/c/')).toEqual({
-      kind: 'collection',
-      spaceId: 's',
-      collectionId: 'c'
-    })
-  })
-
-  it('also reads the bare (slash-less) container form a third party minted', () => {
-    // The builders emit only the canonical trailing-slash form, but the
-    // targets parsed here come from delegated capabilities minted elsewhere --
-    // `WasClient.fromCapability` and the revocation route's `spaceIdOf` read
-    // an `invocationTarget` this client did not write. Both forms name the same
-    // container, so refusing the bare one would reject valid capabilities over
-    // a spelling this client does not control.
-    expect(parseSpacePath('/space/s')).toEqual(parseSpacePath('/space/s/'))
-    expect(parseSpacePath('/space/s/c')).toEqual(parseSpacePath('/space/s/c/'))
-  })
-
-  it('classifies reserved collection-level sub-endpoints as sub-resources', () => {
-    expect(parseSpacePath('/space/s/c/policy')).toMatchObject({
-      kind: 'sub-resource'
-    })
-    expect(parseSpacePath('/space/s/c/backend')).toMatchObject({
-      kind: 'sub-resource'
-    })
-    // `meta` joined the registry with the Collection metadata endpoint, so
-    // `/space/s/c/meta` classifies as a collection-level sub-endpoint rather
-    // than a resource named `meta`.
-    expect(parseSpacePath('/space/s/c/meta')).toEqual({
-      kind: 'sub-resource',
-      spaceId: 's',
-      segments: ['c', 'meta']
-    })
-  })
-
-  it('classifies 5-segment resource sub-endpoints as sub-resources', () => {
-    expect(parseSpacePath('/space/s/c/r/meta')).toMatchObject({
-      kind: 'sub-resource'
-    })
-    expect(parseSpacePath('/space/s/c/r/policy')).toMatchObject({
-      kind: 'sub-resource'
-    })
-  })
-
-  it('returns null for a pathname outside the /space/ tree', () => {
-    expect(parseSpacePath('/other/x')).toBeNull()
-    expect(parseSpacePath('/space')).toBeNull()
-    expect(parseSpacePath('/spaces/')).toBeNull()
-  })
-
-  it('returns null (not a raw URIError) for a malformed percent-escape', () => {
-    // `decodeURIComponent('%ff')` throws a `URIError`; a malformed escape makes
-    // the pathname an unparseable target, which callers convert to their own
-    // typed error rather than a raw crash.
-    expect(parseSpacePath('/space/%ff')).toBeNull()
-    expect(parseSpacePath('/space/s/%c3%28')).toBeNull()
+describe('canonicalContainerUrl', () => {
+  it('adds the trailing slash to a bare collection URL, and keeps one', () => {
+    expect(canonicalContainerUrl('https://was.example/space/s/c')).toBe(
+      'https://was.example/space/s/c/'
+    )
+    expect(canonicalContainerUrl('https://was.example/space/s/c/')).toBe(
+      'https://was.example/space/s/c/'
+    )
   })
 })
 
-describe('parseAbsoluteSpaceTarget', () => {
-  it('reads the server base URL and the path off a bare-origin target', () => {
-    expect(parseAbsoluteSpaceTarget('https://was.example/space/s/c/')).toEqual({
-      baseUrl: 'https://was.example',
-      path: { kind: 'collection', spaceId: 's', collectionId: 'c' }
-    })
+describe('canonicalSpaceUrl', () => {
+  it('returns a canonical Space URL unchanged', () => {
+    expect(canonicalSpaceUrl(SPACE_URL)).toBe(SPACE_URL)
+    expect(canonicalSpaceUrl('http://localhost:9787/was/v1/space/s/')).toBe(
+      'http://localhost:9787/was/v1/space/s/'
+    )
   })
 
-  it('keeps a sub-path mount in the server base URL', () => {
-    expect(
-      parseAbsoluteSpaceTarget('http://localhost:9787/was/v1/space/s/c/r')
-    ).toEqual({
-      baseUrl: 'http://localhost:9787/was/v1',
-      path: {
-        kind: 'resource',
-        spaceId: 's',
-        collectionId: 'c',
-        resourceId: 'r'
-      }
-    })
+  it('adds a missing trailing slash and collapses a run of them', () => {
+    expect(canonicalSpaceUrl('https://was.example/space/home')).toBe(SPACE_URL)
+    expect(canonicalSpaceUrl('https://was.example/space/home//')).toBe(
+      SPACE_URL
+    )
   })
 
-  it('splits on the first `space` segment, so a space id may be "space"', () => {
-    expect(
-      parseAbsoluteSpaceTarget('https://was.example/space/space/c')
-    ).toEqual({
-      baseUrl: 'https://was.example',
-      path: { kind: 'collection', spaceId: 'space', collectionId: 'c' }
-    })
+  it('lower-cases the host and drops a default port', () => {
+    expect(canonicalSpaceUrl('https://WAS.example:443/space/home/')).toBe(
+      SPACE_URL
+    )
+    expect(canonicalSpaceUrl('http://Localhost:80/space/home')).toBe(
+      'http://localhost/space/home/'
+    )
+    // A non-default port is part of the origin and stays.
+    expect(canonicalSpaceUrl('http://localhost:9787/space/home')).toBe(
+      'http://localhost:9787/space/home/'
+    )
   })
 
-  it('returns null for a relative URL or one with no space segment', () => {
-    expect(parseAbsoluteSpaceTarget('/space/s/c')).toBeNull()
-    expect(parseAbsoluteSpaceTarget('https://was.example/spaces/s')).toBeNull()
-    expect(parseAbsoluteSpaceTarget('https://was.example/kms/x')).toBeNull()
+  it('keeps percent-encoded segments as they are', () => {
+    expect(canonicalSpaceUrl('https://was.example/space/a%20b')).toBe(
+      'https://was.example/space/a%20b/'
+    )
   })
 
-  it('returns null when the path beneath the base does not classify', () => {
-    expect(parseAbsoluteSpaceTarget('https://was.example/space')).toBeNull()
-    expect(parseAbsoluteSpaceTarget('https://was.example/space/%ff')).toBeNull()
-  })
-
-  it('refuses a doubled slash in the base, as baseUrlOfSpacesUrl does', () => {
-    expect(parseAbsoluteSpaceTarget('https://host//was/space/s/')).toBeNull()
-    expect(parseAbsoluteSpaceTarget('https://host//space/s/')).toBeNull()
-    expect(parseAbsoluteSpaceTarget('file:///space/s/')).toBeNull()
-  })
-
-  it('refuses a query or fragment, as baseUrlOfSpacesUrl does', () => {
-    expect(parseAbsoluteSpaceTarget('https://host/was/space/s/?q=1')).toBeNull()
-    expect(parseAbsoluteSpaceTarget('https://host/was/space/s/#f')).toBeNull()
-  })
-
-  it('returns a base URL that survives spacesUrl and the WasClient constructor', () => {
-    const zcapClient = {} as unknown as ZcapClient
-    for (const target of [
-      'https://was.example/space/s/c/',
-      'http://localhost:9787/was/v1/space/s/c/r',
-      'https://Host.example:443/was/space/s/'
+  it('throws ValidationError for a URL that cannot be a Space URL', () => {
+    for (const spaceUrl of [
+      'not a url',
+      '/space/home/',
+      'ftp://was.example/space/home/',
+      'file:///space/home/',
+      'https://was.example/space/home/?q=1',
+      'https://was.example/space/home/#top',
+      'https://was.example',
+      'https://was.example/',
+      'https://was.example//',
+      'https://was.example//space/home/',
+      'https://was.example/space//home/'
     ]) {
-      const parsed = parseAbsoluteSpaceTarget(target)
-      expect(parsed).not.toBeNull()
-      const { baseUrl } = parsed as { baseUrl: string }
-      const serverUrl = spacesUrl({ baseUrl })
-      expect(baseUrlOfSpacesUrl(serverUrl)).toBe(baseUrl)
-      const client = new WasClient({ serverUrl, zcapClient })
-      expect(client.baseUrl).toBe(baseUrl)
+      expect(() => canonicalSpaceUrl(spaceUrl)).toThrow(ValidationError)
     }
+  })
+})
+
+describe('spaceIdOfUrl', () => {
+  it('reads the last path segment of the Space URL', () => {
+    expect(spaceIdOfUrl(SPACE_URL)).toBe('home')
+    expect(spaceIdOfUrl('https://was.example/space/home')).toBe('home')
+    expect(spaceIdOfUrl('http://localhost:9787/was/v1/space/s///')).toBe('s')
+  })
+
+  it('percent-decodes the segment', () => {
+    expect(spaceIdOfUrl('https://was.example/space/a%20b%2Fc/')).toBe('a b/c')
+  })
+
+  it('throws ValidationError for a malformed percent escape', () => {
+    expect(() => spaceIdOfUrl('https://was.example/space/%ff/')).toThrow(
+      ValidationError
+    )
+  })
+
+  it('throws ValidationError for a URL that is not a Space URL', () => {
+    expect(() => spaceIdOfUrl('https://was.example/')).toThrow(ValidationError)
+    expect(() => spaceIdOfUrl('not a url')).toThrow(ValidationError)
   })
 })
 
 describe('parseSpaceTarget', () => {
-  const baseUrl = 'https://host.example/was'
+  const spaceUrl = SPACE_URL
 
-  it('classifies a target beneath the base', () => {
-    expect(
-      parseSpaceTarget({
-        baseUrl,
-        target: 'https://host.example/was/space/s/c/'
-      })
-    ).toEqual({ kind: 'collection', spaceId: 's', collectionId: 'c' })
+  /**
+   * @param target {string}
+   * @returns {ReturnType<typeof parseSpaceTarget>}
+   */
+  function parse(target: string): ReturnType<typeof parseSpaceTarget> {
+    return parseSpaceTarget({ spaceUrl, target })
+  }
+
+  it('classifies the Space itself in its slash and bare forms', () => {
+    expect(parse('https://was.example/space/home/')).toEqual({ kind: 'space' })
+    expect(parse('https://was.example/space/home')).toEqual({ kind: 'space' })
   })
 
-  it('matches a target that differs from the canonical base only in serialization', () => {
-    // The constructor canonicalizes baseUrl; a capability minted by the
-    // deployment may still spell the host in upper case or name the default
-    // port.
+  it('classifies a Collection in its slash and bare forms', () => {
+    // The builders emit only the canonical trailing-slash form, but the
+    // targets parsed here come from delegated capabilities minted elsewhere,
+    // and both forms name the same container.
     for (const target of [
-      'https://HOST.example/was/space/s/',
-      'https://host.example:443/was/space/s/'
+      'https://was.example/space/home/docs/',
+      'https://was.example/space/home/docs'
     ]) {
-      expect(parseSpaceTarget({ baseUrl, target })).toEqual({
-        kind: 'space',
-        spaceId: 's'
+      expect(parse(target)).toEqual({
+        kind: 'collection',
+        collectionId: 'docs'
       })
     }
   })
 
-  it('refuses another origin, another base path, a query, or a fragment', () => {
+  it('classifies a Resource', () => {
+    expect(parse('https://was.example/space/home/docs/note')).toEqual({
+      kind: 'resource',
+      collectionId: 'docs',
+      resourceId: 'note'
+    })
+  })
+
+  it('classifies a space-level sub-endpoint as a sub-resource', () => {
+    expect(parse('https://was.example/space/home/policy')).toEqual({
+      kind: 'sub-resource',
+      segments: ['policy']
+    })
+    expect(parse('https://was.example/space/home/backends/x')).toEqual({
+      kind: 'sub-resource',
+      segments: ['backends', 'x']
+    })
+    // The Space Metadata object sits at the Collection-id position, so `meta`
+    // directly under a Space is a space-level sub-endpoint rather than a
+    // Collection named `meta`.
+    expect(parse('https://was.example/space/home/meta')).toEqual({
+      kind: 'sub-resource',
+      segments: ['meta']
+    })
+    expect(
+      parse('https://was.example/space/home/zcaps/revocations/urn%3Ax')
+    ).toEqual({
+      kind: 'sub-resource',
+      segments: ['zcaps', 'revocations', 'urn:x']
+    })
+  })
+
+  it('classifies a collection-level sub-endpoint as a sub-resource', () => {
+    expect(parse('https://was.example/space/home/c/backend')).toEqual({
+      kind: 'sub-resource',
+      segments: ['c', 'backend']
+    })
+    expect(parse('https://was.example/space/home/c/meta')).toEqual({
+      kind: 'sub-resource',
+      segments: ['c', 'meta']
+    })
+  })
+
+  it('classifies a resource-level sub-endpoint as a sub-resource', () => {
+    expect(parse('https://was.example/space/home/c/r/meta')).toEqual({
+      kind: 'sub-resource',
+      segments: ['c', 'r', 'meta']
+    })
+    expect(parse('https://was.example/space/home/c/r/chunks/0')).toEqual({
+      kind: 'sub-resource',
+      segments: ['c', 'r', 'chunks', '0']
+    })
+    expect(parse('https://was.example/space/home/c/r/chunks/')).toEqual({
+      kind: 'sub-resource',
+      segments: ['c', 'r', 'chunks']
+    })
+  })
+
+  it('percent-decodes each segment (the builders re-encode them)', () => {
+    expect(parse('https://was.example/space/home/a%20b/c%2Fd')).toEqual({
+      kind: 'resource',
+      collectionId: 'a b',
+      resourceId: 'c/d'
+    })
+  })
+
+  it('round-trips every builder output', () => {
+    const collection = collectionUrl({ spaceUrl, collectionId: 'a b' })
+    const resource = resourceUrl({
+      spaceUrl,
+      collectionId: 'a b',
+      resourceId: 'r#1'
+    })
+    expect(parse(collection)).toEqual({
+      kind: 'collection',
+      collectionId: 'a b'
+    })
+    expect(parse(resource)).toEqual({
+      kind: 'resource',
+      collectionId: 'a b',
+      resourceId: 'r#1'
+    })
+  })
+
+  it('returns null for a target that is not beneath the Space', () => {
     for (const target of [
-      'https://other.example/was/space/s/',
-      'https://host.example/space/s/',
-      'https://host.example/was2/space/s/',
-      'https://host.example/was/space/s/?q=1',
-      'https://host.example/was/space/s/#f',
+      'https://other.example/space/home/docs/',
+      'http://was.example/space/home/docs/',
+      'https://was.example/space/home2/docs/',
+      'https://was.example/space/',
+      'https://was.example/other/home/docs/',
+      'https://was.example/space/home/docs/?q=1',
+      'https://was.example/space/home/docs/#f',
+      'https://was.example/space/home/%ff',
+      'https://was.example/space/home/c/%c3%28',
+      '/space/home/docs/',
       'not a url'
     ]) {
-      expect(parseSpaceTarget({ baseUrl, target })).toBeNull()
+      expect(parse(target)).toBeNull()
     }
   })
-})
 
-describe('spacesUrl / baseUrlOfSpacesUrl', () => {
-  it('forms the Spaces Repository URL beneath a base URL', () => {
-    expect(spacesUrl({ baseUrl: 'https://was.example' })).toBe(
-      'https://was.example/spaces/'
-    )
-    expect(spacesUrl({ baseUrl: 'https://host/was' })).toBe(
-      'https://host/was/spaces/'
-    )
+  it('returns null when the Space URL is not one', () => {
+    expect(
+      parseSpaceTarget({
+        spaceUrl: 'https://was.example/',
+        target: 'https://was.example/space/home/'
+      })
+    ).toBeNull()
   })
 
-  it('reads the base URL back off a Spaces Repository URL', () => {
-    expect(baseUrlOfSpacesUrl('https://was.example/spaces/')).toBe(
-      'https://was.example'
-    )
-    expect(baseUrlOfSpacesUrl('https://host/was/spaces')).toBe(
-      'https://host/was'
-    )
-    expect(baseUrlOfSpacesUrl('http://localhost:9787/spaces//')).toBe(
-      'http://localhost:9787'
-    )
+  it('matches when either URL is in a non-canonical serialization', () => {
+    for (const nonCanonical of [
+      'https://was.example/space/home',
+      'https://WAS.example:443/space/home//'
+    ]) {
+      expect(
+        parseSpaceTarget({
+          spaceUrl: nonCanonical,
+          target: 'https://was.example/space/home/docs/'
+        })
+      ).toEqual({ kind: 'collection', collectionId: 'docs' })
+    }
+    expect(
+      parseSpaceTarget({
+        spaceUrl,
+        target: 'https://WAS.example:443/space/home/docs/'
+      })
+    ).toEqual({ kind: 'collection', collectionId: 'docs' })
   })
 
-  it('canonicalizes the host and default port', () => {
-    expect(baseUrlOfSpacesUrl('https://Host.example:443/spaces/')).toBe(
-      'https://host.example'
-    )
-  })
-
-  it('returns null for a URL that is not a Spaces Repository URL', () => {
-    expect(baseUrlOfSpacesUrl('https://was.example')).toBeNull()
-    expect(baseUrlOfSpacesUrl('https://was.example/')).toBeNull()
-    expect(baseUrlOfSpacesUrl('https://was.example/space/s/')).toBeNull()
-    expect(baseUrlOfSpacesUrl('/spaces/')).toBeNull()
-  })
-
-  it('returns null for an opaque origin, a doubled slash, a query, or a fragment', () => {
-    expect(baseUrlOfSpacesUrl('file:///spaces/')).toBeNull()
-    expect(baseUrlOfSpacesUrl('https://host//spaces/')).toBeNull()
-    expect(baseUrlOfSpacesUrl('https://host/was//spaces/')).toBeNull()
-    expect(baseUrlOfSpacesUrl('https://host/spaces/?tenant=acme')).toBeNull()
-    expect(baseUrlOfSpacesUrl('https://host/spaces/#top')).toBeNull()
+  it('classifies beneath a Space whose URL carries a path prefix', () => {
+    expect(
+      parseSpaceTarget({
+        spaceUrl: 'http://localhost:9787/was/v1/space/s/',
+        target: 'http://localhost:9787/was/v1/space/s/c/r'
+      })
+    ).toEqual({ kind: 'resource', collectionId: 'c', resourceId: 'r' })
   })
 })
 
-describe('toUrl', () => {
-  it('resolves a leading-slash path against the server base URL', () => {
-    expect(toUrl({ baseUrl: 'https://was.example', path: '/space/x' })).toBe(
-      'https://was.example/space/x'
+describe('rootCapabilityId / rootCapabilityTarget', () => {
+  it('round-trips a target through its root capability id', () => {
+    for (const target of [
+      SPACE_URL,
+      'http://localhost:3000/space/s/c/r',
+      'https://was.example/space/a%20b/'
+    ]) {
+      const id = rootCapabilityId(target)
+      expect(id).toBe(`urn:zcap:root:${encodeURIComponent(target)}`)
+      expect(rootCapabilityTarget(id)).toBe(target)
+    }
+  })
+
+  it('returns null for an id that is not a root capability id', () => {
+    expect(rootCapabilityTarget('urn:uuid:5f1a')).toBeNull()
+    expect(rootCapabilityTarget(SPACE_URL)).toBeNull()
+    // A malformed percent escape in the encoded target.
+    expect(rootCapabilityTarget('urn:zcap:root:%ff')).toBeNull()
+  })
+})
+
+describe('spaceUrlOf', () => {
+  const rootId = rootCapabilityId(SPACE_URL)
+
+  /**
+   * A delegated capability fixture with the given chain fields.
+   *
+   * @param fields {object}
+   * @returns {IDelegatedZcap}
+   */
+  function delegated(fields: Record<string, unknown>): IDelegatedZcap {
+    return {
+      '@context': ['https://w3id.org/zcap/v1'],
+      id: 'urn:uuid:child',
+      controller: 'did:example:bob',
+      invocationTarget: `${SPACE_URL}docs/`,
+      expires: '2099-01-01T00:00:00Z',
+      allowedAction: ['GET'],
+      ...fields
+    } as unknown as IDelegatedZcap
+  }
+
+  it('reads the Space off the first entry of proof.capabilityChain', () => {
+    // A two-level delegation: the parent is another delegated capability, so
+    // only the chain names the root.
+    const zcap = delegated({
+      parentCapability: 'urn:uuid:parent',
+      proof: { capabilityChain: [rootId, 'urn:uuid:parent'] }
+    })
+    expect(spaceUrlOf(zcap)).toBe(SPACE_URL)
+  })
+
+  it('reads the chain off the first proof when there are several', () => {
+    const zcap = delegated({
+      parentCapability: 'urn:uuid:parent',
+      proof: [
+        { capabilityChain: [rootId, 'urn:uuid:parent'] },
+        { capabilityChain: ['urn:zcap:root:elsewhere'] }
+      ]
+    })
+    expect(spaceUrlOf(zcap)).toBe(SPACE_URL)
+  })
+
+  it('finds the delegation proof behind an assertion proof', () => {
+    const zcap = delegated({
+      parentCapability: 'urn:uuid:parent',
+      proof: [
+        { type: 'DataIntegrityProof', proofPurpose: 'assertionMethod' },
+        { capabilityChain: [rootId, 'urn:uuid:parent'] }
+      ]
+    })
+    expect(spaceUrlOf(zcap)).toBe(SPACE_URL)
+  })
+
+  it('reads a root target that could be a Space as the Space', () => {
+    // A Collection URL has the shape of a Space URL, so a chain rooted at a
+    // Collection is read as rooted at a Space of that URL: the server, which
+    // knows its hierarchy, is the authority. This is the documented boundary.
+    const collectionRoot = rootCapabilityId(`${SPACE_URL}docs/`)
+    expect(spaceUrlOf(delegated({ parentCapability: collectionRoot }))).toBe(
+      `${SPACE_URL}docs/`
     )
   })
 
-  it('preserves an explicit port', () => {
-    expect(toUrl({ baseUrl: 'http://localhost:9787', path: '/spaces/' })).toBe(
-      'http://localhost:9787/spaces/'
-    )
+  it('reads the Space off a string parentCapability (single-level)', () => {
+    expect(spaceUrlOf(delegated({ parentCapability: rootId }))).toBe(SPACE_URL)
   })
 
-  it('preserves a base-path prefix on the server URL', () => {
-    expect(toUrl({ baseUrl: 'https://host/was/', path: '/space/x' })).toBe(
-      'https://host/was/space/x'
-    )
+  it("reads the Space off a root capability's own id", () => {
+    const root: IRootZcap = {
+      '@context': 'https://w3id.org/zcap/v1',
+      id: rootId,
+      invocationTarget: SPACE_URL,
+      controller: 'did:example:alice'
+    }
+    expect(spaceUrlOf(root as IZcap)).toBe(SPACE_URL)
   })
 
-  it('preserves a base-path prefix without a trailing slash', () => {
-    expect(toUrl({ baseUrl: 'https://host/was', path: '/space/x' })).toBe(
-      'https://host/was/space/x'
-    )
+  it('canonicalizes the Space URL the root id names', () => {
+    for (const named of [
+      'https://was.example/space/home',
+      'https://WAS.example:443/space/home//'
+    ]) {
+      expect(
+        spaceUrlOf(delegated({ parentCapability: rootCapabilityId(named) }))
+      ).toBe(SPACE_URL)
+    }
+  })
+
+  it('throws ValidationError when the chain does not start at a root id', () => {
+    expect(() =>
+      spaceUrlOf(delegated({ parentCapability: 'urn:uuid:parent' }))
+    ).toThrow(ValidationError)
+    expect(() =>
+      spaceUrlOf(
+        delegated({
+          parentCapability: 'urn:uuid:parent',
+          proof: { capabilityChain: ['urn:uuid:other'] }
+        })
+      )
+    ).toThrow(/not rooted in a Space/)
+  })
+
+  it('throws ValidationError when the root names a non-Space URL', () => {
+    for (const target of [
+      'https://was.example/',
+      'https://was.example/space/home/?q=1',
+      'did:example:alice'
+    ]) {
+      expect(() =>
+        spaceUrlOf(delegated({ parentCapability: rootCapabilityId(target) }))
+      ).toThrow(ValidationError)
+    }
+    expect(() =>
+      spaceUrlOf(
+        delegated({ parentCapability: rootCapabilityId('https://x/') })
+      )
+    ).toThrow(/not a Space URL/)
   })
 })
 
@@ -527,42 +705,38 @@ describe('the ./paths subpath barrel', () => {
 
     expect(Object.keys(barrel).sort()).toEqual(
       [
-        'collectionLog',
-        'collectionMeta',
-        'collectionPath',
-        'collectionQuery',
+        'canonicalSpaceUrl',
+        'collectionLogUrl',
+        'collectionMetaUrl',
+        'collectionQueryUrl',
+        'collectionUrl',
         'isReservedCollectionId',
         'isReservedResourceId',
-        'parseAbsoluteSpaceTarget',
-        'baseUrlOfSpacesUrl',
-        'parseSpacePath',
         'parseSpaceTarget',
-        'resourceMeta',
-        'resourcePath',
+        'resourceMetaUrl',
+        'resourceUrl',
         'rootCapability',
         'rootCapabilityId',
-        'spaceMeta',
-        'spacePath',
-        'spacesUrl',
-        'toUrl'
+        'rootCapabilityTarget',
+        'spaceIdOfUrl',
+        'spaceMetaUrl',
+        'spaceUrlOf'
       ].sort()
     )
-    // Same functions as the internal module, not re-implementations.
-    expect(barrel.resourceMeta('s', 'c', 'r')).toBe(resourceMeta('s', 'c', 'r'))
-    expect(barrel.collectionMeta('s', 'c')).toBe('/space/s/c/meta')
-    expect(barrel.parseSpacePath('/space/s/c')).toEqual({
-      kind: 'collection',
-      spaceId: 's',
-      collectionId: 'c'
-    })
+    // Same functions as the internal modules, not re-implementations.
+    expect(barrel.resourceMetaUrl).toBe(resourceMetaUrl)
+    expect(barrel.collectionMetaUrl).toBe(collectionMetaUrl)
+    expect(barrel.parseSpaceTarget).toBe(parseSpaceTarget)
+    expect(barrel.spaceUrlOf).toBe(spaceUrlOf)
+    expect(barrel.rootCapabilityTarget).toBe(rootCapabilityTarget)
   })
 
   it('mints the root capability id and its object form', async () => {
-    const { rootCapability, rootCapabilityId } =
+    const { rootCapability, rootCapabilityId: barrelRootId } =
       await import('../../src/paths.js')
     const target = 'http://localhost:3000/space/s/c/r'
 
-    expect(rootCapabilityId(target)).toBe(
+    expect(barrelRootId(target)).toBe(
       `urn:zcap:root:${encodeURIComponent(target)}`
     )
     // `IRootZcap` -- `rootCapability`'s return type -- is reachable from the
@@ -573,7 +747,7 @@ describe('the ./paths subpath barrel', () => {
     })
     expect(root).toEqual({
       '@context': 'https://w3id.org/zcap/v1',
-      id: rootCapabilityId(target),
+      id: barrelRootId(target),
       invocationTarget: target,
       controller: 'did:key:zAlice'
     })

@@ -38,7 +38,11 @@ import { identityCodec } from '../../src/internal/codec.js'
 import { createEdvEncryption } from '../../src/edv/index.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
 import { mintHmacKey } from '../../src/edv/hmacKey.js'
-import { serviceDescriptionFor } from '../helpers/stubClient.js'
+import {
+  serviceDescriptionFor,
+  serviceUrlFor,
+  spaceUrlFor
+} from '../helpers/stubClient.js'
 
 /**
  * A reader plus the epoch-and-blinding-key-bearing descriptor an indexable
@@ -111,7 +115,7 @@ async function makeCodec({
 }): Promise<SingleWriteCodec> {
   const provider = createEdvEncryption({ resolveKeys: async () => keys })
   const codec = await provider.codecFor({
-    spaceId: 's',
+    spaceUrl: spaceUrlFor('s'),
     collectionId: 'c',
     scheme: 'edv',
     encryption
@@ -328,7 +332,7 @@ function serverFor({
   const provider = createEdvEncryption({ resolveKeys: async () => keys })
   let decodes = 0
   const client = new WasClient({
-    serverUrl: 'https://was.example/spaces/',
+    serviceUrl: serviceUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     // Count every metadata decrypt without disturbing the real codec: the
@@ -380,7 +384,7 @@ describe('Collection.declareIndex', () => {
     const fixture = await makeIndexableCollection()
     const { client, state } = serverFor(fixture)
     const schema = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndex({ attribute: 'content.type' })
 
@@ -396,7 +400,7 @@ describe('Collection.declareIndex', () => {
 
     // A reader of the decoded `custom` object annotates it with
     // `CustomWithIndexSchema`, which the root entry exports for exactly this.
-    const meta = await client.space('s').collection('c').meta()
+    const meta = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     const custom = meta?.custom as CustomWithIndexSchema
     expect(custom.indexSchema).toEqual(schema)
   })
@@ -404,7 +408,7 @@ describe('Collection.declareIndex', () => {
   it('is idempotent: re-declaring the same index writes nothing', async () => {
     const fixture = await makeIndexableCollection()
     const { client, state } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     const afterFirst = state.meta.version
     const schema = await collection.declareIndex({ attribute: 'content.type' })
@@ -415,7 +419,7 @@ describe('Collection.declareIndex', () => {
   it('reconciles a concurrent declaration instead of erasing it', async () => {
     const fixture = await makeIndexableCollection()
     const { client, state } = serverFor(fixture)
-    const rival = client.space('s').collection('c')
+    const rival = client.spaceAt(spaceUrlFor('s')).collection('c')
     // The first write loses the race: a rival declaration lands between this
     // handle's read and its conditional write.
     state.collideOnce = () => {
@@ -427,7 +431,7 @@ describe('Collection.declareIndex', () => {
     expect(state.meta.version).toBeGreaterThan(1)
 
     const schema = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndex({ attribute: 'content.author' })
     expect(schema.indexes.map(entry => entry.attribute)).toEqual([
@@ -451,7 +455,7 @@ describe('Collection.declareIndex', () => {
     }
     state.collideOnce = collide
     const failure = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndex({ attribute: 'content.type' })
       .catch(err => err)
@@ -466,7 +470,7 @@ describe('Collection.declareIndex', () => {
   it('refuses to redeclare an index with different uniqueness', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.slug', unique: true })
     await expect(
       collection.declareIndex({ attribute: 'content.slug' })
@@ -477,13 +481,13 @@ describe('Collection.declareIndex', () => {
     const fixture = await makeIndexableCollection()
     const { client, state } = serverFor(fixture)
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndex({ attribute: 'content.type' })
 
     // A fresh handle -- standing in for another app granted access later --
     // learns what is searchable from the collection itself.
-    const second = client.space('s').collection('c')
+    const second = client.spaceAt(spaceUrlFor('s')).collection('c')
     expect(await second.indexes()).toEqual([
       { attribute: 'content.type', addedIn: 1 }
     ])
@@ -499,12 +503,12 @@ describe('Collection.setMeta on a collection with a declared schema', () => {
   it('carries the stored schema forward when the new custom omits it', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     await collection.setMeta({ custom: { name: 'Docs' } })
 
     // A fresh handle reads the schema the annotation write did not name.
-    const second = client.space('s').collection('c')
+    const second = client.spaceAt(spaceUrlFor('s')).collection('c')
     expect(await second.indexes()).toEqual([
       { attribute: 'content.type', addedIn: 1 }
     ])
@@ -520,18 +524,20 @@ describe('Collection.setMeta on a collection with a declared schema', () => {
   it('sends a custom that names indexSchema as given', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     const replaced = { revision: 7, indexes: [] }
     await collection.setMeta({ custom: { indexSchema: replaced } })
 
-    expect(await client.space('s').collection('c').indexes()).toEqual([])
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).collection('c').indexes()
+    ).toEqual([])
   })
 
   it("installs the schema a custom names on the writing handle's own codec", async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     await collection.setMeta({
       custom: { indexSchema: { revision: 7, indexes: [] } }
@@ -548,12 +554,12 @@ describe('Collection.setMeta on a collection with a declared schema', () => {
   it('keeps the stored schema when custom is omitted altogether', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     await collection.setMeta({ custom: { name: 'Docs' } })
     await collection.setMeta()
 
-    const second = client.space('s').collection('c')
+    const second = client.spaceAt(spaceUrlFor('s')).collection('c')
     expect(await second.indexes()).toEqual([
       { attribute: 'content.type', addedIn: 1 }
     ])
@@ -568,13 +574,13 @@ describe('Collection.setMeta on a collection with a declared schema', () => {
   it('drops the stored schema when custom names indexSchema as undefined', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     await collection.setMeta({
       custom: { name: 'Docs', indexSchema: undefined }
     })
 
-    const second = client.space('s').collection('c')
+    const second = client.spaceAt(spaceUrlFor('s')).collection('c')
     expect(await second.indexes()).toEqual([])
     expect((await second.meta())?.custom).toEqual({ name: 'Docs' })
   })
@@ -587,18 +593,18 @@ describe('Collection.setMeta on a collection with a declared schema', () => {
       ...state.meta.document,
       custom: { foreign: 'envelope' }
     }
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.setMeta({ custom: { name: 'Docs' } })
 
     expect(state.meta.document.custom).not.toEqual({ foreign: 'envelope' })
-    const second = client.space('s').collection('c')
+    const second = client.spaceAt(spaceUrlFor('s')).collection('c')
     expect((await second.meta())?.custom).toEqual({ name: 'Docs' })
   })
 
   it('reuses the open a preceding meta() performed instead of decrypting again', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls, decodes } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     // The very first `meta()` is answered from the codec-resolution snapshot,
     // and the read behind that snapshot is the baseline all the same.
     await collection.meta()
@@ -617,7 +623,7 @@ describe('Collection.declareIndexes', () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
     const schema = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndexes({
         indexes: [
@@ -641,7 +647,7 @@ describe('Collection.declareIndexes', () => {
   it('writes only the attributes that are still missing', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     expect(metaCalls(calls, 'PUT')).toBe(1)
 
@@ -665,7 +671,7 @@ describe('Collection.declareIndexes', () => {
   it('performs no write when every requested attribute is already declared', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndexes({
       indexes: [{ attribute: 'content.type' }, { attribute: 'content.author' }]
     })
@@ -683,7 +689,7 @@ describe('Collection.declareIndexes', () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
     const schema = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndexes({
         indexes: [{ attribute: 'content.type' }, { attribute: 'content.type' }]
@@ -697,7 +703,7 @@ describe('Collection.declareIndexes', () => {
     const { client } = serverFor(fixture)
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .declareIndexes({
           indexes: [
@@ -711,7 +717,7 @@ describe('Collection.declareIndexes', () => {
   it('refuses a uniqueness mismatch against the persisted schema', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.slug', unique: true })
     await expect(
       collection.declareIndexes({ indexes: [{ attribute: 'content.slug' }] })
@@ -723,7 +729,7 @@ describe('Collection.find', () => {
   it('posts the blinded-index profile and decrypts the documents', async () => {
     const fixture = await makeIndexableCollection()
     const { client, state, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
 
     // Store a document the way a write would, and serve it back as the match.
@@ -761,7 +767,7 @@ describe('Collection.find', () => {
   it('returns a bare count when asked for one', async () => {
     const fixture = await makeIndexableCollection()
     const { client, state, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     state.queryResult = { count: 7 }
 
@@ -774,7 +780,7 @@ describe('Collection.find', () => {
   it('refuses an attribute the collection never declared', async () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.declareIndex({ attribute: 'content.type' })
     await expect(
       collection.find({ equals: { 'content.author': 'alice' } })
@@ -785,7 +791,7 @@ describe('Collection.find', () => {
     const fixture = await makeIndexableCollection()
     const { client } = serverFor(fixture)
     const plaintext = client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: 'plaintext' })
     await expect(
       plaintext.find({ equals: { 'content.type': 'note' } })
@@ -802,7 +808,7 @@ describe('Collection.meta on a blinded-index collection', () => {
     const { client, calls, decodes } = serverFor(fixture)
     // Resolving this handle's codec reads `/meta` for the index schema; the
     // `meta()` that triggered it reuses that read instead of repeating it.
-    await client.space('s').collection('c').meta()
+    await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(metaCalls(calls, 'GET')).toBe(1)
     expect(decodes()).toBe(1)
   })
@@ -811,7 +817,7 @@ describe('Collection.meta on a blinded-index collection', () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .declareIndex({ attribute: 'content.type' })
     const beforeWrite = calls.slice(
@@ -827,7 +833,7 @@ describe('Collection.meta on a blinded-index collection', () => {
   it('re-reads /meta on the second call (no snapshot reuse)', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.meta()
     await collection.meta()
     expect(metaCalls(calls, 'GET')).toBe(2)
@@ -836,13 +842,13 @@ describe('Collection.meta on a blinded-index collection', () => {
   it('never serves a snapshot taken for another operation', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     // A write resolves the codec (reading `/meta` for the schema) without
     // consuming its snapshot.
     await collection.add({ type: 'note' })
     const afterWrite = metaCalls(calls, 'GET')
     // Another client changes the metadata in between.
-    await client.space('s').collection('c').setName('renamed')
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setName('renamed')
     const current = await collection.meta()
     expect(metaCalls(calls, 'GET')).toBeGreaterThan(afterWrite)
     expect(current?.custom).toEqual({ name: 'renamed' })
@@ -851,7 +857,7 @@ describe('Collection.meta on a blinded-index collection', () => {
   it('serves at most one of two concurrent first reads from the snapshot', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     const [first, second] = await Promise.all([
       collection.meta(),
       collection.meta()
@@ -866,14 +872,17 @@ describe('Collection.meta on a blinded-index collection', () => {
     const fixture = await makeIndexableCollection()
     delete fixture.encryption.hmac
     const { client, calls } = serverFor(fixture)
-    await client.space('s').collection('c').meta()
+    await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(metaCalls(calls, 'GET')).toBe(1)
   })
 
   it('costs one /meta read on a plaintext handle', async () => {
     const fixture = await makeIndexableCollection()
     const { client, calls } = serverFor(fixture)
-    await client.space('s').collection('c', { encryption: 'plaintext' }).meta()
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c', { encryption: 'plaintext' })
+      .meta()
     expect(metaCalls(calls, 'GET')).toBe(1)
   })
 })

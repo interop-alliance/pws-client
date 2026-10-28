@@ -26,7 +26,12 @@ import type {
   CollectionsList,
   SpaceListing
 } from '../../src/types.js'
-import { clientWithStub, serviceDescriptionFor } from '../helpers/stubClient.js'
+import {
+  clientWithStub,
+  serviceDescriptionFor,
+  serviceUrlFor,
+  spaceUrlFor
+} from '../helpers/stubClient.js'
 
 /**
  * Builds a one-item page envelope; `next` is included only when given.
@@ -247,7 +252,7 @@ describe('Collection.list() pagination', () => {
       ),
       'https://was.example/space/s/c/?cursor=2': page(['c'])
     })
-    const result = await client.space('s').collection('c').list()
+    const result = await client.spaceAt(spaceUrlFor('s')).collection('c').list()
     expect(urls).toEqual([
       'https://was.example/space/s/c/',
       'https://was.example/space/s/c/?cursor=2'
@@ -270,7 +275,7 @@ describe('Collection.listPages() / listItems()', () => {
     })
     const sizes: number[] = []
     for await (const pageResult of client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .listPages()) {
       sizes.push(pageResult.items.length)
@@ -287,7 +292,10 @@ describe('Collection.listPages() / listItems()', () => {
       'https://was.example/space/s/c/?cursor=2': page(['c'])
     })
     const ids: string[] = []
-    for await (const item of client.space('s').collection('c').listItems()) {
+    for await (const item of client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .listItems()) {
       ids.push(item.id)
     }
     expect(ids).toEqual(['a', 'b', 'c'])
@@ -302,7 +310,10 @@ describe('Collection.listPages() / listItems()', () => {
       'https://was.example/space/s/c/?cursor=2': page(['c'])
     })
     const ids: string[] = []
-    for await (const item of client.space('s').collection('c').listItems()) {
+    for await (const item of client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .listItems()) {
       ids.push(item.id)
       if (ids.length === 1) {
         break
@@ -319,7 +330,7 @@ describe('Collection.listPages() / listItems()', () => {
     })
     const pages: CollectionResourcesList[] = []
     for await (const pageResult of client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('missing')
       .listPages()) {
       pages.push(pageResult)
@@ -345,7 +356,7 @@ describe('publicListCollection() pagination', () => {
       invocationSigner: { id: 'did:example:alice#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
@@ -377,7 +388,7 @@ describe('publicListCollection() pagination', () => {
       invocationSigner: { id: 'did:example:alice#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
@@ -403,7 +414,7 @@ describe('Space.collections() pagination', () => {
       ),
       'https://was.example/space/s/?cursor=2': collectionsPage(['c'])
     })
-    const result = await client.space('s').collections()
+    const result = await client.spaceAt(spaceUrlFor('s')).collections()
     expect(urls).toEqual([
       'https://was.example/space/s/',
       'https://was.example/space/s/?cursor=2'
@@ -418,7 +429,7 @@ describe('Space.collections() pagination', () => {
     const { client, urls } = clientWithPages({
       'https://was.example/space/s/': collectionsPage(['a', 'b'])
     })
-    const result = await client.space('s').collections()
+    const result = await client.spaceAt(spaceUrlFor('s')).collections()
     expect(urls).toEqual(['https://was.example/space/s/'])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b'])
     expect(result?.totalItems).toBe(2)
@@ -429,7 +440,7 @@ describe('Space.collections() pagination', () => {
     const client = clientWithStub(async () => {
       throw { status: 404, response: { status: 404 } }
     })
-    const result = await client.space('missing').collections()
+    const result = await client.spaceAt(spaceUrlFor('missing')).collections()
     expect(result).toBeNull()
   })
 })
@@ -444,7 +455,9 @@ describe('Space.collectionsPages()', () => {
       'https://was.example/space/s/?cursor=2': collectionsPage(['c'])
     })
     const sizes: number[] = []
-    for await (const pageResult of client.space('s').collectionsPages()) {
+    for await (const pageResult of client
+      .spaceAt(spaceUrlFor('s'))
+      .collectionsPages()) {
       sizes.push(pageResult.items.length)
     }
     expect(sizes).toEqual([2, 1])
@@ -459,7 +472,9 @@ describe('Space.collectionsPages()', () => {
       'https://was.example/space/s/?cursor=2': collectionsPage(['c'])
     })
     const ids: string[] = []
-    for await (const pageResult of client.space('s').collectionsPages()) {
+    for await (const pageResult of client
+      .spaceAt(spaceUrlFor('s'))
+      .collectionsPages()) {
       for (const item of pageResult.items) {
         ids.push(item.id)
       }
@@ -475,7 +490,9 @@ describe('Space.collectionsPages()', () => {
       throw { status: 404, response: { status: 404 } }
     })
     const pages: CollectionsList[] = []
-    for await (const pageResult of client.space('missing').collectionsPages()) {
+    for await (const pageResult of client
+      .spaceAt(spaceUrlFor('missing'))
+      .collectionsPages()) {
       pages.push(pageResult)
     }
     expect(pages).toEqual([])
@@ -537,7 +554,7 @@ function publicClientWithPages(pages: Record<string, object>): {
     invocationSigner: { id: 'did:example:alice#key-1' }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serverUrl: 'https://was.example/spaces/',
+    serviceUrl: serviceUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient
   })
@@ -579,31 +596,33 @@ const LISTING_SURFACES: {
     name: 'Space.collections()',
     firstUrl: 'https://was.example/space/s/',
     envelope: next => ({ ...collectionsPage(['a']), next }),
-    run: client => client.space('s').collections()
+    run: client => client.spaceAt(spaceUrlFor('s')).collections()
   },
   {
     name: 'Space.collectionsPages()',
     firstUrl: 'https://was.example/space/s/',
     envelope: next => ({ ...collectionsPage(['a']), next }),
-    run: client => drain(client.space('s').collectionsPages())
+    run: client => drain(client.spaceAt(spaceUrlFor('s')).collectionsPages())
   },
   {
     name: 'Collection.list()',
     firstUrl: 'https://was.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
-    run: client => client.space('s').collection('c').list()
+    run: client => client.spaceAt(spaceUrlFor('s')).collection('c').list()
   },
   {
     name: 'Collection.listPages()',
     firstUrl: 'https://was.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
-    run: client => drain(client.space('s').collection('c').listPages())
+    run: client =>
+      drain(client.spaceAt(spaceUrlFor('s')).collection('c').listPages())
   },
   {
     name: 'Collection.listItems()',
     firstUrl: 'https://was.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
-    run: client => drain(client.space('s').collection('c').listItems())
+    run: client =>
+      drain(client.spaceAt(spaceUrlFor('s')).collection('c').listItems())
   },
   {
     name: 'WasClient.publicListCollection()',
@@ -702,7 +721,7 @@ describe('walk trust boundary: a hostile `next` is never requested', () => {
       'https://was.example/space/s/c/?cursor=2': page(['b'], 'page/3'),
       'https://was.example/space/s/c/page/3': page(['c'])
     })
-    const result = await client.space('s').collection('c').list()
+    const result = await client.spaceAt(spaceUrlFor('s')).collection('c').list()
     expect(urls).toEqual([
       'https://was.example/space/s/c/',
       'https://was.example/space/s/c/?cursor=2',
@@ -716,9 +735,9 @@ describe('walk trust boundary: a hostile `next` is never requested', () => {
       'https://was.example/space/s/c/': page(['a'], 'page/2/'),
       'https://was.example/space/s/c/page/2/': page(['b'], '../../../d/')
     })
-    await expect(client.space('s').collection('c').list()).rejects.toThrow(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').list()
+    ).rejects.toThrow(WasServerError)
     expect(urls).toEqual([
       'https://was.example/space/s/c/',
       'https://was.example/space/s/c/page/2/'
@@ -801,9 +820,9 @@ describe('walk page-count bound', () => {
         }
       } as unknown as HttpResponse
     })
-    await expect(client.space('s').collection('c').list()).rejects.toThrow(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').list()
+    ).rejects.toThrow(WasServerError)
     expect(urls).toHaveLength(DEFAULT_MAX_PAGES)
   })
 })

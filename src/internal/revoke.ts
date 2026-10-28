@@ -4,7 +4,7 @@
 /**
  * The revocation primitive shared by `was.revoke()` and `space.revoke()` -- the
  * inverse of `grant.ts`. Submits a delegated capability to its Space's
- * revocation endpoint (`POST /space/:spaceId/zcaps/revocations/:capabilityId`),
+ * revocation endpoint (`POST {spaceUrl}zcaps/revocations/:capabilityId`),
  * where the URL names the capability's `id` and the body is that capability
  * verbatim, proof and capability chain included.
  *
@@ -19,8 +19,13 @@
  * A chain that no longer verifies (tampered, expired, or a delegating key
  * gone from its controller document) synthesizes an empty controller set, so
  * the invocation is denied.
+ *
+ * This module also owns the root capability id grammar and its inverse. A
+ * Space-rooted chain starts at the Space's root capability, whose id encodes
+ * the Space URL, so the Space a capability belongs to is read off its chain
+ * (`spaceUrlOf`) rather than assembled from any server root.
  */
-import { spaceRevocation, toUrl, parseSpaceTarget } from './paths.js'
+import { canonicalSpaceUrl, spaceRevocationUrl } from './paths.js'
 import type { ClientContext } from './request.js'
 import { send } from './request.js'
 import { ValidationError } from '../errors.js'
@@ -30,6 +35,11 @@ import type { IDelegatedZcap, IRootZcap, IZcap } from '../types.js'
  * The zcap JSON-LD context URL, the sole `@context` of a root capability.
  */
 const ZCAP_CONTEXT_URL = 'https://w3id.org/zcap/v1'
+
+/**
+ * The prefix of a root capability id.
+ */
+const ROOT_ID_PREFIX = 'urn:zcap:root:'
 
 /**
  * The root capability id for an invocation target URL
@@ -42,7 +52,26 @@ const ZCAP_CONTEXT_URL = 'https://w3id.org/zcap/v1'
  * @returns {string}
  */
 export function rootCapabilityId(target: string): string {
-  return `urn:zcap:root:${encodeURIComponent(target)}`
+  return `${ROOT_ID_PREFIX}${encodeURIComponent(target)}`
+}
+
+/**
+ * The invocation target a root capability id names: the inverse of
+ * {@link rootCapabilityId}. Returns `null` for an id that is not a root
+ * capability id, or whose encoded target is malformed.
+ *
+ * @param id {string}   a capability id
+ * @returns {string | null}
+ */
+export function rootCapabilityTarget(id: string): string | null {
+  if (!id.startsWith(ROOT_ID_PREFIX)) {
+    return null
+  }
+  try {
+    return decodeURIComponent(id.slice(ROOT_ID_PREFIX.length))
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -77,35 +106,81 @@ export function rootCapability({
 }
 
 /**
- * Derives the id of the Space a capability is rooted in, from its
- * `invocationTarget`. A Space-rooted capability's target is the Space URL or a
- * path beneath it (the server enforces this when it verifies the chain), so
- * every depth `parseSpaceTarget` recognizes -- Space, Collection, Resource, or a
- * reserved sub-resource such as `/space/s/c/r/meta` -- carries the Space id.
+ * The id of the root capability a chain starts at: the first entry of the
+ * delegation proof's `capabilityChain`, or the `parentCapability` of a
+ * capability delegated straight from a root, or the capability's own id when
+ * it is a root. `undefined` when the capability carries no proof and no
+ * parent that names a root.
  *
- * @param context {ClientContext}
+ * The delegation proof is the one carrying `capabilityChain`, wherever it
+ * sits in a proof set: a capability may also carry an assertion proof, and
+ * nothing fixes the order.
+ *
+ * @param zcap {IZcap}
+ * @returns {string | undefined}
+ */
+function chainRootId(zcap: IZcap): string | undefined {
+  if (!('parentCapability' in zcap)) {
+    return zcap.id
+  }
+  const proofs = Array.isArray(zcap.proof) ? zcap.proof : [zcap.proof]
+  const delegation = proofs.find(proof => proof?.capabilityChain !== undefined)
+  const first = delegation?.capabilityChain?.[0]
+  if (typeof first === 'string') {
+    return first
+  }
+  return typeof zcap.parentCapability === 'string'
+    ? zcap.parentCapability
+    : undefined
+}
+
+/**
+ * The URL of the Space a capability is rooted in, read off its delegation
+ * chain: a Space-rooted capability's chain starts at the Space's root
+ * capability, whose id encodes the Space URL. The result is in canonical
+ * form.
+ *
+ * The root's target is taken to be the Space URL. A Space URL has no shape
+ * of its own (a Collection URL is an http(s) URL ending in a slash too), so
+ * this function cannot tell a chain rooted at a Space from one rooted at a
+ * Collection, a Resource, or a Spaces Repository: only the server, which
+ * knows its hierarchy, can, and it refuses a revocation whose chain does not
+ * root exactly in the Space. What is refused here is a root whose target
+ * cannot be a Space URL at all (an origin, a URL with a query, a URN) and a
+ * chain that starts at no root capability. A capability this client minted
+ * from a handle is always Space-rooted; a bare `was.grant()` with no
+ * `spaceUrl` is not.
+ *
  * @param zcap {IZcap}   the capability to locate
  * @returns {string}
+ * @throws {ValidationError}   when the chain does not start at a root
+ *   capability id, or that id names something that cannot be a Space URL
  */
-export function spaceIdOf(context: ClientContext, zcap: IZcap): string {
-  const parsed = parseSpaceTarget({
-    baseUrl: context.baseUrl,
-    target: zcap.invocationTarget
-  })
-  if (parsed === null) {
+export function spaceUrlOf(zcap: IZcap): string {
+  const rootId = chainRootId(zcap)
+  const target = rootId === undefined ? null : rootCapabilityTarget(rootId)
+  if (target === null) {
     throw new ValidationError(
-      `Cannot derive a Space from invocationTarget ` +
-        `"${zcap.invocationTarget}": it does not address a Space on ` +
-        `"${context.baseUrl}". Revocation is scoped to one Space.`
+      `Cannot derive a Space from capability "${zcap.id}": its chain does ` +
+        'not start at a root capability id (`urn:zcap:root:...`), so it is ' +
+        'not rooted in a Space.'
     )
   }
-  return parsed.spaceId
+  try {
+    return canonicalSpaceUrl(target)
+  } catch (err) {
+    throw new ValidationError(
+      `Cannot derive a Space from capability "${zcap.id}": its root ` +
+        `capability names "${target}", which is not a Space URL.`,
+      { cause: err }
+    )
+  }
 }
 
 /**
  * Revokes a Space-rooted delegated capability: `POST`s it to
- * `/space/:spaceId/zcaps/revocations/:capabilityId`, invoking that URL's own
- * root capability. Resolves on the server's 204.
+ * `{spaceUrl}zcaps/revocations/:capabilityId`, invoking that URL's own root
+ * capability. Resolves on the server's 204.
  *
  * The `action` is deliberately left unset: `send()` defaults it to the HTTP
  * method, and this route expects `POST` (WAS capabilities are scoped by HTTP
@@ -113,23 +188,20 @@ export function spaceIdOf(context: ClientContext, zcap: IZcap): string {
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}          the Space the capability is rooted in
- * @param options.zcap {IDelegatedZcap}     the capability to revoke
+ * @param options.spaceUrl {string}          the Space the capability is rooted in
+ * @param options.zcap {IDelegatedZcap}      the capability to revoke
  * @returns {Promise<void>}
  */
 export async function submitRevocation(
   context: ClientContext,
-  { spaceId, zcap }: { spaceId: string; zcap: IDelegatedZcap }
+  { spaceUrl, zcap }: { spaceUrl: string; zcap: IDelegatedZcap }
 ): Promise<void> {
   if (!('parentCapability' in zcap)) {
     throw new ValidationError(
       'A root capability cannot be revoked; only a delegated capability can.'
     )
   }
-  const url = toUrl({
-    baseUrl: context.baseUrl,
-    path: spaceRevocation(spaceId, zcap.id)
-  })
+  const url = spaceRevocationUrl({ spaceUrl, capabilityId: zcap.id })
   await send(context, {
     url,
     method: 'POST',

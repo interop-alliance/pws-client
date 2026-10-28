@@ -33,8 +33,8 @@ import type { EncryptionDescriptorStore } from '../../src/edv/index.js'
 import { resolveEpochKeys } from '../../src/edv/epochKeys.js'
 import { makeDidKeyKak as makeReader } from '../helpers/party.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 describeLive('resource-hosted descriptor store (live server)', () => {
   let owner: WasClient
@@ -51,7 +51,7 @@ describeLive('resource-hosted descriptor store (live server)', () => {
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
     owner = WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner()
     })
 
@@ -64,7 +64,10 @@ describeLive('resource-hosted descriptor store (live server)', () => {
     // as-is, not encrypted (it is the key material's root); its integrity
     // rests on the hosting profile's governance plus epoch pinning.
     await space.createCollection({ id: collectionId, name: 'Key Roster' })
-    roster = owner.space(space.id).collection(collectionId).resource(rosterId)
+    roster = owner
+      .spaceAt(space.url)
+      .collection(collectionId)
+      .resource(rosterId)
     store = resourceDescriptorStore({ resource: roster })
   })
 

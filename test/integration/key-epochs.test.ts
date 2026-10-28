@@ -47,8 +47,8 @@ import {
 import { makeParty } from '../helpers/party.js'
 import type { Party } from '../helpers/party.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 describeLive('multi-recipient key epochs (live server)', () => {
   let owner: Party
@@ -59,7 +59,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
   // the bytes" party for the read-axis assertions).
   let ownerPlain: WasClient
   let space: Space
-  let spaceId: string
+  let spaceUrl: string
   let zcapB: IDelegatedZcap
   let doc1Id: string
   let epoch1: string
@@ -73,7 +73,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
    * @returns {Collection}
    */
   function ownerVault(): Collection {
-    return owner.was.space(spaceId).collection(collectionId)
+    return owner.was.spaceAt(spaceUrl).collection(collectionId)
   }
 
   /**
@@ -84,7 +84,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
    */
   async function grantTo(to: string): Promise<IDelegatedZcap> {
     return owner.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId)
       .grant({
         to,
@@ -102,7 +102,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
    */
   async function rawEnvelope(id: string): Promise<Record<string, unknown>> {
     return (await ownerPlain
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId)
       .get(id)) as Record<string, unknown>
   }
@@ -123,7 +123,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
     envelope: Record<string, unknown>
   ): Promise<unknown> {
     const codec = await party.provider.codecFor({
-      spaceId,
+      spaceUrl,
       collectionId,
       scheme: 'edv',
       encryption: descriptor
@@ -138,24 +138,24 @@ describeLive('multi-recipient key epochs (live server)', () => {
    */
   async function currentDescriptor(): Promise<CollectionEncryption> {
     const described = await owner.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId)
       .describe()
     return described!.encryption!
   }
 
   beforeAll(async () => {
-    owner = await makeParty({ serverUrl: serverUrl! })
-    readerA = await makeParty({ serverUrl: serverUrl! })
-    readerB = await makeParty({ serverUrl: serverUrl! })
-    readerC = await makeParty({ serverUrl: serverUrl! })
+    owner = await makeParty({ serviceUrl: serviceUrl! })
+    readerA = await makeParty({ serviceUrl: serviceUrl! })
+    readerB = await makeParty({ serviceUrl: serviceUrl! })
+    readerC = await makeParty({ serviceUrl: serviceUrl! })
     ownerPlain = WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: owner.signer
     })
 
     space = await owner.was.createSpace({ name: 'Key Epochs Integration' })
-    spaceId = space.id
+    spaceUrl = space.url
     await space.createCollection({
       id: collectionId,
       name: 'Vault',
@@ -190,10 +190,10 @@ describeLive('multi-recipient key epochs (live server)', () => {
   it('two recipients both decrypt the same resource, each with its own key', async () => {
     const zcapA = await grantTo(readerA.did)
     const asA = readerA.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapA })
     const asB = readerB.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapB })
     expect(await asA.get(doc1Id)).toEqual({ note: 'first', n: 1 })
     expect(await asB.get(doc1Id)).toEqual({ note: 'first', n: 1 })
@@ -226,7 +226,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
 
     const zcapC = await grantTo(readerC.did)
     const asC = readerC.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapC })
     // Reads the pre-add resource (escrow of the prior epoch)...
     expect(await asC.get(doc1Id)).toEqual({ note: 'first', n: 1 })
@@ -242,7 +242,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
     const rotated = await removeRecipient({
       resolveRecipientKey: trustRosterDidKeys,
       collection: ownerVault(),
-      space: owner.was.space(spaceId),
+      space: owner.was.spaceAt(spaceUrl),
       recipientId: readerB.recipient.id,
       revoke: zcapB
     })
@@ -259,11 +259,11 @@ describeLive('multi-recipient key epochs (live server)', () => {
     // axis -- the server simply will not serve the bytes anymore (WAS masks
     // unauthorized as 404, surfaced as null by get()).
     const plaintextB = WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: readerB.signer
     })
     const asBRevoked = plaintextB
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapB })
     expect(await asBRevoked.get(doc1Id)).toBeNull()
 
@@ -287,10 +287,10 @@ describeLive('multi-recipient key epochs (live server)', () => {
 
     // (d) The remaining readers read everything, before and after the rotation.
     const asA = readerA.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapA })
     const asC = readerC.was
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapC })
     expect(await asA.get(doc1Id)).toEqual({ note: 'first', n: 1 })
     expect(await asA.get(doc3.id)).toEqual({ note: 'third', n: 3 })
@@ -298,8 +298,8 @@ describeLive('multi-recipient key epochs (live server)', () => {
   })
 
   it('two concurrent addRecipient calls both land (the CAS prevents a clobber)', async () => {
-    const newA = await makeParty({ serverUrl: serverUrl! })
-    const newB = await makeParty({ serverUrl: serverUrl! })
+    const newA = await makeParty({ serviceUrl: serviceUrl! })
+    const newB = await makeParty({ serviceUrl: serviceUrl! })
     // Two racing adds from two independent handles over the same collection.
     await Promise.all([
       addRecipient({

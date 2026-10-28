@@ -7,65 +7,95 @@
  * action verbs to uppercase so a lowercase grant (`'get'`) still validates on
  * the server (which matches actions case-sensitively against `'GET'`).
  *
- * An unparented grant whose target lies in the server's Space tree is delegated
- * from that **Space's** root capability, with the target carried as an
- * attenuated `invocationTarget`, rather than from the target's own root
- * capability. Both forms grant the same access (the server verifies WAS routes
- * with target attenuation allowed), but only a Space-rooted chain can be revoked
- * -- revocation is Space-scoped, and the endpoint requires the chain to root
- * exactly in the Space (see `revoke.ts`).
+ * An unparented grant that names its Space (`spaceUrl`, which the scoped sugar
+ * fills from the handle) is delegated from that **Space's** root capability,
+ * with the target carried as an attenuated `invocationTarget`, rather than
+ * from the target's own root capability. Both forms grant the same access (the
+ * server verifies WAS routes with target attenuation allowed), but only a
+ * Space-rooted chain can be revoked -- revocation is Space-scoped, and the
+ * endpoint requires the chain to root exactly in the Space (see `revoke.ts`).
+ * The client holds no server root to find a Space from, so a bare
+ * `was.grant({ target })` without `spaceUrl` takes ezcap's default, the
+ * target's own root capability.
  */
+import { isValidTarget } from '@interop/zcap'
 import type { ClientContext } from './request.js'
-import { parseSpaceTarget, spacePath, toUrl } from './paths.js'
+import { canonicalSpaceUrl } from './paths.js'
 import { rootCapabilityId } from './revoke.js'
 import { ValidationError } from '../errors.js'
 import type { GrantOptions, IDelegatedZcap, IZcap } from '../types.js'
 
 /**
- * The root capability id (`urn:zcap:root:<encoded target>`) of the Space
- * containing `target`, or `undefined` when `target` is not a URL beneath this
- * server's `/space` tree (e.g. a `/kms` target, or another origin) -- in which
- * case the caller lets ezcap default to the target's own root capability.
+ * Roots a grant in its Space: the root capability id
+ * (`urn:zcap:root:<encoded Space URL>`) to parent it on, after checking that
+ * `target` lies at or beneath the Space, and the target to delegate. A chain
+ * rooted in one Space cannot delegate a target outside it, and the server
+ * would refuse the capability at invocation, so the mismatch is refused here
+ * by name.
+ *
+ * The Space itself may be named in either form. The bare (slash-less) form
+ * is accepted as the target, as `parseSpaceTarget` accepts it, and is
+ * delegated in canonical form: the server verifies a Space-rooted chain
+ * against the canonical Space URL, under which the bare form is not an
+ * attenuation of the Space but a sibling of it.
  *
  * The id is returned as a string, which `zcapClient.delegate(...)` accepts for a
  * root parent capability. (Its sibling `request(...)` does not, for a non-`https:`
  * target -- hence the object form in `revoke.ts`.)
  *
  * @param options {object}
- * @param options.baseUrl {string}   the client's server base URL
- * @param options.target {string}      the absolute grant target URL
- * @returns {string | undefined}
+ * @param options.spaceUrl {string}   the Space to root the grant in
+ * @param options.target {string}     the absolute grant target URL
+ * @returns {{ parent: string, target: string }}
+ * @throws {ValidationError}   when `target` is not at or beneath `spaceUrl`
  */
-function spaceRootCapabilityId({
-  baseUrl,
+function spaceRooted({
+  spaceUrl,
   target
 }: {
-  baseUrl: string
+  spaceUrl: string
   target: string
-}): string | undefined {
-  const parsed = parseSpaceTarget({ baseUrl, target })
-  if (parsed === null) {
-    return undefined
+}): { parent: string; target: string } {
+  const canonical = canonicalSpaceUrl(spaceUrl)
+  // The slash-less Space URL as the base accepts the Space in both forms and
+  // everything beneath it, and still refuses a sibling (`/space/s-evil`).
+  const bare = canonical.slice(0, -1)
+  if (
+    !isValidTarget({
+      invocationTarget: target,
+      baseInvocationTarget: bare,
+      allowTargetAttenuation: true
+    })
+  ) {
+    throw new ValidationError(
+      `Grant target "${target}" is not at or beneath the Space ` +
+        `"${canonical}" the grant would be rooted in.`
+    )
   }
-  const spaceUrl = toUrl({ baseUrl, path: spacePath(parsed.spaceId) })
-  return rootCapabilityId(spaceUrl)
+  return {
+    parent: rootCapabilityId(canonical),
+    target: target === bare ? canonical : target
+  }
 }
 
 /**
  * Delegates a capability per `GrantOptions`, returning the signed zcap to hand
  * off out-of-band. An explicit `capability` (re-delegation of a parent zcap)
- * always wins; otherwise a Space-tree target is rooted at its Space, so the
- * resulting capability is revocable via `space.revoke()` / `was.revoke()`.
+ * always wins; otherwise a grant naming its `spaceUrl` is rooted at that
+ * Space, so the resulting capability is revocable via `space.revoke()` /
+ * `was.revoke()`; otherwise ezcap roots it at the target's own root
+ * capability.
  *
  * @param context {ClientContext}
  * @param options {GrantOptions}
  * @returns {Promise<IDelegatedZcap>}
  * @throws {ValidationError}   when neither `target` nor `capability` is given,
- *   so the delegation names nothing to grant
+ *   so the delegation names nothing to grant; or when `spaceUrl` is given
+ *   and `target` does not lie at or beneath it
  */
 export async function delegateGrant(
   context: ClientContext,
-  { to, actions, expires, target, capability }: GrantOptions
+  { to, actions, expires, target, capability, spaceUrl }: GrantOptions
 ): Promise<IDelegatedZcap> {
   // The scoped sugar always prefills `target`, so this only catches a direct
   // `was.grant()`. Without either member ezcap has no invocation target and no
@@ -77,17 +107,16 @@ export async function delegateGrant(
         '`capability` (the parent capability to attenuate); neither was given.'
     )
   }
-  const parent =
-    capability ??
-    (target === undefined
-      ? undefined
-      : spaceRootCapabilityId({ baseUrl: context.baseUrl, target }))
+  const rooted =
+    capability === undefined && target !== undefined && spaceUrl !== undefined
+      ? spaceRooted({ spaceUrl, target })
+      : { parent: capability, target }
   return context.zcapClient.delegate({
     controller: to,
-    invocationTarget: target,
+    invocationTarget: rooted.target,
     allowedActions: actions.map(action => action.toUpperCase()),
     expires,
-    capability: parent
+    capability: rooted.parent
   })
 }
 
@@ -125,12 +154,14 @@ export function allowsAction({
 /**
  * The scoped-grant sugar shared by `Space.grant` and `Collection.grant`:
  * delegates per `GrantOptions` with the grant `target` prefilled from the
- * handle's `path` (and the handle's bound `capability`, if any, as the parent
- * for re-delegation). Explicit options win over both prefills.
+ * handle's `url`, the rooting `spaceUrl` from the handle's Space, and the
+ * handle's bound `capability`, if any, as the parent for re-delegation.
+ * Explicit options win over every prefill.
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}           the handle's path (target fallback)
+ * @param options.url {string}            the handle's URL (target fallback)
+ * @param options.spaceUrl {string}       the handle's Space (rooting fallback)
  * @param options.options {GrantOptions}  the caller's grant options
  * @param [options.capability] {IZcap}    the handle's bound capability
  * @returns {Promise<IDelegatedZcap>}
@@ -138,14 +169,21 @@ export function allowsAction({
 export async function delegateGrantAt(
   context: ClientContext,
   {
-    path,
+    url,
+    spaceUrl,
     options,
     capability
-  }: { path: string; options: GrantOptions; capability?: IZcap }
+  }: {
+    url: string
+    spaceUrl: string
+    options: GrantOptions
+    capability?: IZcap
+  }
 ): Promise<IDelegatedZcap> {
   return delegateGrant(context, {
     ...options,
-    target: options.target ?? toUrl({ baseUrl: context.baseUrl, path }),
+    target: options.target ?? url,
+    spaceUrl: options.spaceUrl ?? spaceUrl,
     capability: options.capability ?? capability
   })
 }

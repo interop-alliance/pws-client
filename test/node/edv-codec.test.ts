@@ -42,6 +42,7 @@ import type {
   EncodedWrite,
   ResourceCodec
 } from '../../src/index.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 import type { SingleWriteCodec } from '../helpers/codec.js'
 import { memoryBackend } from '../helpers/codec.js'
 import { installFileReader, rnBlob } from '../helpers/rnBlob.js'
@@ -187,7 +188,7 @@ async function makeFixture(options: EdvFixtureOptions = {}): Promise<{
   // build the codec for the declared scheme; mirror that here, descriptor and
   // all -- `codecFor` routes on the descriptor's epoch roster.
   const codec = await provider.codecFor({
-    spaceId: 's',
+    spaceUrl: spaceUrlFor('s'),
     collectionId: 'c',
     scheme: 'edv',
     encryption
@@ -781,12 +782,12 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     failure
   }: {
     context: CodecRequestContext
-    failOn: (input: { path?: string; method?: string }) => boolean
+    failOn: (input: { url: string; method?: string }) => boolean
     failure: Error
   }): CodecRequestContext {
     return {
       async request(input) {
-        if (failOn(input as { path?: string; method?: string })) {
+        if (failOn(input as { url: string; method?: string })) {
           throw failure
         }
         return context.request(input)
@@ -805,7 +806,8 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     const context = failingBackend({
       context: backend.context,
       failOn: input =>
-        input.method === 'PUT' && input.path!.includes('/chunks/'),
+        input.method === 'PUT' &&
+        new URL(input.url).pathname.includes('/chunks/'),
       failure
     })
 
@@ -857,7 +859,7 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     const failure = Object.assign(new Error('HTTP 413'), { status: 413 })
     const context: CodecRequestContext = {
       async request(input) {
-        const path = input.path as string
+        const path = new URL(input.url).pathname
         if (input.method === 'PUT' && path.includes('/chunks/')) {
           throw failure
         }
@@ -896,7 +898,8 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     const context = failingBackend({
       context: backend.context,
       failOn: input =>
-        input.method === 'PUT' && input.path!.endsWith('/chunks/1'),
+        input.method === 'PUT' &&
+        new URL(input.url).pathname.endsWith('/chunks/1'),
       failure: quota
     })
     const err = await plan.execute(context).catch(caught => caught)
@@ -920,7 +923,10 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     let documentWrites = 0
     const context: CodecRequestContext = {
       async request(input) {
-        if (input.method === 'PUT' && input.path === documentPath) {
+        if (
+          input.method === 'PUT' &&
+          new URL(input.url).pathname === documentPath
+        ) {
           documentWrites++
           if (documentWrites === 2) {
             throw new QuotaExceededError('Quota exceeded', { status: 507 })
@@ -946,7 +952,10 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     let documentWrites = 0
     const context: CodecRequestContext = {
       async request(input) {
-        if (input.method === 'PUT' && input.path === documentPath) {
+        if (
+          input.method === 'PUT' &&
+          new URL(input.url).pathname === documentPath
+        ) {
           documentWrites++
           if (documentWrites === 2) {
             throw Object.assign(new Error('HTTP 500'), { status: 500 })
@@ -1121,7 +1130,7 @@ describe('EdvCodec: malformed inner document', () => {
       resolveKeys: async () => ({ keyAgreementKey: kak, keyResolver })
     })
     const codec = (await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -1470,7 +1479,7 @@ describe('EdvCodec: decrypt failure discrimination', () => {
         })
       })
       return (await provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: descriptor
@@ -1595,7 +1604,7 @@ describe('createEdvEncryption: provider (keystore)', () => {
   it('returns null when resolveKeys yields no keys (core then fails closed)', async () => {
     const provider = createEdvEncryption({ resolveKeys: async () => null })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption: epochBearing
@@ -1615,7 +1624,7 @@ describe('createEdvEncryption: provider (keystore)', () => {
     })
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: { scheme: 'edv' }
@@ -1623,7 +1632,7 @@ describe('createEdvEncryption: provider (keystore)', () => {
     ).rejects.toBeInstanceOf(EncryptionError)
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: { scheme: 'edv', epochs: [] }
@@ -1637,7 +1646,7 @@ describe('createEdvEncryption: provider (keystore)', () => {
       resolveKeys: async () => ({ keyAgreementKey: kak, keyResolver })
     })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'age',
       encryption: epochBearing
@@ -1659,7 +1668,7 @@ describe('createEdvEncryption: provider (keystore)', () => {
       }
     })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption,

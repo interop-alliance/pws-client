@@ -14,7 +14,7 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
 import { httpStatus, WasClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
-import { resourceChunkPath } from '../../src/internal/paths.js'
+import { resourceChunkUrl } from '../../src/internal/paths.js'
 import {
   createEdvEncryption,
   ensureFirstEpoch,
@@ -27,17 +27,17 @@ import {
  * first epoch is wrapped to.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.serviceUrl {string}   the server's service description URL
  * @param options.maxBlobBytes {number}   the routing threshold
  * @param options.chunkSize {number}      the size of each encrypted chunk
  * @returns {Promise<{ was: WasClient; kak: IKeyAgreementKey }>}
  */
 export async function chunkedClient({
-  serverUrl,
+  serviceUrl,
   maxBlobBytes,
   chunkSize
 }: {
-  serverUrl: string
+  serviceUrl: string
   maxBlobBytes: number
   chunkSize: number
 }): Promise<{ was: WasClient; kak: IKeyAgreementKey }> {
@@ -65,7 +65,7 @@ export async function chunkedClient({
   })
   return {
     was: WasClient.fromSigner({
-      serverUrl,
+      serviceUrl,
       signer: keyPair.didKeySigner(),
       encryption
     }),
@@ -103,7 +103,7 @@ export async function provisionVault({
     collection: declared,
     recipients: [ownerRecipient({ keyAgreementKey: kak })]
   })
-  return { space, collection: was.space(space.id).collection('vault') }
+  return { space, collection: was.spaceAt(space.url).collection('vault') }
 }
 
 /**
@@ -114,25 +114,30 @@ export async function provisionVault({
  *
  * @param options {object}
  * @param options.was {WasClient}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.resourceId {string}
  * @param options.chunkIndex {number}
  * @returns {Promise<number | undefined>}   the response status
  */
 export async function chunkStatus({
   was,
-  spaceId,
+  spaceUrl,
   resourceId,
   chunkIndex
 }: {
   was: WasClient
-  spaceId: string
+  spaceUrl: string
   resourceId: string
   chunkIndex: number
 }): Promise<number | undefined> {
   try {
     const response = await was.request({
-      path: resourceChunkPath(spaceId, 'vault', resourceId, chunkIndex),
+      url: resourceChunkUrl({
+        spaceUrl,
+        collectionId: 'vault',
+        resourceId,
+        chunkIndex
+      }),
       method: 'GET'
     })
     return response.status

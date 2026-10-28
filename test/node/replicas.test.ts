@@ -28,7 +28,8 @@ import {
 import {
   clientWithRequestSpy,
   clientWithStub,
-  jsonResponse
+  jsonResponse,
+  spaceUrlFor
 } from '../helpers/stubClient.js'
 
 const registration = {
@@ -65,7 +66,9 @@ describe('space.registerReplica()', () => {
       data: registration,
       etag: '"1"'
     })
-    const result = await client.space('s').registerReplica(registration)
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .registerReplica(registration)
     expect(calls[0]?.url).toBe('https://was.example/space/s/replicas')
     expect(calls[0]?.method).toBe('POST')
     expect(calls[0]?.json).toEqual(registration)
@@ -82,7 +85,9 @@ describe('space.registerReplica()', () => {
       const client = clientWithStub(() => {
         throw problem({ status, type })
       })
-      const attempt = client.space('s').registerReplica(registration)
+      const attempt = client
+        .spaceAt(spaceUrlFor('s'))
+        .registerReplica(registration)
       await expect(attempt).rejects.toBeInstanceOf(errorClass)
       await expect(attempt).rejects.toMatchObject({ status, type })
     }
@@ -101,7 +106,7 @@ describe('replica calls on a 2xx with no JSON body', () => {
       const client = clientWithStub(() =>
         jsonResponse({ status: 200, headers: { 'content-type': 'text/plain' } })
       )
-      const attempt = call(client.space('s'))
+      const attempt = call(client.spaceAt(spaceUrlFor('s')))
       await expect(attempt).rejects.toBeInstanceOf(WasServerError)
       await expect(attempt).rejects.toThrow(/text\/plain/)
     }
@@ -116,7 +121,7 @@ describe('space.replicas()', () => {
       items: [registration]
     }
     const { client, calls } = clientWithRequestSpy({ data: listing })
-    const result = await client.space('s').replicas()
+    const result = await client.spaceAt(spaceUrlFor('s')).replicas()
     expect(calls[0]?.url).toBe('https://was.example/space/s/replicas')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(listing)
@@ -124,14 +129,14 @@ describe('space.replicas()', () => {
 
   it('returns null when the space is missing or the caller is not its controller (404)', async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
-    expect(await client.space('s').replicas()).toBeNull()
+    expect(await client.spaceAt(spaceUrlFor('s')).replicas()).toBeNull()
   })
 })
 
 describe('space.replica()', () => {
   it('GETs the per-id path and returns the record', async () => {
     const { client, calls } = clientWithRequestSpy({ data: registration })
-    const result = await client.space('s').replica('peer')
+    const result = await client.spaceAt(spaceUrlFor('s')).replica('peer')
     expect(calls[0]?.url).toBe('https://was.example/space/s/replicas/peer')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(registration)
@@ -139,20 +144,22 @@ describe('space.replica()', () => {
 
   it('percent-encodes the replica id', async () => {
     const { client, calls } = clientWithRequestSpy({ data: registration })
-    await client.space('s').replica('a b')
+    await client.spaceAt(spaceUrlFor('s')).replica('a b')
     expect(calls[0]?.url).toBe('https://was.example/space/s/replicas/a%20b')
   })
 
   it('returns null when the registration is absent (404)', async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
-    expect(await client.space('s').replica('missing')).toBeNull()
+    expect(await client.spaceAt(spaceUrlFor('s')).replica('missing')).toBeNull()
   })
 })
 
 describe('space.deregisterReplica()', () => {
   it('DELETEs the per-id path and reports the removal', async () => {
     const { client, calls } = clientWithRequestSpy()
-    const result = await client.space('s').deregisterReplica('peer')
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .deregisterReplica('peer')
     expect(calls[0]?.url).toBe('https://was.example/space/s/replicas/peer')
     expect(calls[0]?.method).toBe('DELETE')
     expect(result).toEqual({ outcome: 'deleted' })
@@ -161,7 +168,7 @@ describe('space.deregisterReplica()', () => {
   it("reports 'not-found' on the masked 404 instead of resolving as success", async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
     await expect(
-      client.space('s').deregisterReplica('missing')
+      client.spaceAt(spaceUrlFor('s')).deregisterReplica('missing')
     ).resolves.toEqual({ outcome: 'not-found' })
   })
 
@@ -170,7 +177,7 @@ describe('space.deregisterReplica()', () => {
       throw problem({ status: 409, type: ProblemTypes.REPLICA_REFUSED })
     })
     await expect(
-      client.space('s').deregisterReplica('peer')
+      client.spaceAt(spaceUrlFor('s')).deregisterReplica('peer')
     ).rejects.toMatchObject({ type: ProblemTypes.REPLICA_REFUSED })
   })
 })
@@ -190,7 +197,7 @@ describe('space.replicaStatus()', () => {
       ]
     }
     const { client, calls } = clientWithRequestSpy({ data: status })
-    const result = await client.space('s').replicaStatus('peer')
+    const result = await client.spaceAt(spaceUrlFor('s')).replicaStatus('peer')
     expect(calls[0]?.url).toBe(
       'https://was.example/space/s/replicas/peer/status'
     )
@@ -201,7 +208,9 @@ describe('space.replicaStatus()', () => {
 
   it('returns null when the registration is absent (404)', async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
-    expect(await client.space('s').replicaStatus('missing')).toBeNull()
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).replicaStatus('missing')
+    ).toBeNull()
   })
 })
 
@@ -220,7 +229,7 @@ describe('space.describe() replicas member', () => {
       ]
     }
     const { client } = clientWithRequestSpy({ data: description })
-    const result = await client.space('s').describe()
+    const result = await client.spaceAt(spaceUrlFor('s')).describe()
     expect(result?.replicas).toEqual(description.replicas)
   })
 })
@@ -237,7 +246,7 @@ describe('collection.meta() created stamp', () => {
       data: { id: 'c', created, custom: {} },
       etag: '"1"'
     })
-    const result = await client.space('s').collection('c').meta()
+    const result = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(result?.created).toEqual(created)
   })
 
@@ -255,7 +264,7 @@ describe('collection.meta() created stamp', () => {
       },
       etag: '"1"'
     })
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.setMeta({ custom: { name: 'x' } })
     await collection.configure({ name: 'Renamed' })
     const writes = calls.filter(call => call.method === 'PUT')
@@ -288,7 +297,7 @@ describe('collection.changes({ method: "GET" })', () => {
   it('GETs the query endpoint with the parameters in the query string', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('notes')
       .changes({ method: 'GET', checkpoint: 'cp/1+=', limit: 10 })
     expect(calls[0]?.method).toBe('GET')
@@ -301,7 +310,10 @@ describe('collection.changes({ method: "GET" })', () => {
 
   it('sends only profile=changes when no checkpoint or limit is given', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })
-    await client.space('s').collection('notes').changes({ method: 'GET' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('notes')
+      .changes({ method: 'GET' })
     expect(calls[0]?.url).toBe(
       'https://was.example/space/s/notes/query?profile=changes'
     )
@@ -309,7 +321,10 @@ describe('collection.changes({ method: "GET" })', () => {
 
   it('keeps the POST form by default', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })
-    await client.space('s').collection('notes').changes({ limit: 5 })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('notes')
+      .changes({ limit: 5 })
     expect(calls[0]?.method).toBe('POST')
     expect(calls[0]?.url).toBe('https://was.example/space/s/notes/query')
     expect(calls[0]?.json).toEqual({ profile: 'changes', limit: 5 })
@@ -318,7 +333,7 @@ describe('collection.changes({ method: "GET" })', () => {
   it('derives the GET form from a bound capability that excludes POST', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('notes', { capability: getOnlyCapability })
       .changes({ limit: 5 })
     expect(calls[0]?.method).toBe('GET')
@@ -330,14 +345,17 @@ describe('collection.changes({ method: "GET" })', () => {
   it('keeps POST under a capability whose actions include POST', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })
     const capability = { ...getOnlyCapability, allowedAction: 'POST' }
-    await client.space('s').collection('notes', { capability }).changes()
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('notes', { capability })
+      .changes()
     expect(calls[0]?.method).toBe('POST')
   })
 
   it('walks resourceChanges() in the derived GET form', async () => {
     const { client, calls } = clientWithRequestSpy({ data: page })
     const walk = client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('notes', { capability: getOnlyCapability })
       .resourceChanges()
     for await (const _entry of walk) {
@@ -349,7 +367,10 @@ describe('collection.changes({ method: "GET" })', () => {
   it('throws (no null-on-404) when the collection is not visible', async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
     await expect(
-      client.space('s').collection('notes').changes({ method: 'GET' })
+      client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('notes')
+        .changes({ method: 'GET' })
     ).rejects.toBeInstanceOf(NotFoundError)
   })
 })

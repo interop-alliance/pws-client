@@ -867,7 +867,7 @@ export class EdvCodec implements ResourceCodec {
           'a document and its chunk resources with. Chunked encrypted blobs ' +
           'can only be written through a Collection handle bound to a Space. ' +
           'Read one through such a handle, through a DocCipher built with ' +
-          'its `spaceId`, or by passing a `chunkSource` to the DocCipher ' +
+          'its `spaceUrl`, or by passing a `chunkSource` to the DocCipher ' +
           '`decrypt` in place of a request context.'
       )
     }

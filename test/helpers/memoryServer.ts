@@ -18,7 +18,11 @@ import { WasClient } from '../../src/index.js'
 import type { Collection, CollectionEncryption } from '../../src/index.js'
 import { createEdvEncryption, ownerRecipient } from '../../src/edv/index.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
-import { serviceDescriptionFor } from './stubClient.js'
+import {
+  serviceDescriptionFor,
+  serviceUrlFor,
+  spaceUrlFor
+} from './stubClient.js'
 import type { RequestArgs } from './stubClient.js'
 
 /**
@@ -199,7 +203,7 @@ export function memoryServer(): {
     idDerivation?: 'random' | 'content'
   }): WasClient =>
     new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient: {
         invocationSigner: { id: 'did:example:alice#key-1' },
@@ -237,7 +241,7 @@ export async function encryptedCollection({
   const server = memoryServer()
   const collection = server
     .client({ maxBlobBytes: 16, chunkSize: 24, idDerivation })
-    .space('s')
+    .spaceAt(spaceUrlFor('s'))
     .collection('c', { encryption: { ...encryption, keys } })
   return { server, collection, keys, encryption }
 }

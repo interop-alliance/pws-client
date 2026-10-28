@@ -10,7 +10,7 @@
  * consumer that opens archived bytes, derives keys, or decrypts rows it
  * already has imports this entry and evaluates no transport module and no
  * `@interop/vh-resource-log` / `@interop/did-method-webvh` module. The one
- * gated exception is `createEdvDocCipher({ spaceId })`, which loads the
+ * gated exception is `createEdvDocCipher({ spaceUrl })`, which loads the
  * transport factory through `import()` for the chunked paths. A call that
  * names no Space loads nothing.
  *

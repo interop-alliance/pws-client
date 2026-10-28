@@ -54,6 +54,7 @@ import {
 } from '../../src/edv/index.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
 import { mintHmacKey } from '../../src/edv/hmacKey.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 import type { SingleWriteCodec } from '../helpers/codec.js'
 import { flipFirst } from '../helpers/bytes.js'
 import { memoryBackend } from '../helpers/codec.js'
@@ -228,7 +229,7 @@ describe('createEdvDocCipher (chunked envelopes)', () => {
       maxBlobBytes: 16,
       chunkSize: 24
     }).codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -250,7 +251,7 @@ describe('createEdvDocCipher (chunked envelopes)', () => {
     const cipher = await createEdvDocCipher({
       ...keys,
       collectionId: 'c',
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       encryption
     })
     const decrypted = await cipher.decrypt({
@@ -270,7 +271,7 @@ describe('createEdvDocCipher (chunked envelopes)', () => {
     const cipher = await createEdvDocCipher({
       ...keys,
       collectionId: 'c',
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       encryption
     })
     await expect(cipher.decrypt({ id, envelope })).rejects.toBeInstanceOf(
@@ -295,7 +296,7 @@ describe('createEdvDocCipher (chunked envelopes)', () => {
     const cipher = await createEdvDocCipher({
       ...keys,
       collectionId: 'c',
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       encryption
     })
     await expect(
@@ -340,7 +341,7 @@ describe('createEdvDocCipher (chunkSource)', () => {
       maxBlobBytes: 16,
       chunkSize: 24
     }).codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -428,7 +429,7 @@ describe('createEdvDocCipher (chunkSource)', () => {
     const { backend, cipher, write } = await setup({
       wrap: context => ({
         async request(input) {
-          const path = input.path as string
+          const path = new URL(input.url).pathname
           if (
             (input.method === 'PUT' && path.includes('/chunks/')) ||
             input.method === 'DELETE'
@@ -515,7 +516,7 @@ describe('createEdvDocCipher (chunkSource)', () => {
       maxBlobBytes: 16,
       chunkSize: 24
     }).codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -536,7 +537,7 @@ describe('createEdvDocCipher (chunkSource)', () => {
     const cipher = await createEdvDocCipher({
       ...keys,
       collectionId: 'c',
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       encryption
     })
     const envelope = JSON.parse(
@@ -593,7 +594,7 @@ describe('createEdvDocCipher (isPendingStub)', () => {
       maxBlobBytes: 16,
       chunkSize: 24
     }).codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -1029,7 +1030,7 @@ async function directCodecFor({
 }): Promise<SingleWriteCodec> {
   const provider = createEdvEncryption({ resolveKeys: async () => keys })
   const codec = await provider.codecFor({
-    spaceId: 's',
+    spaceUrl: spaceUrlFor('s'),
     collectionId,
     scheme: 'edv',
     encryption

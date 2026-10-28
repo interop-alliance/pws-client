@@ -1,5 +1,65 @@
 # @interop/was-client Changelog
 
+## 0.100.0 - TBD
+
+### Changed
+
+- Breaking: `new WasClient(...)` and `WasClient.fromSigner(...)` take exactly
+  one of `serviceUrl` (the service description URL, read with `GET`) or
+  `spacesUrl` (the Spaces Repository URL, probed with `HEAD` for the `service`
+  link). `serverUrl` is removed, and so are `was.serverUrl` and `was.baseUrl`.
+  `was.serviceUrl` and `was.spacesUrl` expose the one given. Giving both or
+  neither throws `ValidationError`.
+- Breaking: `was.space(spaceId)` is removed. `was.spaceAt(spaceUrl, options)`
+  opens a handle on an absolute Space URL.
+- Breaking: `was.createSpace()` returns a handle on the `Location` of the create
+  response (relative values resolve against the Spaces Repository URL). A
+  response without `Location` throws `WasServerError`.
+- Handles expose `url`: `Space.url`, `Collection.url` and `Resource.url`.
+  `Collection` and `Resource` also expose `spaceUrl`.
+- Breaking: `was.request()` takes an absolute `url` only. `path` is removed from
+  `RequestInput`.
+- Breaking: the `./paths` entry exports URL builders that take a Space URL. The
+  replacements are `spaceMetaUrl({ spaceUrl })`,
+  `collectionUrl({ spaceUrl, collectionId })`, `collectionMetaUrl`,
+  `collectionLogUrl`, `collectionQueryUrl`,
+  `resourceUrl({ spaceUrl, collectionId, resourceId })` and `resourceMetaUrl`.
+  `parseSpaceTarget` takes `{ spaceUrl, target }`, and `ParsedSpacePath` no
+  longer has a `spaceId` member.
+- Breaking: `spacePath`, `spaceMeta`, `collectionPath`, `collectionMeta`,
+  `collectionLog`, `collectionQuery`, `resourcePath`, `resourceMeta`, `toUrl`,
+  `spacesUrl`, `baseUrlOfSpacesUrl`, `parseSpacePath` and
+  `parseAbsoluteSpaceTarget` are removed from `./paths`.
+- Breaking: `GrantOptions` gains `spaceUrl`. A `was.grant()` with no
+  `capability` and no `spaceUrl` is rooted at the target's own root capability.
+  With `spaceUrl` it is rooted at that Space, and a `target` outside the Space
+  throws `ValidationError`. A `target` naming the Space in its bare (slash-less)
+  form is delegated in canonical form. `Space.grant()` and `Collection.grant()`
+  fill both from the handle and are unchanged.
+- `was.fromCapability()` and `was.revoke()` read the Space off the capability's
+  delegation chain root, taking the root's target as the Space URL. A chain that
+  starts at no root capability, or at one whose target cannot be a Space URL,
+  throws `ValidationError`; the server is the authority on whether the root is a
+  Space. The delegation proof is found by its `capabilityChain` wherever it sits
+  in a proof set.
+- Service discovery no longer refuses a service description whose `spaces`
+  member differs from the client's URL. `createSpace()` and `listSpaces()`
+  address the `spaces` URL the description names, with its trailing slash
+  supplied when missing, and throw `NotSupportedError` when it has none.
+- Breaking: `spaceId` options become `spaceUrl` in
+  `EncryptionProvider.codecFor`, `createEdvEncryption`'s `resolveKeys`,
+  `WasTransport` and `wasTransportFactory`, `createEdvDocCipher`,
+  `createRefreshingDocCipher`, `wasDescriptorSource`, `ensureSpace`,
+  `ensureSpaceAndCollection` and `createWasSyncPort`.
+- The integration tier reads `TEST_SERVER_URL` as the service description URL.
+
+### Added
+
+- `readServiceDescription({ serviceUrl })`, exported from the package root.
+- `spaceUrlOf(zcap)`, `rootCapabilityTarget(id)`, `canonicalSpaceUrl(url)` and
+  `spaceIdOfUrl(url)` on the `./paths` entry.
+- The `ServerLocator` type.
+
 ## 0.99.1 - 2026-10-27
 
 ### Fixed

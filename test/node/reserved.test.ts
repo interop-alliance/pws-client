@@ -16,9 +16,10 @@ import {
 import { ValidationError } from '../../src/index.js'
 import { assertNotReserved } from '../../src/internal/reserved.js'
 import {
-  collectionPath,
+  collectionUrl,
   isReservedCollectionId,
-  isReservedResourceId
+  isReservedResourceId,
+  resourceUrl
 } from '../../src/paths.js'
 
 describe('assertNotReserved', () => {
@@ -82,7 +83,12 @@ describe('assertNotReserved', () => {
       expect(() =>
         assertNotReserved({ id: segment, kind: 'collection' })
       ).toThrow(ValidationError)
-      expect(() => collectionPath('s', segment)).toThrow(ValidationError)
+      expect(() =>
+        collectionUrl({
+          spaceUrl: 'https://was.example/space/s/',
+          collectionId: segment
+        })
+      ).toThrow(ValidationError)
     }
   })
 
@@ -108,11 +114,18 @@ describe('the ./paths subpath', () => {
     expect(isReservedResourceId('greeting')).toBe(false)
   })
 
-  it('lets a caller refuse a segment the path builder would throw on', () => {
+  it('lets a caller refuse a segment the URL builder would throw on', () => {
     // The predicate and the builder agree: what one reports reserved is what
-    // the other refuses, so a caller can ask before forming a path out of a
+    // the other refuses, so a caller can ask before forming a URL out of a
     // value it did not choose.
+    const spaceUrl = 'https://was.example/space/space-1/'
     expect(isReservedCollectionId('export')).toBe(true)
-    expect(() => collectionPath('space-1', 'export')).toThrow(ValidationError)
+    expect(() => collectionUrl({ spaceUrl, collectionId: 'export' })).toThrow(
+      ValidationError
+    )
+    expect(isReservedResourceId('backend')).toBe(true)
+    expect(() =>
+      resourceUrl({ spaceUrl, collectionId: 'c', resourceId: 'backend' })
+    ).toThrow(ValidationError)
   })
 })

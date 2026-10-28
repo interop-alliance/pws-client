@@ -45,7 +45,7 @@ import {
   writeHeaders,
   WRITER_ID_HEADER
 } from '../internal/conditional.js'
-import { resourceMeta, resourcePath } from '../internal/paths.js'
+import { resourceMetaUrl, resourceUrl } from '../internal/paths.js'
 import {
   isJsonResourceChange,
   isMetaStamp,
@@ -255,7 +255,7 @@ function mapWriteError(
  *
  * @param options {object}
  * @param options.was {WasClient}       the session client (holds the signer)
- * @param options.spaceId {string}      the WAS Space id
+ * @param options.spaceUrl {string}     the WAS Space URL
  * @param options.collectionId {string}   the WAS collection id
  * @param [options.capability] {IZcap}   a delegated capability to invoke on
  *   every request this port makes (pull, writes, and reads alike); omit to
@@ -266,27 +266,29 @@ function mapWriteError(
  */
 export function createWasSyncPort({
   was,
-  spaceId,
+  spaceUrl,
   collectionId,
   capability,
   mapAuthErrors = false
 }: {
   was: WasClient
-  spaceId: string
+  spaceUrl: string
   collectionId: string
   capability?: IZcap
   mapAuthErrors?: boolean
 }): WasSyncPort {
-  // Paths come from the internal builders, so this port inherits the same
+  // URLs come from the internal builders, so this port inherits the same
   // percent-encoding and reserved/dot-segment guards as the handle API.
-  const contentPath = (id: string) => resourcePath(spaceId, collectionId, id)
-  const metaPath = (id: string) => resourceMeta(spaceId, collectionId, id)
+  const contentUrl = (id: string) =>
+    resourceUrl({ spaceUrl, collectionId, resourceId: id })
+  const metaUrl = (id: string) =>
+    resourceMetaUrl({ spaceUrl, collectionId, resourceId: id })
 
   // Construction is I/O-free (the codec is a lazy thunk) and `changes()`
   // never resolves the codec, so it ships the stored bodies verbatim -- what
   // this codec-bypassing port requires.
   const changesCollection = was
-    .space(spaceId)
+    .spaceAt(spaceUrl)
     .collection(collectionId, { capability })
 
   /** Re-reads a resource's raw content body + `ETag` (no decrypt, no `/meta`). */
@@ -295,7 +297,7 @@ export function createWasSyncPort({
     try {
       response = await was.request({
         capability,
-        path: contentPath(id),
+        url: contentUrl(id),
         method: 'GET'
       })
     } catch (err) {
@@ -443,7 +445,7 @@ export function createWasSyncPort({
       try {
         const response = await was.request({
           capability,
-          path: contentPath(id),
+          url: contentUrl(id),
           method: 'PUT',
           json: data as object,
           headers: writeHeaders({
@@ -462,7 +464,7 @@ export function createWasSyncPort({
       try {
         const response = await was.request({
           capability,
-          path: contentPath(id),
+          url: contentUrl(id),
           method: 'DELETE',
           headers: writeHeaders({ precondition: { ifMatch }, writerId })
         })
@@ -486,7 +488,7 @@ export function createWasSyncPort({
       try {
         const response = await was.request({
           capability,
-          path: metaPath(id),
+          url: metaUrl(id),
           method: 'PUT',
           // The `/meta` PUT fully replaces `custom`: a body omitting it writes
           // the CLEARED state (the server clears every property the body
@@ -518,7 +520,7 @@ export function createWasSyncPort({
       // is attached before any `await` that can throw, so an abandoned read can
       // never surface as an unhandled rejection).
       const metaRead = was
-        .request({ capability, path: metaPath(id), method: 'GET' })
+        .request({ capability, url: metaUrl(id), method: 'GET' })
         .then(
           response => ({ ok: true as const, response }),
           (err: unknown) => ({ ok: false as const, err })

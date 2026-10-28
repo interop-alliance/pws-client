@@ -131,8 +131,9 @@ function delegationProof(zcap: IDelegatedZcap): ICapabilityDelegationProof {
 /**
  * Registers the Space's root capability with the test loader, controlled by
  * `controller`, and returns its id. This stands in for what the server serves
- * at `urn:zcap:root:<encoded Space URL>`: every chain minted by `grant()` on a
- * Space-tree target roots here.
+ * at `urn:zcap:root:<encoded Space URL>`: every chain minted by `grant()`
+ * with this `spaceUrl` (or by a Space or Collection handle's `grant()`) roots
+ * here.
  *
  * @param controller {string}   the DID the Space's root capability names
  * @returns {string}
@@ -146,8 +147,8 @@ function serveSpaceRoot(controller: string): string {
 /**
  * Verifies a delegated zcap against a chain rooted at the Space, with both
  * suites offered. `allowTargetAttenuation` matches how the WAS server verifies:
- * grants into the Space tree root at the Space and carry the narrower target as
- * an attenuated `invocationTarget` (see `internal/grant.ts`).
+ * a Space-rooted grant carries the narrower target as an attenuated
+ * `invocationTarget` (see `internal/grant.ts`).
  *
  * @param zcap {IDelegatedZcap}
  * @param expectedRootCapability {string}
@@ -190,14 +191,15 @@ describe('fromSigner delegation proofs', () => {
     const alice = await signingKey()
     const rootId = serveSpaceRoot(alice.did)
     const was = WasClient.fromSigner({
-      serverUrl: `${SERVER_URL}/spaces/`,
+      serviceUrl: `${SERVER_URL}/service`,
       signer: alice.signer
     })
 
     const zcap = await was.grant({
       to: 'did:example:bob',
       actions: ['get'],
-      target: TARGET_URL
+      target: TARGET_URL,
+      spaceUrl: SPACE_URL
     })
 
     expect(delegationProof(zcap).type).toBe('DataIntegrityProof')
@@ -215,12 +217,17 @@ describe('fromSigner delegation proofs', () => {
     const bob = await signingKey()
     const rootId = serveSpaceRoot(alice.did)
     const parent = await WasClient.fromSigner({
-      serverUrl: `${SERVER_URL}/spaces/`,
+      serviceUrl: `${SERVER_URL}/service`,
       signer: alice.signer
-    }).grant({ to: bob.did, actions: ['get'], target: TARGET_URL })
+    }).grant({
+      to: bob.did,
+      actions: ['get'],
+      target: TARGET_URL,
+      spaceUrl: SPACE_URL
+    })
 
     const child = await WasClient.fromSigner({
-      serverUrl: `${SERVER_URL}/spaces/`,
+      serviceUrl: `${SERVER_URL}/service`,
       signer: bob.signer
     }).grant({
       to: 'did:example:carol',
@@ -248,7 +255,7 @@ describe('fromSigner delegation proofs', () => {
     })) as IDelegatedZcap
 
     const child = await WasClient.fromSigner({
-      serverUrl: `${SERVER_URL}/spaces/`,
+      serviceUrl: `${SERVER_URL}/service`,
       signer: bob.signer
     }).grant({
       to: 'did:example:carol',
@@ -267,9 +274,14 @@ describe('fromSigner delegation proofs', () => {
     const alice = await signingKey()
     const bob = await signingKey()
     const parent = await WasClient.fromSigner({
-      serverUrl: `${SERVER_URL}/spaces/`,
+      serviceUrl: `${SERVER_URL}/service`,
       signer: alice.signer
-    }).grant({ to: bob.did, actions: ['get'], target: TARGET_URL })
+    }).grant({
+      to: bob.did,
+      actions: ['get'],
+      target: TARGET_URL,
+      spaceUrl: SPACE_URL
+    })
 
     // URDNA2015 expands the parent embedded in `proof.capabilityChain`, which
     // now carries the data-integrity context. Neither ezcap's auto-loader

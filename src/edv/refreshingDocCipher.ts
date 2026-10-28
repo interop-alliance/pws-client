@@ -58,7 +58,7 @@ import {
  *   collection's envelopes are sealed to
  * @param options.keyResolver {IKeyResolver}
  * @param options.collectionId {string}
- * @param [options.spaceId] {string}   the WAS Space holding the collection,
+ * @param [options.spaceUrl] {string}   the WAS Space holding the collection,
  *   which lets a `decrypt` given a request context read a chunked envelope
  * @param [options.idDerivation] {'content' | 'random'}   defaults to
  *   `'content'`
@@ -75,7 +75,7 @@ export async function createRefreshingEdvDocCipher({
   keyAgreementKey,
   keyResolver,
   collectionId,
-  spaceId,
+  spaceUrl,
   idDerivation,
   source,
   cache,
@@ -85,7 +85,7 @@ export async function createRefreshingEdvDocCipher({
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
   collectionId: string
-  spaceId?: string
+  spaceUrl?: string
   idDerivation?: 'content' | 'random'
   source?: EncryptionDescriptorSource
   cache: EncryptionDescriptorCache
@@ -115,7 +115,7 @@ export async function createRefreshingEdvDocCipher({
       keyAgreementKey,
       keyResolver,
       collectionId,
-      spaceId,
+      spaceUrl,
       idDerivation,
       encryption
     })

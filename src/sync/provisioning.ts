@@ -176,7 +176,7 @@ async function readOrCreate<T>({
  *
  * @param options {object}
  * @param options.was {WasClient}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}   the Space's URL
  * @param options.controllerDid {string}   the Space controller (e.g. `did:key`);
  *   used only when the Space does not exist yet
  * @param options.collectionId {string}    the WAS collection id
@@ -198,7 +198,7 @@ async function readOrCreate<T>({
  *   {@link ensureSpace}). Supplying it skips the Space half entirely, which is
  *   what keeps a caller provisioning N collections from ensuring one Space N
  *   times over; omit it and the Space is ensured here as before. Its `id` must
- *   be `spaceId` -- a description of some other Space throws
+ *   be `spaceUrl` -- a description of some other Space throws
  *   `ValidationError`, since skipping the ensure would leave that Space
  *   unprovisioned
  * @param [options.capability] {IZcap}   an invocation capability every
@@ -222,7 +222,7 @@ async function readOrCreate<T>({
  */
 export async function ensureSpaceAndCollection({
   was,
-  spaceId,
+  spaceUrl,
   controllerDid,
   collectionId,
   encryption = 'edv',
@@ -234,7 +234,7 @@ export async function ensureSpaceAndCollection({
   generator
 }: {
   was: WasClient
-  spaceId: string
+  spaceUrl: string
   controllerDid: string
   collectionId: string
   encryption?: 'edv' | 'plaintext' | 'governed'
@@ -245,11 +245,11 @@ export async function ensureSpaceAndCollection({
   capability?: IZcap
   generator?: CollectionGenerator
 }): Promise<{ created: boolean }> {
-  const space = was.space(spaceId, { capability })
+  const space = was.spaceAt(spaceUrl, { capability })
 
   if (spaceDescription === undefined) {
-    await ensureSpace({ was, spaceId, controllerDid, spaceName, capability })
-  } else if (spaceDescription.id !== spaceId) {
+    await ensureSpace({ was, spaceUrl, controllerDid, spaceName, capability })
+  } else if (spaceDescription.id !== space.id) {
     // Supplying a description skips the Space half entirely, so a caller
     // holding descriptions for several Spaces that passes the wrong one
     // provisions a collection into a Space this call never ensured. Caught
@@ -257,7 +257,7 @@ export async function ensureSpaceAndCollection({
     // collection-configure failure.
     throw new ValidationError(
       `Space description id "${spaceDescription.id}" does not name the space ` +
-        `being provisioned ("${spaceId}").`
+        `being provisioned ("${space.id}").`
     )
   }
 
@@ -282,7 +282,7 @@ export async function ensureSpaceAndCollection({
           { ifNoneMatch: true }
         ),
       unreadable:
-        `Collection "${collectionId}" in space "${spaceId}" was ` +
+        `Collection "${collectionId}" in space "${spaceUrl}" was ` +
         'created but cannot be read back.'
     })
     const current = read.description
@@ -292,7 +292,7 @@ export async function ensureSpaceAndCollection({
       !isGovernedDescriptor(current.encryption)
     ) {
       throw new ValidationError(
-        `Collection "${collectionId}" in space "${spaceId}" carries a ` +
+        `Collection "${collectionId}" in space "${spaceUrl}" carries a ` +
           'client-written encryption descriptor, so it cannot be governed by ' +
           'a history log: the server keeps a declared descriptor immutable.'
       )
@@ -314,7 +314,7 @@ export async function ensureSpaceAndCollection({
             reusable = null
             if (latest === null) {
               throw new ValidationError(
-                `Collection "${collectionId}" in space "${spaceId}" vanished ` +
+                `Collection "${collectionId}" in space "${spaceUrl}" vanished ` +
                   'while its encryption was being declared.'
               )
             }
@@ -349,7 +349,7 @@ export async function ensureSpaceAndCollection({
   } catch (err) {
     rethrowProvisioningFailure(
       err,
-      `Failed to configure collection "${collectionId}" in space "${spaceId}".`
+      `Failed to configure collection "${collectionId}" in space "${spaceUrl}".`
     )
   }
 }
@@ -369,7 +369,7 @@ export async function ensureSpaceAndCollection({
  *
  * @param options {object}
  * @param options.was {WasClient}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.controllerDid {string}   the Space controller (e.g.
  *   `did:key`); used only when the Space does not exist yet
  * @param [options.spaceName] {string}   the Space display name, applied only at
@@ -382,18 +382,18 @@ export async function ensureSpaceAndCollection({
  */
 export async function ensureSpace({
   was,
-  spaceId,
+  spaceUrl,
   controllerDid,
   spaceName = DEFAULT_SPACE_NAME,
   capability
 }: {
   was: WasClient
-  spaceId: string
+  spaceUrl: string
   controllerDid: string
   spaceName?: string
   capability?: IZcap
 }): Promise<SpaceMetadata> {
-  const space = was.space(spaceId, { capability })
+  const space = was.spaceAt(spaceUrl, { capability })
   try {
     const { value } = await readOrCreate({
       read: () => space.describe(),
@@ -404,13 +404,13 @@ export async function ensureSpace({
             { ifNoneMatch: true }
           )
         ).description,
-      unreadable: `Space "${spaceId}" was created but cannot be read back.`
+      unreadable: `Space "${spaceUrl}" was created but cannot be read back.`
     })
     return value
   } catch (err) {
     rethrowProvisioningFailure(
       err,
-      `Failed to configure WAS space "${spaceId}" for "${controllerDid}".`
+      `Failed to configure WAS space "${spaceUrl}" for "${controllerDid}".`
     )
   }
 }

@@ -29,6 +29,7 @@ import {
   IntegrityError,
   PreconditionFailedError
 } from '../../src/index.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 import type { CollectionEncryption, WasClient } from '../../src/index.js'
 import {
   acquireDescriptor,
@@ -390,7 +391,7 @@ describe('acquireDescriptor', () => {
 
   it('refuses a governed descriptor read through wasDescriptorSource', async () => {
     const was = {
-      space: () => ({
+      spaceAt: () => ({
         collection: () => ({
           describe: async () => ({ encryption: governedDescriptor() })
         })
@@ -400,7 +401,7 @@ describe('acquireDescriptor', () => {
 
     await expect(
       acquireDescriptor({
-        source: wasDescriptorSource({ was, spaceId: 's1' }),
+        source: wasDescriptorSource({ was, spaceUrl: spaceUrlFor('s1') }),
         cache,
         collectionId: COLLECTION_ID
       })

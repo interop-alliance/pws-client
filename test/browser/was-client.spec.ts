@@ -17,16 +17,19 @@ test('WasClient builds lazy handles in the browser', async ({ page }) => {
     const { WasClient } = (await import('/src/index.ts')) as {
       WasClient: typeof WasClientClass
     }
-    // The constructor only stores serverUrl + zcapClient; a minimal stub is
+    // The constructor only stores serviceUrl + zcapClient; a minimal stub is
     // enough to exercise synchronous, network-free handle construction.
     const stubZcapClient = {
       invocationSigner: { id: 'did:example:1#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const was = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: 'https://was.example/service',
       zcapClient: stubZcapClient
     })
-    const resource = was.space('s').collection('c').resource('r')
+    const resource = was
+      .spaceAt('https://was.example/space/s/')
+      .collection('c')
+      .resource('r')
     return {
       spaceId: resource.spaceId,
       collectionId: resource.collectionId,

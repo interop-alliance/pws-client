@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest'
 import type { HttpResponse } from '@interop/http-client'
 import type { WasClient } from '../../src/index.js'
 import { WasServerError } from '../../src/index.js'
-import { clientWithStub } from '../helpers/stubClient.js'
+import { clientWithStub, spaceUrlFor } from '../helpers/stubClient.js'
 import { drain } from '../helpers/bytes.js'
 
 const TAR_BYTES = new Uint8Array([0x74, 0x61, 0x72, 0x00, 0xff, 0x01])
@@ -86,7 +86,7 @@ function clientWithExportResponse(response: ExportResponse = {}): WasClient {
 describe('space.export()', () => {
   it('returns the archive bytes as a Uint8Array', async () => {
     const client = clientWithExportResponse()
-    const bytes = await client.space('s').export()
+    const bytes = await client.spaceAt(spaceUrlFor('s')).export()
     expect(bytes).toEqual(TAR_BYTES)
   })
 })
@@ -94,30 +94,30 @@ describe('space.export()', () => {
 describe('space.exportStream()', () => {
   it('returns the response stream whose chunks concatenate to the archive', async () => {
     const client = clientWithExportResponse()
-    const stream = await client.space('s').exportStream()
+    const stream = await client.spaceAt(spaceUrlFor('s')).exportStream()
     expect(stream).toBeInstanceOf(ReadableStream)
     expect(await drain(stream)).toEqual(TAR_BYTES)
   })
 
   it('throws WasServerError when the response carries no body stream', async () => {
     const client = clientWithExportResponse({ body: null })
-    await expect(client.space('s').exportStream()).rejects.toBeInstanceOf(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).exportStream()
+    ).rejects.toBeInstanceOf(WasServerError)
   })
 })
 
 describe('space.exportBlob()', () => {
   it('returns a Blob typed application/x-tar when the server sets the type', async () => {
     const client = clientWithExportResponse()
-    const blob = await client.space('s').exportBlob()
+    const blob = await client.spaceAt(spaceUrlFor('s')).exportBlob()
     expect(blob.type).toBe('application/x-tar')
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(TAR_BYTES)
   })
 
   it('normalizes the type when the server omits the content-type', async () => {
     const client = clientWithExportResponse({ contentType: undefined })
-    const blob = await client.space('s').exportBlob()
+    const blob = await client.spaceAt(spaceUrlFor('s')).exportBlob()
     expect(blob.type).toBe('application/x-tar')
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(TAR_BYTES)
   })
@@ -130,15 +130,15 @@ describe('export mislabeled-JSON guard', () => {
       bodyUsed: true,
       data: { not: 'a tar' }
     })
-    await expect(client.space('s').export()).rejects.toBeInstanceOf(
-      WasServerError
-    )
-    await expect(client.space('s').exportStream()).rejects.toBeInstanceOf(
-      WasServerError
-    )
-    await expect(client.space('s').exportBlob()).rejects.toBeInstanceOf(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).export()
+    ).rejects.toBeInstanceOf(WasServerError)
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).exportStream()
+    ).rejects.toBeInstanceOf(WasServerError)
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).exportBlob()
+    ).rejects.toBeInstanceOf(WasServerError)
   })
 
   it('names the mislabeled content-type in the error message', async () => {
@@ -146,7 +146,7 @@ describe('export mislabeled-JSON guard', () => {
       contentType: 'application/json',
       data: { not: 'a tar' }
     })
-    await expect(client.space('s').export()).rejects.toThrow(
+    await expect(client.spaceAt(spaceUrlFor('s')).export()).rejects.toThrow(
       /application\/json/
     )
   })

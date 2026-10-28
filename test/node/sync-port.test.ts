@@ -4,7 +4,7 @@
 /**
  * Unit tests for `createWasSyncPort` and its ETag/status helpers. A fake
  * `WasClient` records the raw `was.request()` calls (and serves the
- * `Collection.changes()` feed), so these assert the exact request shapes -- path,
+ * `Collection.changes()` feed), so these assert the exact request shapes -- URL,
  * method, JSON body, conditional-write headers, and the `Key-Epoch` stamp --
  * plus the 412-conflict and 404-not-found error mapping and the write-ack
  * parsing, all without a live server.
@@ -34,9 +34,10 @@ import {
 import type { IZcap } from '../../src/index.js'
 import { Collection } from '../../src/Collection.js'
 import { feedEntry } from '../helpers/changesFeed.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 
 type RequestOptions = {
-  path?: string
+  url?: string
   method?: string
   json?: object
   headers?: Record<string, string>
@@ -74,14 +75,14 @@ const COLL = 'private-credentials'
 
 /**
  * Builds a fake `WasClient` whose `request` is a spy driven by a per-test
- * handler, and whose `space().collection().changes()` is a separate spy.
+ * handler, and whose `spaceAt().collection().changes()` is a separate spy.
  */
 function makeWas(options: {
   onRequest?: (opts: RequestOptions) => unknown
   onChanges?: () => unknown
   changesResult?: unknown
 }) {
-  // Records the handle options the port passes to `space().collection(...)`, so
+  // Records the handle options the port passes to `spaceAt().collection(...)`, so
   // the capability-threading test can assert them.
   const collectionOptions: unknown[] = []
   const changes = vi.fn(async () =>
@@ -93,7 +94,7 @@ function makeWas(options: {
   })
   const was = {
     request,
-    space: () => ({
+    spaceAt: () => ({
       collection: (_collectionId: string, handleOptions?: unknown) => {
         collectionOptions.push(handleOptions)
         // The real page walk over the stubbed `changes()`, so the port's
@@ -138,7 +139,11 @@ describe('createWasSyncPort.query', () => {
       checkpoint: 'c1'
     }
     const { was, changes } = makeWas({ changesResult: page })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const checkpoint = 'c0'
     const result = await port.query({ checkpoint, limit: 50 })
@@ -160,7 +165,11 @@ describe('createWasSyncPort.query', () => {
         checkpoint: 'c1'
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const { documents } = await port.query({ limit: 50 })
     expect(documents).toHaveLength(1)
@@ -201,7 +210,11 @@ describe('createWasSyncPort.query', () => {
         checkpoint: 'c7'
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const result = await port.query({ limit: 50 })
     expect(result.documents.map(doc => doc.id)).toEqual(['a'])
@@ -234,7 +247,11 @@ describe('createWasSyncPort.query', () => {
       (async ({ checkpoint }: { checkpoint: string }) =>
         pages[checkpoint]) as never
     )
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const result = await port.query({ checkpoint: 'c0', limit: 2 })
     expect(result.documents.map(doc => doc.id)).toEqual(['b'])
@@ -253,7 +270,11 @@ describe('createWasSyncPort.query', () => {
         checkpoint: null
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await expect(port.query({ limit: 50 })).resolves.toEqual({
       documents: [],
@@ -268,7 +289,11 @@ describe('createWasSyncPort.query', () => {
         checkpoint: 'c1'
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const err = await port
       .query({ limit: 50 })
@@ -297,7 +322,11 @@ describe('createWasSyncPort.query', () => {
         throw refusal
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const err = await port
       .query({ checkpoint: 'issued-elsewhere', limit: 50 })
@@ -326,7 +355,11 @@ describe('createWasSyncPort.query', () => {
         })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const err = await port
       .query({ checkpoint: 'c0', limit: 50 })
@@ -345,7 +378,11 @@ describe('createWasSyncPort.putContent', () => {
         return response(null, { etag: '"g1.1"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({
       id: 'res-1',
@@ -356,7 +393,9 @@ describe('createWasSyncPort.putContent', () => {
     expect(ack).toEqual({ etag: '"g1.1"' })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe('PUT')
-    expect(calls[0]!.path).toBe(`/space/${SPACE}/${COLL}/res-1`)
+    expect(calls[0]!.url).toBe(
+      `https://was.example/space/${SPACE}/${COLL}/res-1`
+    )
     expect(calls[0]!.json).toEqual({ hello: 'world' })
     expect(calls[0]!.headers).toMatchObject({ 'if-none-match': '*' })
   })
@@ -369,7 +408,11 @@ describe('createWasSyncPort.putContent', () => {
         return response(null, { etag: '"g.5"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putContent({
       id: 'res-1',
@@ -392,7 +435,11 @@ describe('createWasSyncPort.putContent', () => {
         return response(null, { etag: '"g.5"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putContent({ id: 'res-1', data: { a: 1 }, writerId: 'writer-a' })
 
@@ -407,7 +454,11 @@ describe('createWasSyncPort.putContent', () => {
         return response(null, { etag: '"g.5"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putContent({ id: 'res-1', data: { a: 1 } })
 
@@ -418,7 +469,11 @@ describe('createWasSyncPort.putContent', () => {
     const { was, request } = makeWas({
       onRequest: () => response(null, { etag: '"g.1"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await expect(
       port.putContent({ id: 'res-1', data: { a: 1 }, writerId: '' })
@@ -434,7 +489,11 @@ describe('createWasSyncPort.putContent', () => {
         return response(null) // no etag on the write
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({ id: 'res-1', data: { a: 1 } })
     expect(methods).toEqual(['PUT'])
@@ -457,7 +516,7 @@ describe('createWasSyncPort.putContent', () => {
       })
       const port = createWasSyncPort({
         was,
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         collectionId: COLL
       })
 
@@ -479,7 +538,11 @@ describe('createWasSyncPort.putContent', () => {
         throw httpError(412)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 }, ifNoneMatch: true })
@@ -494,7 +557,11 @@ describe('createWasSyncPort.putContent', () => {
         throw httpError(500)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 } })
       .catch((caught: unknown) => caught)
@@ -512,12 +579,18 @@ describe('createWasSyncPort.deleteContent', () => {
         return response(null, { etag: '"g2.2"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.deleteContent({ id: 'res-1', ifMatch: '"1"' })
     expect(ack).toEqual({ etag: '"g2.2"' })
     expect(calls[0]!.method).toBe('DELETE')
-    expect(calls[0]!.path).toBe(`/space/${SPACE}/${COLL}/res-1`)
+    expect(calls[0]!.url).toBe(
+      `https://was.example/space/${SPACE}/${COLL}/res-1`
+    )
     expect(calls[0]!.headers).toMatchObject({ 'if-match': '"1"' })
   })
 
@@ -529,7 +602,11 @@ describe('createWasSyncPort.deleteContent', () => {
         return response(null, { etag: '"g2.2"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.deleteContent({ id: 'res-1', writerId: 'writer-a' })
     expect(calls[0]!.headers).toMatchObject({ 'writer-id': 'writer-a' })
@@ -542,7 +619,11 @@ describe('createWasSyncPort.deleteContent', () => {
     const { was, request } = makeWas({
       onRequest: () => response(null, { etag: '"g.1"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await expect(
       port.deleteContent({ id: 'res-1', writerId: '' })
@@ -556,7 +637,11 @@ describe('createWasSyncPort.deleteContent', () => {
         throw httpError(404)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
     const err = await port
       .deleteContent({ id: 'res-1' })
       .catch((e: unknown) => e)
@@ -570,7 +655,11 @@ describe('createWasSyncPort.deleteContent', () => {
         throw httpError(412)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
     await expect(
       port.deleteContent({ id: 'res-1', ifMatch: '"1"' })
     ).rejects.toBeInstanceOf(WasSyncConflictError)
@@ -586,11 +675,17 @@ describe('createWasSyncPort.putMeta', () => {
         return response(null)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putMeta({ id: 'res-1', custom: { name: 'Alice' } })
     expect(calls[0]!.method).toBe('PUT')
-    expect(calls[0]!.path).toBe(`/space/${SPACE}/${COLL}/res-1/meta`)
+    expect(calls[0]!.url).toBe(
+      `https://was.example/space/${SPACE}/${COLL}/res-1/meta`
+    )
     expect(calls[0]!.json).toEqual({ custom: { name: 'Alice' } })
   })
 
@@ -602,7 +697,11 @@ describe('createWasSyncPort.putMeta', () => {
         return response(null)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putMeta({ id: 'res-1', custom: { name: 'Alice' } })
     expect(calls[0]!.json).toEqual({ custom: { name: 'Alice' } })
@@ -618,7 +717,11 @@ describe('createWasSyncPort guarded writes', () => {
   // precondition-bearing write as given and lets the server answer it.
   const setup = (onRequest: (opts: RequestOptions) => unknown) => {
     const { was } = makeWas({ onRequest })
-    return createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    return createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
   }
 
   it('sends the precondition-bearing write', async () => {
@@ -661,7 +764,7 @@ describe('createWasSyncPort.get', () => {
   it('assembles content + /meta into a MasterState', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           return response(
             {
               updatedAt: '2026-01-01T00:00:00.000Z',
@@ -687,7 +790,11 @@ describe('createWasSyncPort.get', () => {
         )
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const master = await port.get({ id: 'res-1' })
     expect(master).toEqual({
@@ -713,7 +820,7 @@ describe('createWasSyncPort.get', () => {
   it('drops a partial write stamp instead of tearing it', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           // No `updatedAt`, so the counter and origin have no stamp to
           // belong to; the nested `meta` lacks `originId`.
           return response(
@@ -732,7 +839,11 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 }, { etag: '"c"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const master = await port.get({ id: 'res-1' })
     expect(master).toEqual({
@@ -746,7 +857,7 @@ describe('createWasSyncPort.get', () => {
   it('keeps the placeholder updatedAt when /meta serves a bare updatedAt', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           return response(
             { updatedAt: '2026-01-01T00:00:00.000Z', createdBy: 'did:key:z' },
             { etag: '"m"' }
@@ -755,7 +866,11 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 }, { etag: '"c"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const master = await port.get({ id: 'res-1' })
     expect(master).toEqual({
@@ -770,13 +885,17 @@ describe('createWasSyncPort.get', () => {
   it('returns a placeholder updatedAt when the resource has no /meta yet', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
         }
         return response({ a: 1 }, { etag: '"g.4"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const master = await port.get({ id: 'res-1' })
     expect(master?.etag).toBe('"g.4"')
@@ -787,13 +906,17 @@ describe('createWasSyncPort.get', () => {
   it('reports an opaque validator as the etag with no version', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
         }
         return response({ a: 1 }, { etag: '"a1b2c3"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const master = await port.get({ id: 'res-1' })
     expect(master?.etag).toBe('"a1b2c3"')
@@ -803,13 +926,17 @@ describe('createWasSyncPort.get', () => {
   it('reports neither etag nor version when the read carries no ETag', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
         }
         return response({ a: 1 })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const master = await port.get({ id: 'res-1' })
     expect(master).not.toHaveProperty('etag')
@@ -824,7 +951,7 @@ describe('createWasSyncPort.get', () => {
     // state would have a replica push an empty document over real content.
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
         }
         return response(undefined, {
@@ -833,7 +960,11 @@ describe('createWasSyncPort.get', () => {
         })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
     await expect(port.get({ id: 'res-1' })).rejects.toThrow(WasServerError)
   })
 
@@ -843,7 +974,11 @@ describe('createWasSyncPort.get', () => {
         throw httpError(404)
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
     expect(await port.get({ id: 'gone' })).toBeNull()
   })
 })
@@ -864,7 +999,7 @@ describe('createWasSyncPort capability threading', () => {
       changesResult: { documents: [], checkpoint: null },
       onRequest: opts => {
         calls.push(opts)
-        if (opts.path?.endsWith('/meta') && opts.method === 'GET') {
+        if (opts.url?.endsWith('/meta') && opts.method === 'GET') {
           throw httpError(404)
         }
         return response({ a: 1 }, { etag: '"g.1"' })
@@ -872,7 +1007,7 @@ describe('createWasSyncPort capability threading', () => {
     })
     const port = createWasSyncPort({
       was,
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       capability: CAPABILITY
     })
@@ -900,7 +1035,11 @@ describe('createWasSyncPort capability threading', () => {
         return response(null, { etag: '"g.1"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putContent({ id: 'res-1', data: { a: 1 } })
 
@@ -918,7 +1057,11 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
         return response(null, { etag: '"g3.3"' })
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     await port.putMeta({ id: 'res-1' })
 
@@ -933,7 +1076,11 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
     const { was } = makeWas({
       onRequest: () => response(null, { etag: '"g3.3"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     expect(await port.putMeta({ id: 'res-1', custom: { a: 1 } })).toEqual({
       etag: '"g3.3"'
@@ -944,7 +1091,11 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
     const { was } = makeWas({
       onRequest: () => response(null, { etag: '"a1b2c3"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     expect(await port.putMeta({ id: 'res-1', custom: { a: 1 } })).toStrictEqual(
       { etag: '"a1b2c3"' }
@@ -953,7 +1104,11 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
 
   it('returns undefined when the response carries neither ETag nor body', async () => {
     const { was } = makeWas({ onRequest: () => response(null) })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     expect(
       await port.putMeta({ id: 'res-1', custom: { a: 1 } })
@@ -980,7 +1135,11 @@ describe('createWasSyncPort write ack body', () => {
     const { was } = makeWas({
       onRequest: () => response(created, { etag: '"g.1"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({
       id: 'res-1',
@@ -1000,7 +1159,11 @@ describe('createWasSyncPort write ack body', () => {
       onRequest: () =>
         response({ contentType, size, ...stamp }, { etag: '"g.2"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({ id: 'res-1', data: { a: 2 } })
     expect(ack).toStrictEqual({ etag: '"g.2"', ...stamp })
@@ -1015,7 +1178,11 @@ describe('createWasSyncPort write ack body', () => {
           { etag: '"m.1"' }
         )
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     expect(await port.putMeta({ id: 'res-1', custom: { a: 1 } })).toStrictEqual(
       { etag: '"m.1"', ...stamp, meta: metaStamp }
@@ -1028,7 +1195,11 @@ describe('createWasSyncPort write ack body', () => {
       onRequest: () =>
         response({ contentType, size, ...stamp, meta: metaStamp })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     expect(await port.putMeta({ id: 'res-1', custom: { a: 1 } })).toStrictEqual(
       { ...stamp, meta: metaStamp }
@@ -1049,7 +1220,11 @@ describe('createWasSyncPort write ack body', () => {
           { etag: '"g.3"' }
         )
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({ id: 'res-1', data: { a: 1 } })
     expect(ack).toStrictEqual({ etag: '"g.3"' })
@@ -1059,7 +1234,11 @@ describe('createWasSyncPort write ack body', () => {
     const { was } = makeWas({
       onRequest: () => response({ a: 1, ...stamp }, { etag: '"g.4"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({ id: 'res-1', data: { a: 1 } })
     expect(ack).toStrictEqual({ etag: '"g.4"' })
@@ -1070,7 +1249,11 @@ describe('createWasSyncPort write ack body', () => {
       onRequest: () =>
         response({ ...created, createdBy: 42 }, { etag: '"g.5"' })
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const ack = await port.putContent({ id: 'res-1', data: { a: 1 } })
     expect(ack).toStrictEqual({ etag: '"g.5"', ...stamp })
@@ -1090,7 +1273,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
     })
     return createWasSyncPort({
       was,
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       mapAuthErrors
     })
@@ -1143,7 +1326,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
   it('leaves a missing /meta benign when on', async () => {
     const { was } = makeWas({
       onRequest: opts => {
-        if (opts.path?.endsWith('/meta')) {
+        if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
         }
         return response({ a: 1 }, { etag: '"g.4"' })
@@ -1151,7 +1334,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
     })
     const port = createWasSyncPort({
       was,
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       mapAuthErrors: true
     })
@@ -1214,7 +1397,11 @@ describe('createWasSyncPort error classification', () => {
         throw problemError(status, type)
       }
     })
-    return createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    return createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
   }
 
   it('carries the problem fields and a cause onto a write conflict', async () => {
@@ -1224,7 +1411,11 @@ describe('createWasSyncPort error classification', () => {
         throw raw
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 }, ifMatch: '"1"' })
@@ -1247,7 +1438,11 @@ describe('createWasSyncPort error classification', () => {
         throw raw
       }
     })
-    const port = createWasSyncPort({ was, spaceId: SPACE, collectionId: COLL })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
 
     const err = await port
       .deleteContent({ id: 'res-1', ifMatch: '"1"' })
@@ -1288,7 +1483,7 @@ describe('createWasSyncPort error classification', () => {
     })
     const port = createWasSyncPort({
       was,
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       mapAuthErrors: true
     })

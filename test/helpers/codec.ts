@@ -67,7 +67,7 @@ export function memoryBackend(): {
   }
   const context: CodecRequestContext = {
     async request(input) {
-      const path = input.path as string
+      const path = new URL(input.url).pathname
       const method = input.method ?? 'GET'
       if (method === 'PUT') {
         writes.push(path)

@@ -20,6 +20,7 @@ import {
   guardEncryptionDescriptor
 } from './EdvCodec.js'
 import type { EdvKeys } from './EdvCodec.js'
+import { collectionUrl } from '../internal/paths.js'
 import { wasTransportFactory } from './transportFactory.js'
 
 /**
@@ -31,7 +32,7 @@ import { wasTransportFactory } from './transportFactory.js'
  * Collection's `encryption` descriptor (or a per-handle override). Core calls
  * `codecFor` only for a collection already known to be encrypted; this provider
  * then supplies the keys: the override-supplied `keys` when present, else
- * `resolveKeys({ spaceId, collectionId })`. `resolveKeys` returning `null` means
+ * `resolveKeys({ spaceUrl, collectionId })`. `resolveKeys` returning `null` means
  * "I hold no keys for this collection", so core fails closed (it does **not**
  * mean plaintext -- the descriptor/override already decided that). A non-`edv`
  * scheme yields `null` (this provider does not handle it).
@@ -76,7 +77,7 @@ export function createEdvEncryption({
   idDerivation = 'random'
 }: {
   resolveKeys: (ref: {
-    spaceId: string
+    spaceUrl: string
     collectionId: string
   }) => Promise<EdvKeys | null>
   contentType?: string
@@ -89,7 +90,7 @@ export function createEdvEncryption({
       return scheme === EDV_SCHEME && descriptorDefect(encryption) === null
     },
 
-    async codecFor({ spaceId, collectionId, scheme, encryption, keys }) {
+    async codecFor({ spaceUrl, collectionId, scheme, encryption, keys }) {
       if (scheme !== EDV_SCHEME) {
         return null
       }
@@ -98,21 +99,22 @@ export function createEdvEncryption({
       // "holds no keys" the null return below would produce. `buildEdvCodec`
       // guards again for callers that reach it directly; the guard is pure, so
       // running it twice costs nothing.
+      const label = collectionUrl({ spaceUrl, collectionId })
       guardEncryptionDescriptor({
-        label: `${spaceId}/${collectionId}`,
+        label,
         encryption
       })
       // Prefer override-supplied keys; otherwise consult the keystore.
       const resolved =
         (keys as EdvKeys | undefined) ??
-        (await resolveKeys({ spaceId, collectionId }))
+        (await resolveKeys({ spaceUrl, collectionId }))
       if (!resolved) {
         return null
       }
       return buildEdvCodec({
-        label: `${spaceId}/${collectionId}`,
+        label,
         transportFactory: wasTransportFactory({
-          spaceId,
+          spaceUrl,
           collectionId,
           contentType
         }),

@@ -20,8 +20,8 @@ import { WasClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
 import { bytesOf } from '../helpers/bytes.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Well past the server's 1 MiB buffered-body default and the size at which a
@@ -52,7 +52,7 @@ describeLive(
     beforeAll(async () => {
       const keyPair = await Ed25519VerificationKey.generate()
       const was = WasClient.fromSigner({
-        serverUrl: serverUrl!,
+        serviceUrl: serviceUrl!,
         signer: keyPair.didKeySigner()
       })
       space = await was.createSpace({ name: 'Large Binary Upload Integration' })

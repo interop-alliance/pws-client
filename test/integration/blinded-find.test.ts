@@ -38,8 +38,8 @@ import {
 } from '../../src/edv/index.js'
 import { createWasSyncPort } from '../../src/sync/index.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Builds an encryption-capable client plus a plaintext one over the same
@@ -77,12 +77,12 @@ async function freshClients(): Promise<{
   })
   return {
     encrypted: WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner(),
       encryption
     }),
     plaintext: WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner()
     }),
     kak: kak as IKeyAgreementKey,
@@ -114,7 +114,7 @@ describeLive('blinded content search on an encrypted collection', () => {
       recipients: [ownerRecipient({ keyAgreementKey: kak })],
       blindedIndex: true
     })
-    collection = was.space(space.id).collection('vault')
+    collection = was.spaceAt(space.url).collection('vault')
 
     // Written BEFORE any declaration: it carries no index token, so it must not
     // match later searches (declarations are prospective).
@@ -162,7 +162,7 @@ describeLive('blinded content search on an encrypted collection', () => {
   it('persists the schema encrypted and discoverable by a second handle', async () => {
     // A fresh handle that never declared anything learns what is searchable
     // from the collection itself -- the access-grant flow.
-    const second = was.space(space.id).collection('vault')
+    const second = was.spaceAt(space.url).collection('vault')
     expect(await second.indexes()).toEqual([
       { attribute: 'content.type', addedIn: 1 }
     ])
@@ -173,14 +173,14 @@ describeLive('blinded content search on an encrypted collection', () => {
 
     // A client without the keys sees only an opaque envelope where the schema
     // lives -- the attribute names never reach the server as plaintext.
-    const stored = await plaintext.space(space.id).collection('vault').meta()
+    const stored = await plaintext.spaceAt(space.url).collection('vault').meta()
     expect(JSON.stringify(stored?.custom)).not.toContain('content.type')
   })
 
   it('stores blinded index entries alongside the ciphertext', async () => {
     const { id } = await collection.add({ type: 'note', title: 'delta' })
     const raw = await plaintext
-      .space(space.id)
+      .spaceAt(space.url)
       .collection('vault')
       .resource(id)
       .get()
@@ -230,8 +230,11 @@ describeLive('blinded content search on an encrypted collection', () => {
     // What a replica holds: the collection's descriptor and its stored `/meta`
     // (whose `custom` is the opaque metadata envelope -- the plaintext client
     // passes it through raw).
-    const description = await was.space(space.id).collection('vault').describe()
-    const stored = await plaintext.space(space.id).collection('vault').meta()
+    const description = await was
+      .spaceAt(space.url)
+      .collection('vault')
+      .describe()
+    const stored = await plaintext.spaceAt(space.url).collection('vault').meta()
     const cipher = await createEdvDocCipher({
       keyAgreementKey: kak,
       keyResolver,
@@ -246,7 +249,7 @@ describeLive('blinded content search on an encrypted collection', () => {
     })
     const port = createWasSyncPort({
       was,
-      spaceId: space.id,
+      spaceUrl: space.url,
       collectionId: 'vault'
     })
     await port.putContent({ id, data: envelope, ifNoneMatch: true, epoch })

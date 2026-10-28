@@ -263,8 +263,8 @@ export type EncryptionOverride =
  * - `version` -- the chosen WAS specification version, such as `"0.5"`.
  * - `entry` -- the chosen version entry.
  * - `spacesUrl` -- the absolute Spaces Repository URL from the entry's
- *   `spaces` member. Absent when the server does not implement the Spaces
- *   Repository.
+ *   `spaces` member, the URL `createSpace` and `listSpaces` address. Absent
+ *   when the server does not implement the Spaces Repository.
  * - `features` -- the entry's `features` tokens. The vocabulary is open: a
  *   token this client does not know is carried here and otherwise ignored.
  * - `hasFeature(token)` -- whether the entry advertises `token`. An absent
@@ -302,6 +302,10 @@ export interface HandleOptions {
  * @property [expires]       expiration; defaults to ezcap's 5-minute default
  * @property [target]        invocationTarget URL; filled by scoped grants
  * @property [capability]    parent capability to attenuate / re-delegate
+ * @property [spaceUrl]      the Space the grant is rooted in, so it can be
+ *   revoked at that Space; filled by scoped grants. A fresh grant without it
+ *   is rooted at `target`'s own root capability (ezcap's default) and is not
+ *   Space-revocable
  */
 export interface GrantOptions {
   to: string
@@ -309,14 +313,16 @@ export interface GrantOptions {
   expires?: string | Date
   target?: string
   capability?: IZcap
+  spaceUrl?: string
 }
 
 /**
- * Input for the low-level `was.request()` escape hatch.
+ * Input for the low-level `was.request()` escape hatch: an absolute `url`
+ * (every URL this client addresses is derived from a Space URL the server
+ * named, so there is no server root to resolve a path against).
  */
 export interface RequestInput {
-  path?: string
-  url?: string
+  url: string
   method?: string
   action?: string
   headers?: Record<string, string>

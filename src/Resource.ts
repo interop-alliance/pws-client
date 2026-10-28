@@ -7,7 +7,13 @@
  * with explicit `getText()` / `getBytes()` escape hatches.
  */
 import type { HttpResponse } from '@interop/http-client'
-import { resourcePath, resourcePolicy, resourceMeta } from './internal/paths.js'
+import {
+  canonicalSpaceUrl,
+  resourceUrl,
+  resourcePolicyUrl,
+  resourceMetaUrl,
+  spaceIdOfCanonicalUrl
+} from './internal/paths.js'
 import { assertNotReserved } from './internal/reserved.js'
 import type { ClientContext } from './internal/request.js'
 import { send } from './internal/request.js'
@@ -58,9 +64,22 @@ function preParsedJson(response: HttpResponse): string | undefined {
 }
 
 export class Resource {
-  readonly spaceId: string
+  /**
+   * The URL of the Space this Resource lives in, in canonical form.
+   */
+  readonly spaceUrl: string
+  /**
+   * The id of that Space: the last path segment of {@link spaceUrl}.
+   */
+  get spaceId(): string {
+    return spaceIdOfCanonicalUrl(this.spaceUrl)
+  }
   readonly collectionId: string
   readonly id: string
+  /**
+   * The Resource's absolute URL (no trailing slash): get / put / delete.
+   */
+  readonly url: string
 
   readonly #context: ClientContext
   readonly #capability?: IZcap
@@ -87,7 +106,7 @@ export class Resource {
   /**
    * @param options {object}
    * @param options.context {ClientContext}
-   * @param options.spaceId {string}
+   * @param options.spaceUrl {string}   the Space's URL, as the server named it
    * @param options.collectionId {string}
    * @param options.resourceId {string}
    * @param [options.capability] {IZcap}   capability attached to every request
@@ -101,7 +120,7 @@ export class Resource {
    */
   constructor({
     context,
-    spaceId,
+    spaceUrl,
     collectionId,
     resourceId,
     capability,
@@ -109,7 +128,7 @@ export class Resource {
     encryption
   }: {
     context: ClientContext
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     resourceId: string
     capability?: IZcap
@@ -118,33 +137,34 @@ export class Resource {
   }) {
     // Guard the id against the Reserved Path Segment Registry up front, so a
     // reserved id from caller input can never be mis-targeted at a
-    // collection-level endpoint. `resourcePath(s, c, 'policy')` is
-    // byte-identical to the collection policy path, so an unguarded
+    // collection-level endpoint. `resourceUrl` of `'policy'` is
+    // byte-identical to the collection policy URL, so an unguarded
     // `resource('policy').delete()` would silently wipe the collection's
     // access-control policy; the same collision exists for `backend` / `quota`
     // / `linkset` / `meta`. Guarding in the constructor covers every operation
     // (read, delete, meta, policy, put), not just writes.
     assertNotReserved({ id: resourceId, kind: 'resource' })
     this.#context = context
-    this.spaceId = spaceId
+    this.spaceUrl = canonicalSpaceUrl(spaceUrl)
     this.collectionId = collectionId
     this.id = resourceId
+    this.url = resourceUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId,
+      resourceId
+    })
     this.#capability = capability
     if (codec) {
       this.#codec = codec
     } else {
       const holder = collectionCodecHolder(context, {
-        spaceId,
+        spaceUrl: this.spaceUrl,
         collectionId,
         override: encryption,
         capability
       })
       this.#codec = () => holder.get()
     }
-  }
-
-  get #path(): string {
-    return resourcePath(this.spaceId, this.collectionId, this.id)
   }
 
   /**
@@ -167,7 +187,7 @@ export class Resource {
    */
   async #read(): Promise<HttpResponse | null> {
     return send(this.#context, {
-      path: this.#path,
+      url: this.url,
       method: 'GET',
       capability: this.#capability,
       read: true
@@ -372,7 +392,7 @@ export class Resource {
   ): Promise<{ etag?: string }> {
     const codec = await this.#codec()
     return await upsertResource(this.#context, {
-      path: this.#path,
+      url: this.url,
       codec,
       id: this.id,
       data,
@@ -396,7 +416,7 @@ export class Resource {
    */
   async delete(options: { ifMatch?: string } = {}): Promise<void> {
     await send(this.#context, {
-      path: this.#path,
+      url: this.url,
       method: 'DELETE',
       capability: this.#capability,
       // A conditional delete is not idempotent: a stale `If-Match` must surface
@@ -406,8 +426,12 @@ export class Resource {
     })
   }
 
-  get #metaPath(): string {
-    return resourceMeta(this.spaceId, this.collectionId, this.id)
+  get #metaUrl(): string {
+    return resourceMetaUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.collectionId,
+      resourceId: this.id
+    })
   }
 
   /**
@@ -434,7 +458,7 @@ export class Resource {
    */
   async meta(): Promise<(ResourceMetadata & { etag?: string }) | null> {
     return readMeta<ResourceMetadata>(this.#context, {
-      metaPath: this.#metaPath,
+      metaUrl: this.#metaUrl,
       codec: this.#codec(),
       subject: `"${this.id}"`,
       slot: { kind: 'resource', id: this.id },
@@ -473,7 +497,7 @@ export class Resource {
     options: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
     return writeMeta(this.#context, {
-      metaPath: this.#metaPath,
+      metaUrl: this.#metaUrl,
       codec: this.#codec(),
       custom: meta.custom ?? {},
       slot: { kind: 'resource', id: this.id },
@@ -508,8 +532,12 @@ export class Resource {
     return patchCustom(this, { tags }, { create: true })
   }
 
-  get #policyPath(): string {
-    return resourcePolicy(this.spaceId, this.collectionId, this.id)
+  get #policyUrl(): string {
+    return resourcePolicyUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.collectionId,
+      resourceId: this.id
+    })
   }
 
   /**
@@ -525,7 +553,7 @@ export class Resource {
    */
   async getPolicy(): Promise<PolicyDocument | null> {
     return readPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -545,7 +573,7 @@ export class Resource {
     etag?: string
   } | null> {
     return readPolicyWithEtag(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -570,7 +598,7 @@ export class Resource {
     { ifMatch, ifNoneMatch }: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
     return writePolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       policy,
       ifMatch,
       ifNoneMatch,
@@ -592,7 +620,7 @@ export class Resource {
     etag?: string
   }> {
     return setPublicPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       ifMatch,
       ifNoneMatch,
       capability: this.#capability
@@ -608,7 +636,7 @@ export class Resource {
    */
   async isPublic(): Promise<boolean> {
     return isPublicPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -630,7 +658,7 @@ export class Resource {
     etag?: string
   }> {
     return deletePolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       ifMatch,
       capability: this.#capability
     })

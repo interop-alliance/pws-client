@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 140
+nextAvailableId: 141
 
 <!-- roadmap-order:index:start -->
 
@@ -78,6 +78,11 @@ Ready:
   and read the signature members from it
 - WCL-32 [L] Provisioning creates cannot be made race-safe (no create-if-absent
   precondition)
+
+Waiting on another repo:
+
+- WCL-140 [H] Construct from a service URL; open Spaces by URL, never by
+  assembling one from a root (after WASS-60)
 
 **Features**
 
@@ -1076,6 +1081,72 @@ without this upstream fix.
 
 Conformance gaps against the spec, and wire-contract changes the client adopts
 once the spec or the server has settled them.
+
+### WCL-140: [H] [after WASS-60] Construct from a service URL; open Spaces by URL, never by assembling one from a root
+
+- status: in-progress
+- priority: high
+- labels: discovery, paths, breaking, cross-repo, api
+- decision: decisions/0002-server-identity-is-the-service-url.md (accepted
+  2026-10-28)
+- blocked-by: WASS-60 (the spec text this contract implements; drafted and in
+  review 2026-10-28)
+- touches:
+  - was-client: SHIPPED (2026-10-28, unreleased 0.100.0): `src/WasClient.ts`
+    (`serviceUrl` / `spacesUrl` constructor arms, `spaceAt`, `createSpace` from
+    `Location`, `baseUrl` and `space(spaceId)` removed), `src/paths.ts` and
+    `src/internal/paths.ts` (`*Url` builders beneath a Space URL,
+    `canonicalSpaceUrl`, `spaceIdOfUrl`, `parseSpaceTarget({ spaceUrl })`),
+    `src/internal/service.ts` (`readServiceDescription`),
+    `src/internal/grant.ts` (`GrantOptions.spaceUrl`) and
+    `src/internal/revoke.ts` (`spaceUrlOf` reads the Space off the chain root),
+    the EDV and sync seams (`spaceId` to `spaceUrl`), ARCHITECTURE.md,
+    AGENTS.md, README.md, CHANGELOG.md; `test/integration/globalSetup.ts`
+    discovers the service URL itself until WAS-234 ships
+  - wallet-core: WC-307 (filed 2026-10-28: the DID template and its inverse, the
+    pointer shape, every base-URL parameter)
+  - wallet-request: WR-4 (filed 2026-10-28 as a draft; `WalletOnboardingQuery`)
+  - freewallet: FW-694 (filed 2026-10-28); was-react: WR-98 (filed 2026-10-28);
+    dcw: DCW-104
+  - was-teaching-server: WAS-234 (filed 2026-10-28: `startTestServer` returns
+    the service URL; the in-repo counterpart tests)
+  - portable-web-spaces-spec: WASS-60 (drafted, in review 2026-10-28)
+- acceptance:
+  - [x] `new WasClient` and `fromSigner` take `{ serviceUrl }` or
+        `{ spacesUrl }` (names settled 2026-10-28), plus the optional cached
+        `serviceDescription`. A service URL is fetched directly; a Spaces URL is
+        probed with HEAD for its `service` link. Any other input is a
+        `ValidationError`
+  - [x] `createSpace` returns a Space handle built from the response's
+        `Location`; `spaceAt(url)` opens a handle on an absolute Space URL the
+        caller holds; `space(spaceId)` is removed
+  - [x] `baseUrl`, `spacesUrl({ baseUrl })`, `baseUrlOfSpacesUrl`, and the
+        sub-path handling in `toUrl` are removed; nothing in the package builds
+        a URL from a root. Root capability ids derive from the Space URL as they
+        do today
+  - [x] Discovery does not compare the description's `spaces` member to the
+        Spaces URL the client was built on (settled 2026-10-28: a mismatch fails
+        on its own; `createSpace` and `listSpaces` address the description's
+        `spaces`)
+  - [ ] The testing counterpart returns the server's service URL (WAS-234), and
+        was-react's and dcw's counterpart tests stay green on the release
+  - [x] Decision 0002 is `accepted` with its two wallet-side open conventions
+        filled in (the pointer is `{ did, spaceUrl? }`; the onboarding query
+        carries `did` plus an optional `serviceUrl`), and every `touches:` entry
+        is annotated
+
+Since 0.99 the constructor takes the Spaces Repository URL and derives a
+`baseUrl` from it by stripping the final `spaces` segment, and every Space,
+collection, resource, and `did.jsonl` URL, and every zcap `invocationTarget`, is
+assembled beneath that base. Every consumer holds a base URL and appends
+`/spaces/` on the way in. The spec permits neither derivation: the service
+description is the root of the URL graph, a server may be mounted under any
+path, and the Spaces Repository is optional. The client never needs to assemble
+a Space URL. It receives one from `Location` when it creates the Space, and
+otherwise the caller holds one, from a stored pointer or from resolving the
+Space's did:webvh (wallet-core owns that resolution, as the inverse of the
+template that mints the DID). discovered-from: the dcw /simplify pass of
+2026-10-27 and the spec reading that followed.
 
 ### WCL-131: [M] The Resource `/meta` validator's relation to content writes is unstated in the spec
 

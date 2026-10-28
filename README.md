@@ -48,16 +48,16 @@ through cheap, lazy navigational handles modeled on a document store's DX
 (`add`/`get`/`put`/`list`/`delete`) rather than `insertOne`/`findOne` (PWS has
 no query-by-filter yet).
 
-| Document db driver                  | PWS client                                 |
-| ----------------------------------- | ------------------------------------------ |
-| `new Client(url)`                   | `new WasClient({ serverUrl, zcapClient })` |
-| `client.db('app')`                  | `was.space(spaceId)`                       |
-| `db.collection('users')`            | `space.collection(collectionId)`           |
-| `collection.insertOne(doc)`         | `collection.add(doc)`                      |
-| `collection.findOne({ _id })`       | `collection.get(resourceId)`               |
-| `collection.replaceOne({ _id }, d)` | `collection.put(resourceId, data)`         |
-| `collection.find().toArray()`       | `collection.list()`                        |
-| `collection.deleteOne({ _id })`     | `collection.resource(resourceId).delete()` |
+| Document db driver                  | PWS client                                  |
+| ----------------------------------- | ------------------------------------------- |
+| `new Client(url)`                   | `new WasClient({ serviceUrl, zcapClient })` |
+| `client.db('app')`                  | `was.spaceAt(spaceUrl)`                     |
+| `db.collection('users')`            | `space.collection(collectionId)`            |
+| `collection.insertOne(doc)`         | `collection.add(doc)`                       |
+| `collection.findOne({ _id })`       | `collection.get(resourceId)`                |
+| `collection.replaceOne({ _id }, d)` | `collection.put(resourceId, data)`          |
+| `collection.find().toArray()`       | `collection.list()`                         |
+| `collection.deleteOne({ _id })`     | `collection.resource(resourceId).delete()`  |
 
 See also:
 
@@ -110,7 +110,7 @@ const zcapClient = new ZcapClient({
 
 // 3. Wrap it.
 const was = new WasClient({
-  serverUrl: 'https://was.example/spaces/',
+  serviceUrl: 'https://was.example/service',
   zcapClient
 })
 ```
@@ -130,7 +130,7 @@ keyPair.controller = `did:key:${keyPair.fingerprint()}`
 keyPair.id = `${keyPair.controller}#${keyPair.fingerprint()}`
 
 const was = WasClient.fromSigner({
-  serverUrl: 'https://was.example/spaces/',
+  serviceUrl: 'https://was.example/service',
   signer: keyPair.signer()
 })
 ```
@@ -139,15 +139,19 @@ The `seed` is where a passphrase-, stored-secret-, or KMS-derived key plugs in:
 deriving the same 32-byte seed yields the same DID, and therefore access to the
 same spaces.
 
-`serverUrl` is the server's Spaces Repository URL (`https://host/spaces/`, or
-`https://host/was/spaces/` on a sub-path mount). The reserved `spaces` segment
-sits at the server root, so the client derives the base URL for Space paths and
-zcap `invocationTarget`s as its parent, exposed as `was.baseUrl`. A value that
-is not an absolute URL ending in a `spaces` segment is refused with
-`ValidationError`. The `./paths` entry exports `spacesUrl({ baseUrl })` and
-`baseUrlOfSpacesUrl(url)` for a consumer that holds one form and needs the other
-(a Collection URL from a capability, say, goes through
-`parseAbsoluteSpaceTarget` and then `spacesUrl`).
+A client is built from exactly one of two URLs. `serviceUrl` is the URL of the
+server's service description, read with an unsigned `GET`. `spacesUrl` is the
+Spaces Repository URL (`https://host/spaces/`), which the client probes with an
+unsigned `HEAD` for the `Link: <...>; rel="service"` header. Giving both or
+neither, or a URL that is not absolute `http(s)`, is refused with
+`ValidationError`. The one given is exposed as `was.serviceUrl` or
+`was.spacesUrl`, and the other is `undefined`.
+
+A Space URL is received. It is not assembled from a server root. It arrives as
+the `Location` of a create response, a listing item's `url`, a linkset entry, a
+stored pointer, or a self-locating DID. The client holds no base URL, and no
+function in the `./paths` entry takes one. `was.spaceAt(spaceUrl)` opens a
+handle on a Space URL you hold.
 
 #### Deriving a client from a secret or seed (`./identity`)
 
@@ -162,7 +166,7 @@ import { WasClient } from '@interop/was-client'
 const agents = await agentsFromSecret({ secret: 'the account secret' })
 
 const was = WasClient.fromSigner({
-  serverUrl: 'https://was.example/spaces/',
+  serviceUrl: 'https://was.example/service',
   signer: agents.keyAgent.getSigner()
 })
 ```
@@ -203,15 +207,17 @@ own pace produces.
 ### Service discovery
 
 Before its first signed request, the client reads the server's service
-description. It sends an unsigned `HEAD` to `serverUrl`, the Spaces Repository
-URL, and follows the `Link: <...>; rel="service"` header on the response,
-whatever its status. The PWS server itself answers that URL. The server root is
-often a landing page served by something else, with no `service` link. Then it
-reads the linked document with an unsigned `GET`. The spec fixes no path for the
-document, so the client assumes none. A server that advertises its Spaces
-Repository at a URL other than `serverUrl` is refused with
-`IncompatibleServerError`, since every Space path would otherwise be addressed
-at the wrong mount.
+description. A client built from `serviceUrl` reads that document with an
+unsigned `GET`. A client built from `spacesUrl` first sends an unsigned `HEAD`
+to it and follows the `Link: <...>; rel="service"` header on the response,
+whatever its status, then reads the linked document with an unsigned `GET`. The
+PWS server itself answers the Spaces Repository URL. The server root is often a
+landing page served by something else, with no `service` link. The spec fixes no
+path for the document, so the client assumes none.
+
+The client does not compare the document's `spaces` member against any URL it
+was given. `createSpace()` and `listSpaces()` address the `spaces` URL the
+document names.
 
 From the document the client selects the PWS specification version it speaks.
 This client speaks only v0.5. It ignores `specs` keys other than
@@ -254,8 +260,9 @@ that copy without fetching, and `service({ refresh: true })` discovers afresh.
 The client exposes the PWS containment model
 (`SpacesRepository > Space > Collection > Resource`) as navigational handles.
 Handles are lazy and synchronous to obtain -- only the verb methods hit the
-network. Lazy chains never throw: `was.space(x).collection(y)` does no I/O and
-just accumulates URL context. Existence is checked on the first network verb.
+network. Lazy chains never throw: `was.spaceAt(url).collection(y)` does no I/O
+and just accumulates URL context. Existence is checked on the first network
+verb.
 
 ```ts
 const space = await was.createSpace({ name: 'Home' })
@@ -282,10 +289,13 @@ one item" footgun. The next sections cover each level in turn.
 
 A Space is the top-level container, created from the spaces repository. The
 server requires a `name`; `controller` defaults to the client's own DID, and the
-server generates the id unless you pass one. `createSpace()` and `listSpaces()`
-address the Spaces Repository URL the service description names (see
-[Service discovery](#service-discovery)). Against a server whose description has
-no `spaces` URL, they throw `NotSupportedError` without sending anything.
+server generates the id unless you pass one. `createSpace()` reads the
+`Location` header of the response and returns a handle on that Space URL. A
+response without `Location` throws `WasServerError`. `createSpace()` and
+`listSpaces()` address the Spaces Repository URL the service description names
+(see [Service discovery](#service-discovery)). Against a server whose
+description has no `spaces` URL, they throw `NotSupportedError` without sending
+anything.
 
 ```ts
 const space = await was.createSpace({ name: 'Home' }) // POST {spacesUrl}
@@ -295,8 +305,8 @@ const aux = await was.createSpace({
   type: ['AuxiliarySpace', 'Space']
 })
 
-// Lazy handle to an existing space by id -- no I/O until a verb runs.
-const same = was.space(space.id)
+// Lazy handle to an existing space by its URL -- no I/O until a verb runs.
+const same = was.spaceAt(space.url)
 
 // Read the Space Metadata object (null if missing or not visible to you).
 const desc = await space.describe() // { id, type: ['Space'], name, controller } | null
@@ -318,7 +328,7 @@ await space.replaceDescription(
   { ifMatch: read!.etag }
 ) // { etag? }
 await was
-  .space('fresh-id')
+  .spaceAt(freshSpaceUrl)
   .replaceDescription(
     { name: 'Fresh', controller: 'did:key:z6Mk...' },
     { ifNoneMatch: true }
@@ -493,9 +503,13 @@ await collection.put('greeting', new Blob(['hello'], { type: 'text/plain' }))
 ### Delegation and sharing
 
 `was.grant(...)` is the general delegation primitive; `space.grant(...)` and
-`collection.grant(...)` are sugar that prefill the grant `target` with the
-handle's URL. The recipient rebuilds access from the received zcap with
-`fromCapability()`.
+`collection.grant(...)` are sugar that prefill the grant `target` and `spaceUrl`
+from the handle. A bare `was.grant(...)` with no `capability` and no `spaceUrl`
+is rooted at the target's own root capability. Passing `spaceUrl` roots it at
+that Space instead, and throws `ValidationError` if `target` is not at or
+beneath the Space. The recipient rebuilds access from the received zcap with
+`fromCapability()`, which reads the Space off the capability's chain root. A
+zcap not rooted in a Space is refused with `ValidationError`.
 
 ```ts
 // Alice grants Bob read access to a resource.
@@ -503,7 +517,8 @@ const added = await collection.add({ secret: 'value' })
 const zcap = await was.grant({
   to: bobDid,
   actions: ['GET'], // HTTP verbs: 'GET' | 'HEAD' | 'PUT' | 'POST' | 'DELETE'
-  target: added.url
+  target: added.url,
+  spaceUrl: space.url
 })
 
 // Bob, holding the zcap, rebuilds a handle at the right depth.
@@ -531,7 +546,7 @@ lowercase forms and normalizes them to uppercase in the signed zcap -- so
 
 `space.revoke(zcap)` undoes a `grant()`, so a leaked capability need not be
 waited out to its `expires`. `was.revoke(zcap)` is the same operation with the
-Space derived from the capability.
+Space read off the capability's delegation chain root.
 
 ```ts
 const zcap = await collection.grant({ to: appDid, actions: ['GET', 'PUT'] })
@@ -915,15 +930,15 @@ if (serverDid === undefined) {
 
 // The pull capability: GET-only, rooted in the peer Space, delegated to that
 // DID.
-const capability = await peerWas.space(peerSpaceId).grant({
+const capability = await peerWas.spaceAt(peerSpaceUrl).grant({
   to: serverDid,
   actions: ['GET']
 })
 
 const registration = await space.registerReplica({
   id: 'peer-1', // client-chosen and URL-safe
-  fromSpace: `https://peer.example/space/${peerSpaceId}/`,
-  toSpace: `https://was.example/space/${space.id}/`,
+  fromSpace: peerSpaceUrl,
+  toSpace: space.url,
   capability,
   collections: [{ id: 'credentials' }], // omit to pull every Collection
   role: 'source'
@@ -1039,16 +1054,16 @@ import { createEdvEncryption } from '@interop/was-client/edv'
 
 const encryption = createEdvEncryption({
   // The keystore: return the collection's keys (from your wallet).
-  async resolveKeys({ spaceId, collectionId }) {
+  async resolveKeys({ spaceUrl, collectionId }) {
     return { keyAgreementKey, keyResolver }
   }
 })
-const was = WasClient.fromSigner({ serverUrl, signer, encryption })
+const was = WasClient.fromSigner({ serviceUrl, signer, encryption })
 
 // Declare the collection encrypted (writes the descriptor). The returned handle is
 // pre-seeded, so the first write encrypts with no extra round-trip.
 const vault = await was
-  .space(spaceId)
+  .spaceAt(spaceUrl)
   .createCollection({ id: 'vault', encryption: { scheme: 'edv' } })
 const { id } = await vault.add({ secret: 'hello' }) // encrypted; id is an EDV id
 const back = await vault.get(id) // { secret: 'hello' } -- decrypted
@@ -1056,7 +1071,7 @@ const back = await vault.get(id) // { secret: 'hello' } -- decrypted
 // A consumer that did not create it discovers the descriptor and decrypts with its
 // own keys -- no override needed; one cached read of the Collection Metadata
 // object:
-const same = was.space(spaceId).collection('vault')
+const same = was.spaceAt(spaceUrl).collection('vault')
 await same.get(id) // reads the descriptor, then decrypts
 ```
 
@@ -1073,7 +1088,7 @@ to force the decision and skip the Collection Metadata read --
 inline), or `'plaintext'`:
 
 ```ts
-const vault = was.space(spaceId).collection('vault', {
+const vault = was.spaceAt(spaceUrl).collection('vault', {
   encryption: { scheme: 'edv' }
 })
 ```
@@ -1154,7 +1169,7 @@ same codec, doc ciphers, key epochs, recipient operations, blinding keys,
 `resourceDescriptorStore`, and the log-governed descriptor stores, with every
 transport module left out of the import graph. `collectionDescriptorStore` stays
 on `./edv`, since it reads through a live `Collection` handle. The example below
-leaves `spaceId` unset. A cipher told which Space its collection lives in loads
+leaves `spaceUrl` unset. A cipher told which Space its collection lives in loads
 the transport factory for the chunked paths. A cipher with no Space still reads
 a chunked envelope when `decrypt` is given a `chunkSource`, a function that
 serves each chunk (`{ docId, chunkIndex }` to the parsed chunk, or `undefined`)
@@ -1210,7 +1225,7 @@ await ensureFirstEpoch({
 Then declare what is searchable and search it:
 
 ```ts
-const vault = was.space(spaceId).collection('vault')
+const vault = was.spaceAt(spaceUrl).collection('vault')
 await vault.declareIndex({ attribute: 'content.type' })
 
 await vault.add({ type: 'note', title: 'alpha' })
@@ -1265,7 +1280,7 @@ to replicate one Space + Collection across devices, with PWS as the primary
 copy. It is not a sync engine itself -- it provides the seams a change engine
 plugs into:
 
-- **`createWasSyncPort({ was, spaceId, collectionId })`** builds a
+- **`createWasSyncPort({ was, spaceUrl, collectionId })`** builds a
   `WasSyncPort`: paged pulls over the collection's `changes` feed (resumable via
   an opaque server-side checkpoint) and conditional pushes
   (`putContent`/`deleteContent`/`putMeta`) guarded by the server's content
@@ -1311,10 +1326,10 @@ plugs into:
   collection; `createEdvDocCipher(...)` (from `@interop/was-client/edv`) is the
   encrypting one, built from the collection's key-epoch descriptor (every
   encrypted collection carries one from birth; install epoch[0] at provision
-  time with `ensureFirstEpoch`). Build it with the collection's `spaceId` to let
-  `decrypt` fetch a chunked blob's chunks, or pass `decrypt` a `chunkSource` to
-  serve them from bytes you hold. On a searchable collection, also hand it the
-  stored Collection `/meta` value (the `meta` input, or `applyMeta` when the
+  time with `ensureFirstEpoch`). Build it with the collection's `spaceUrl` to
+  let `decrypt` fetch a chunked blob's chunks, or pass `decrypt` a `chunkSource`
+  to serve them from bytes you hold. On a searchable collection, also hand it
+  the stored Collection `/meta` value (the `meta` input, or `applyMeta` when the
   replica's copy changes) so pushed documents carry blinded index entries and
   stay visible to `find()`. `createEdvEncryptOnlyDocCipher(...)` is the
   write-only counterpart, built from the descriptor alone with no key-agreement
@@ -1356,21 +1371,21 @@ plugs into:
 import {
   createWasSyncPort,
   createPlaintextDocCipher,
-  deriveSpaceId,
   ensureSpaceAndCollection,
   isSyncConflictError
 } from '@interop/was-client/sync'
 
-const spaceId = deriveSpaceId(controllerDid) // same Space on every device
+// The Space URL is received, then stored: the same Space on every client.
+const spaceUrl = storedSpaceUrl
 await ensureSpaceAndCollection({
   was,
-  spaceId,
+  spaceUrl,
   controllerDid,
   collectionId: 'notes',
   encryption: 'plaintext'
 })
 
-const port = createWasSyncPort({ was, spaceId, collectionId: 'notes' })
+const port = createWasSyncPort({ was, spaceUrl, collectionId: 'notes' })
 const cipher = createPlaintextDocCipher({ collectionId: 'notes' })
 
 // Push: encrypt (mints the id), then write the stored body verbatim.
@@ -1474,14 +1489,14 @@ large Blobs to disk.)
 
 ### The manual-request escape hatch
 
-`was.request(...)` mirrors ezcap's generic `request()` for hand-built calls. As
-a deliberate escape hatch it returns the raw `HttpResponse` and throws raw
-ezcap/ky errors -- it does not apply the null-on-404 or typed-error
-conveniences. It still waits on service discovery, so against an incompatible
-server it rejects with `IncompatibleServerError`.
+`was.request(...)` mirrors ezcap's generic `request()` for hand-built calls. It
+takes an absolute `url`. As a deliberate escape hatch it returns the raw
+`HttpResponse` and throws raw ezcap/ky errors -- it does not apply the
+null-on-404 or typed-error conveniences. It still waits on service discovery, so
+against an incompatible server it rejects with `IncompatibleServerError`.
 
 ```ts
-const response = await was.request({ path: `/space/${spaceId}`, method: 'GET' })
+const response = await was.request({ url: space.url, method: 'GET' })
 ```
 
 ## Errors and the 404/null caveat

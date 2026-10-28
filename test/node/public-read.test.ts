@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
 import { WasClient, WasServerError } from '../../src/index.js'
+import { serviceUrlFor } from '../helpers/stubClient.js'
 
 /**
  * Builds a `WasClient` over a minimal stub `ZcapClient`. The public-read
@@ -23,7 +24,7 @@ function publicClient(): WasClient {
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   // No `serviceDescription`: public reads do not wait on service discovery,
   // so a discovery attempt would hit the stubbed `fetch` and fail the test.
-  return new WasClient({ serverUrl: 'https://was.example/spaces/', zcapClient })
+  return new WasClient({ serviceUrl: serviceUrlFor(), zcapClient })
 }
 
 /**

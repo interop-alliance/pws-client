@@ -24,8 +24,8 @@ import {
   provisionVault
 } from '../helpers/chunkedVault.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * The routing threshold and chunk size these tests provision the codec with,
@@ -41,7 +41,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
   beforeAll(async () => {
     const client = await chunkedClient({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       maxBlobBytes: MAX_BLOB_BYTES,
       chunkSize: CHUNK_SIZE
     })
@@ -77,12 +77,21 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
     // The blob spans several `CHUNK_SIZE` chunks, so the document carries
     // chunk resources on the server. A single-document write stores none.
-    const spaceId = space.id
     await expect(
-      chunkStatus({ was, spaceId, resourceId: added.id, chunkIndex: 0 })
+      chunkStatus({
+        was,
+        spaceUrl: space.url,
+        resourceId: added.id,
+        chunkIndex: 0
+      })
     ).resolves.toBe(200)
     await expect(
-      chunkStatus({ was, spaceId, resourceId: added.id, chunkIndex: 1 })
+      chunkStatus({
+        was,
+        spaceUrl: space.url,
+        resourceId: added.id,
+        chunkIndex: 1
+      })
     ).resolves.toBe(200)
   })
 
@@ -103,7 +112,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
     await expect(
       chunkStatus({
         was,
-        spaceId: space.id,
+        spaceUrl: space.url,
         resourceId: added.id,
         chunkIndex: 2
       })
@@ -120,7 +129,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
     // Sealed into one document: no chunk resource exists under it.
     await expect(
-      chunkStatus({ was, spaceId: space.id, resourceId: id, chunkIndex: 0 })
+      chunkStatus({ was, spaceUrl: space.url, resourceId: id, chunkIndex: 0 })
     ).resolves.toBe(404)
   })
 })
