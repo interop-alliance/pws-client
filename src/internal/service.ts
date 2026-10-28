@@ -20,7 +20,7 @@ import type {
   ServiceDescriptionVersionEntry
 } from '@interop/storage-core'
 import { IncompatibleServerError, mapError } from '../errors.js'
-import { canonicalContainerUrl } from './paths.js'
+import { canonicalContainerUrl, parseAbsoluteHttpUrl } from './paths.js'
 import { fetchMapped } from './request.js'
 import type { ServiceInfo } from '../types.js'
 
@@ -138,26 +138,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Whether a value parses as an absolute URL.
- *
- * @param value {string}
- * @returns {boolean}
- */
-function isAbsoluteUrl(value: string): boolean {
-  try {
-    new URL(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
  * Applies the spec's version-selection rules to a service description: a
  * `specs` key other than the WAS identifier is ignored, a version entry
  * without a string `version` is ignored, and the newest version this client
  * speaks is chosen. The members the client acts on are checked before they are
- * used: `spaces` must be an absolute URL and `features` an array of strings.
+ * used: `spaces` must be an absolute `http(s)` URL and `features` an array of
+ * strings.
  *
  * @param description {unknown}   the parsed service description
  * @returns {ServiceInfo}
@@ -202,11 +188,11 @@ export function selectServiceVersion(description: unknown): ServiceInfo {
   }
   if (
     spaces !== undefined &&
-    (typeof spaces !== 'string' || !isAbsoluteUrl(spaces))
+    (typeof spaces !== 'string' || parseAbsoluteHttpUrl(spaces) === null)
   ) {
     throw new IncompatibleServerError(
       `The ${PWS_SPEC_ID} ${chosen.version} entry's \`spaces\` is not an ` +
-        'absolute URL.'
+        'absolute http(s) URL.'
     )
   }
   if (

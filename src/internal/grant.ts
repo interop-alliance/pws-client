@@ -62,13 +62,16 @@ function spaceRooted({
   target: string
 }): { parent: string; target: string } {
   const canonical = canonicalSpaceUrl(spaceUrl)
-  // The slash-less Space URL as the base accepts the Space in both forms and
-  // everything beneath it, and still refuses a sibling (`/space/s-evil`).
+  // The check runs against the canonical Space URL, the base the server
+  // verifies the chain against, so what passes here is what the server
+  // accepts. The bare form is the one exception, matched exactly: as a base
+  // it would also admit `{space}?x`, which the server refuses.
   const bare = canonical.slice(0, -1)
   if (
+    target !== bare &&
     !isValidTarget({
       invocationTarget: target,
-      baseInvocationTarget: bare,
+      baseInvocationTarget: canonical,
       allowTargetAttenuation: true
     })
   ) {

@@ -71,9 +71,7 @@ export class Resource {
   /**
    * The id of that Space: the last path segment of {@link spaceUrl}.
    */
-  get spaceId(): string {
-    return spaceIdOfCanonicalUrl(this.spaceUrl)
-  }
+  readonly spaceId: string
   readonly collectionId: string
   readonly id: string
   /**
@@ -146,13 +144,15 @@ export class Resource {
     assertNotReserved({ id: resourceId, kind: 'resource' })
     this.#context = context
     this.spaceUrl = canonicalSpaceUrl(spaceUrl)
+    this.spaceId = spaceIdOfCanonicalUrl(this.spaceUrl)
     this.collectionId = collectionId
     this.id = resourceId
-    this.url = resourceUrl({
-      spaceUrl: this.spaceUrl,
-      collectionId,
-      resourceId
-    })
+    // Every URL this handle addresses is derived once: `spaceUrl` is
+    // canonical already, so the builders have nothing left to normalize.
+    const beneath = { spaceUrl: this.spaceUrl, collectionId, resourceId }
+    this.url = resourceUrl(beneath)
+    this.#metaUrl = resourceMetaUrl(beneath)
+    this.#policyUrl = resourcePolicyUrl(beneath)
     this.#capability = capability
     if (codec) {
       this.#codec = codec
@@ -426,13 +426,7 @@ export class Resource {
     })
   }
 
-  get #metaUrl(): string {
-    return resourceMetaUrl({
-      spaceUrl: this.spaceUrl,
-      collectionId: this.collectionId,
-      resourceId: this.id
-    })
-  }
+  readonly #metaUrl: string
 
   /**
    * Reads the resource's metadata object (server-managed `contentType` / `size`
@@ -532,13 +526,7 @@ export class Resource {
     return patchCustom(this, { tags }, { create: true })
   }
 
-  get #policyUrl(): string {
-    return resourcePolicyUrl({
-      spaceUrl: this.spaceUrl,
-      collectionId: this.collectionId,
-      resourceId: this.id
-    })
-  }
+  readonly #policyUrl: string
 
   /**
    * Reads the resource's access-control policy. Returns `null` when no policy is

@@ -166,6 +166,18 @@ describe('grant rooting (revocability)', () => {
     )
   })
 
+  it('refuses a query-form target on the bare Space, which the server would refuse', async () => {
+    const { client, lastDelegate } = clientWithDelegateSpy()
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).grant({
+        to: 'did:example:bob',
+        actions: ['GET'],
+        target: 'https://was.example/space/s?x=1'
+      })
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(lastDelegate()).toBeUndefined()
+  })
+
   it('refuses a sibling of the Space that shares its prefix', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     await expect(

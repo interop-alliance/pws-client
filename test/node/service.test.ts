@@ -524,6 +524,44 @@ describe('WasClient.service() with a supplied description', () => {
     expect(calls).toEqual([])
   })
 
+  it('refuses a constructor-supplied description of another server', async () => {
+    // The server is identified by its service URL, so a cached description
+    // whose `url` is some other service URL is a cache keyed wrongly, not
+    // the server this client was built for. A client built from `spacesUrl`
+    // names no service URL to compare against, and accepts the copy.
+    const calls = stubDiscovery()
+    const other = {
+      url: 'https://other.example/was/service',
+      specs: {
+        [PWS_SPEC_ID]: [
+          { version: '0.5', spaces: 'https://other.example/was/spaces/' }
+        ]
+      }
+    }
+    await expect(
+      client({ serviceDescription: other }).was.service()
+    ).rejects.toThrow(IncompatibleServerError)
+    expect(
+      (
+        await client({
+          serviceDescription: other,
+          spacesUrl: SPACES_URL
+        }).was.service()
+      ).version
+    ).toBe('0.5')
+    expect(calls).toEqual([])
+  })
+
+  it('accepts a constructor-supplied description whose url serializes to serviceUrl', async () => {
+    const { was } = client({
+      serviceDescription: {
+        url: 'https://HOST.example:443/was/service',
+        specs: { [PWS_SPEC_ID]: [{ version: '0.5' }] }
+      }
+    })
+    expect((await was.service()).version).toBe('0.5')
+  })
+
   it('accepts a description whose spaces differs from spacesUrl, and creates Spaces there', async () => {
     // The client checks the description's `spaces` against nothing: the
     // server names its own Spaces Repository, and `createSpace` posts to it,
@@ -583,6 +621,23 @@ describe('WasClient construction', () => {
         zcapClient
       }).serviceUrl
     ).toBe(SERVICE_URL)
+  })
+
+  it('stores spacesUrl in canonical container form', () => {
+    for (const spacesUrl of [
+      'https://host.example/was/spaces',
+      'https://HOST.example:443/was/spaces/'
+    ]) {
+      expect(new WasClient({ spacesUrl, zcapClient }).spacesUrl).toBe(
+        SPACES_URL
+      )
+    }
+    expect(
+      new WasClient({
+        spacesUrl: 'https://host.example/was/spaces?tenant=a',
+        zcapClient
+      }).spacesUrl
+    ).toBe('https://host.example/was/spaces/?tenant=a')
   })
 
   it('refuses both a serviceUrl and a spacesUrl, or neither', () => {

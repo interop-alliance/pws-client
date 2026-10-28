@@ -237,9 +237,7 @@ export class Collection {
   /**
    * The id of that Space: the last path segment of {@link spaceUrl}.
    */
-  get spaceId(): string {
-    return spaceIdOfCanonicalUrl(this.spaceUrl)
-  }
+  readonly spaceId: string
   readonly id: string
   /**
    * The Collection container in canonical (trailing-slash) form: the URL whose
@@ -295,8 +293,16 @@ export class Collection {
     assertNotReserved({ id: collectionId, kind: 'collection' })
     this.#context = context
     this.spaceUrl = canonicalSpaceUrl(spaceUrl)
+    this.spaceId = spaceIdOfCanonicalUrl(this.spaceUrl)
     this.url = collectionUrl({ spaceUrl: this.spaceUrl, collectionId })
     this.id = collectionId
+    // Every URL this handle addresses is derived once: `spaceUrl` is
+    // canonical already, so the builders have nothing left to normalize.
+    const beneath = { spaceUrl: this.spaceUrl, collectionId }
+    this.#metaUrl = collectionMetaUrl(beneath)
+    this.#policyUrl = collectionPolicyUrl(beneath)
+    this.#queryUrl = collectionQueryUrl(beneath)
+    this.historyLogUrl = collectionLogUrl(beneath)
     this.#capability = capability
     this.#encryptionOverride = encryption
     this.#codecHolder = collectionCodecHolder(context, {
@@ -307,19 +313,11 @@ export class Collection {
     })
   }
 
-  get #policyUrl(): string {
-    return collectionPolicyUrl({
-      spaceUrl: this.spaceUrl,
-      collectionId: this.id
-    })
-  }
+  readonly #policyUrl: string
 
-  get #queryUrl(): string {
-    return collectionQueryUrl({
-      spaceUrl: this.spaceUrl,
-      collectionId: this.id
-    })
-  }
+  readonly #queryUrl: string
+
+  readonly #metaUrl: string
 
   /**
    * The URL of a Resource of this Collection by id (no trailing slash).
@@ -996,10 +994,6 @@ export class Collection {
     })
   }
 
-  get #metaUrl(): string {
-    return collectionMetaUrl({ spaceUrl: this.spaceUrl, collectionId: this.id })
-  }
-
   /**
    * Reads the Collection Metadata object with its user-writable `custom`
    * decoded -- {@link describe} plus the codec. Returns `null` if the
@@ -1210,12 +1204,8 @@ export class Collection {
    * sub-resource {@link getHistoryLog} reads. A log-governed descriptor's
    * `history.resource` names this URL; a verifying reader compares the two
    * before opening the log.
-   *
-   * @returns {string}
    */
-  get historyLogUrl(): string {
-    return collectionLogUrl({ spaceUrl: this.spaceUrl, collectionId: this.id })
-  }
+  readonly historyLogUrl: string
 
   /**
    * Reads the Collection's governing history log (the encrypted-collections

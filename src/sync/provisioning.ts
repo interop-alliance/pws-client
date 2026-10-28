@@ -198,9 +198,10 @@ async function readOrCreate<T>({
  *   {@link ensureSpace}). Supplying it skips the Space half entirely, which is
  *   what keeps a caller provisioning N collections from ensuring one Space N
  *   times over; omit it and the Space is ensured here as before. Its `id` must
- *   be `spaceUrl` -- a description of some other Space throws
- *   `ValidationError`, since skipping the ensure would leave that Space
- *   unprovisioned
+ *   be the Space's id (the last path segment of `spaceUrl`); a description
+ *   whose id differs throws `ValidationError`, since skipping the ensure
+ *   would leave that Space unprovisioned. The id is all a Space description
+ *   carries, so a description of a same-named Space elsewhere passes
  * @param [options.capability] {IZcap}   an invocation capability every
  *   request rides (a delegated Space-subtree zcap, say); the root capability
  *   is invoked otherwise. A capability scoped below the bare Space URL cannot

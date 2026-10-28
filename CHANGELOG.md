@@ -45,7 +45,21 @@
 - Service discovery no longer refuses a service description whose `spaces`
   member differs from the client's URL. `createSpace()` and `listSpaces()`
   address the `spaces` URL the description names, with its trailing slash
-  supplied when missing, and throw `NotSupportedError` when it has none.
+  supplied when missing, and throw `NotSupportedError` when it has none. A
+  constructor-supplied `serviceDescription` whose `url` is not the `serviceUrl`
+  the client was built from is refused with `IncompatibleServerError`.
+- `was.spacesUrl` is stored in canonical container form (trailing slash
+  supplied), the form discovery probes and `service().spacesUrl` reports.
+- `was.fromCapability()` refuses, with `ValidationError`, a capability whose
+  `invocationTarget` is not in canonical form (upper-case host, explicit default
+  port), since no request from the resulting handle could invoke it.
+- A Space-rooted `was.grant()` is checked against the canonical Space URL, so a
+  query-form target on the bare Space (`{space}?x`), which the server refuses,
+  is refused with `ValidationError` instead of being delegated.
+- `Collection.spaceId` and `Resource.spaceId` are computed at construction, so a
+  Space URL whose last segment is a malformed percent escape throws
+  `ValidationError` where the handle is opened. `WasTransport.spaceUrl` is the
+  canonical Space URL.
 - Breaking: `spaceId` options become `spaceUrl` in
   `EncryptionProvider.codecFor`, `createEdvEncryption`'s `resolveKeys`,
   `WasTransport` and `wasTransportFactory`, `createEdvDocCipher`,

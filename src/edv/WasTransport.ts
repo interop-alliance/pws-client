@@ -60,6 +60,7 @@ import { httpStatus, NotFoundError, NotSupportedError } from '../errors.js'
 import { readJsonData } from '../internal/content.js'
 import { readEtag, writeHeaders } from '../internal/conditional.js'
 import {
+  canonicalSpaceUrl,
   resourceChunkUrl,
   resourceChunksUrl,
   resourceUrl,
@@ -167,6 +168,9 @@ function mapTransportError(
 }
 
 export class WasTransport extends Transport {
+  /**
+   * The vault's Space URL, in canonical form (as every handle reports it).
+   */
   readonly spaceUrl: string
   readonly collectionId: string
   readonly contentType: string
@@ -231,7 +235,7 @@ export class WasTransport extends Transport {
     this.#was = was
     this.#documentHeaders = documentHeaders ?? {}
     this.#baseline = baseline
-    this.spaceUrl = spaceUrl
+    this.spaceUrl = canonicalSpaceUrl(spaceUrl)
     this.collectionId = collectionId
     this.contentType = contentType
   }

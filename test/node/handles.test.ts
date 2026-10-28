@@ -108,6 +108,20 @@ describe('lazy handles', () => {
     }
   })
 
+  it('rejects a Space URL whose id is a malformed percent escape at construction', () => {
+    const client = stubClient()
+    expect(() => client.spaceAt('https://was.example/space/%ff/')).toThrow(
+      ValidationError
+    )
+    expect(() =>
+      client.fromCapability({
+        id: 'urn:uuid:child',
+        parentCapability: rootCapabilityId('https://was.example/space/%ff/'),
+        invocationTarget: 'https://was.example/space/%ff/c/'
+      } as unknown as IZcap)
+    ).toThrow(ValidationError)
+  })
+
   it('spaceAt rejects a URL that is not a Space URL', () => {
     const client = stubClient()
     for (const spaceUrl of [
@@ -256,6 +270,18 @@ describe('fromCapability', () => {
     expect(handle).toBeInstanceOf(Collection)
     expect((handle as Collection).spaceUrl).toBe(elsewhere)
     expect((handle as Collection).url).toBe(`${elsewhere}c/`)
+  })
+
+  it('refuses a target not in canonical form, which no handle request could invoke', () => {
+    for (const target of [
+      'https://WAS.example/space/s/c/r',
+      'https://was.example:443/space/s/c/r',
+      'https://was.example/space/s/c//'
+    ]) {
+      expect(() => client.fromCapability(zcapFor(target))).toThrow(
+        ValidationError
+      )
+    }
   })
 
   it('throws a ValidationError (not a raw TypeError) on a malformed target', () => {

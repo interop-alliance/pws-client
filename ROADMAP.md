@@ -81,8 +81,8 @@ Ready:
 
 Waiting on another repo:
 
-- WCL-140 [H] Construct from a service URL; open Spaces by URL, never by
-  assembling one from a root (after WASS-60)
+- WCL-140 [H] Construct from a service URL; open Spaces by their own URL instead
+  of assembling one from a root (after WASS-60)
 
 **Features**
 
@@ -1082,7 +1082,7 @@ without this upstream fix.
 Conformance gaps against the spec, and wire-contract changes the client adopts
 once the spec or the server has settled them.
 
-### WCL-140: [H] [after WASS-60] Construct from a service URL; open Spaces by URL, never by assembling one from a root
+### WCL-140: [H] [after WASS-60] Construct from a service URL; open Spaces by their own URL instead of assembling one from a root
 
 - status: in-progress
 - priority: high

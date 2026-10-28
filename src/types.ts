@@ -306,7 +306,8 @@ export interface HandleOptions {
  *   revoked at that Space; filled by scoped grants. Omit it for a server
  *   with no Space hierarchy (fixed collections, or resources alone): the
  *   grant is then rooted at `target`'s own root capability (ezcap's
- *   default) and is not Space-revocable
+ *   default) and is not Space-revocable. Ignored when `capability` is
+ *   given: a re-delegation is rooted wherever its parent's chain is
  */
 export interface GrantOptions {
   to: string
