@@ -559,9 +559,10 @@ export class WasClient {
    * capability (whose id encodes the Space URL), so a capability from any
    * server locates its own Space with no out-of-band base. The root's target
    * is taken to be the Space URL: a Space URL has no shape of its own, so a
-   * chain rooted elsewhere (a bare `was.grant()` with no `spaceUrl` roots at
-   * its target) is read as if that target were the Space, and the server
-   * refuses the handle's requests. See `spaceUrlOf` on the `./paths` entry.
+   * chain rooted elsewhere (a bare `was.grant({ target })` for a server with
+   * no Space hierarchy roots at its target) is read as if that target were
+   * the Space, and the server refuses the handle's requests. See `spaceUrlOf`
+   * on the `./paths` entry.
    *
    * A resource-scoped capability cannot read the Collection Metadata object, so
    * an encryption-capable client cannot discover whether the collection is
@@ -646,7 +647,9 @@ export class WasClient {
    * parent capability to attenuate) make this a superset of the
    * `space`/`collection` grant sugar, which fills the first two from the
    * handle. Without `spaceUrl` or `capability`, the grant is rooted at the
-   * target's own root capability and is not Space-revocable.
+   * target's own root capability: the shape for a server with no Space
+   * hierarchy (fixed collections, or resources alone), where there is no
+   * Space to root a chain in. Such a grant is not Space-revocable.
    *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}

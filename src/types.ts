@@ -303,9 +303,10 @@ export interface HandleOptions {
  * @property [target]        invocationTarget URL; filled by scoped grants
  * @property [capability]    parent capability to attenuate / re-delegate
  * @property [spaceUrl]      the Space the grant is rooted in, so it can be
- *   revoked at that Space; filled by scoped grants. A fresh grant without it
- *   is rooted at `target`'s own root capability (ezcap's default) and is not
- *   Space-revocable
+ *   revoked at that Space; filled by scoped grants. Omit it for a server
+ *   with no Space hierarchy (fixed collections, or resources alone): the
+ *   grant is then rooted at `target`'s own root capability (ezcap's
+ *   default) and is not Space-revocable
  */
 export interface GrantOptions {
   to: string
