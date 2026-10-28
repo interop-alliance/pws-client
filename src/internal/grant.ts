@@ -14,9 +14,14 @@
  * server verifies WAS routes with target attenuation allowed), but only a
  * Space-rooted chain can be revoked -- revocation is Space-scoped, and the
  * endpoint requires the chain to root exactly in the Space (see `revoke.ts`).
- * The client holds no server root to find a Space from, so a bare
- * `was.grant({ target })` without `spaceUrl` takes ezcap's default, the
- * target's own root capability.
+ *
+ * A bare `was.grant({ target })` without `spaceUrl` is the other mode, kept
+ * on purpose: it delegates from the target's own root capability (ezcap's
+ * default). It is the shape for a server at the basic conformance level,
+ * which may serve fixed collections, or resources alone, with no Space
+ * container to root a chain in. Such a grant cannot be revoked through a
+ * Space's revocation endpoint; that is a limitation of that conformance
+ * level, not of the client.
  */
 import { isValidTarget } from '@interop/zcap'
 import type { ClientContext } from './request.js'

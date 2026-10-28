@@ -1989,6 +1989,13 @@ why it is deferred past the first encrypted increment.
   `spaceId` -- `collection.revoke(zcap)` is exactly `space.revoke(zcap)`, and
   `Resource` has no `grant()` to mirror. `was.revoke()` already covers the
   convenience case by deriving the Space from the capability.
+- **The bare `was.grant({ target })` shape stays.** A grant with no `spaceUrl`
+  and no `capability` is rooted at the target's own root capability. It is the
+  shape for a server at the basic conformance level (fixed collections, or
+  resources alone), where there is no Space container to root a chain in. Such a
+  grant is not Space-revocable; that is a limitation of that conformance level,
+  not a client defect. Do not turn `GrantOptions` into a union that requires one
+  of `spaceUrl` / `capability`.
 - **`revoke()` is not idempotent, deliberately.** Resubmitting a stored
   revocation is a 400. The server names it with its own problem type
   (`capability-already-revoked`, since 2026-09-09), which the client maps to
