@@ -52,7 +52,8 @@ import type { GrantOptions, IDelegatedZcap, IZcap } from '../types.js'
  * @param options.spaceUrl {string}   the Space to root the grant in
  * @param options.target {string}     the absolute grant target URL
  * @returns {{ parent: string, target: string }}
- * @throws {ValidationError}   when `target` is not at or beneath `spaceUrl`
+ * @throws {ValidationError}   when `target` is not at or beneath `spaceUrl`,
+ *   or its path is rewritten by URL normalization (a dot segment)
  */
 function spaceRooted({
   spaceUrl,
@@ -78,6 +79,20 @@ function spaceRooted({
     throw new ValidationError(
       `Grant target "${target}" is not at or beneath the Space ` +
         `"${canonical}" the grant would be rooted in.`
+    )
+  }
+  // The prefix check reads the raw string, so a dot segment (`{space}../x`)
+  // passes it while naming a path outside the Space once a URL parser
+  // normalizes it. The server resolves the request URL that way, so such a
+  // target can never be invoked. Refuse a target whose path does not survive
+  // normalization unchanged. The query, if any, is left as given.
+  const origin = new URL(canonical).origin
+  const rawPath = target.slice(origin.length).replace(/[?#].*$/, '')
+  if (target !== bare && new URL(target).pathname !== rawPath) {
+    throw new ValidationError(
+      `Grant target "${target}" has a path that URL normalization rewrites ` +
+        '(a dot segment or an unencoded character); give the target in its ' +
+        'normalized form.'
     )
   }
   return {

@@ -178,6 +178,18 @@ describe('grant rooting (revocability)', () => {
     expect(lastDelegate()).toBeUndefined()
   })
 
+  it('refuses a dot-segment target that escapes the Space once normalized', async () => {
+    const { client, lastDelegate } = clientWithDelegateSpy()
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).grant({
+        to: 'did:example:bob',
+        actions: ['GET'],
+        target: 'https://was.example/space/s/../other/'
+      })
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(lastDelegate()).toBeUndefined()
+  })
+
   it('refuses a sibling of the Space that shares its prefix', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     await expect(

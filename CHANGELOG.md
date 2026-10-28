@@ -55,7 +55,9 @@
   port), since no request from the resulting handle could invoke it.
 - A Space-rooted `was.grant()` is checked against the canonical Space URL, so a
   query-form target on the bare Space (`{space}?x`), which the server refuses,
-  is refused with `ValidationError` instead of being delegated.
+  is refused with `ValidationError` instead of being delegated. A target whose
+  path a URL parser rewrites (a dot segment such as `{space}../other`) is
+  refused the same way, since it names a path outside the Space once resolved.
 - `Collection.spaceId` and `Resource.spaceId` are computed at construction, so a
   Space URL whose last segment is a malformed percent escape throws
   `ValidationError` where the handle is opened. `WasTransport.spaceUrl` is the
