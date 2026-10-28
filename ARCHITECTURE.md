@@ -229,8 +229,11 @@ and `rootCapability`'s client-side controller). Per-handle state on top of that:
   `options.encryption` as the handle's override (a resource-scoped capability
   cannot read the Collection Metadata object, so an encryption-capable client
   needs the override to resolve a codec at all). A target outside the Space
-  throws `ValidationError`. A capability from another party needs no server
-  known in advance, since the Space URL comes from the capability itself.
+  throws `ValidationError`, as does a target not in canonical form: `send`
+  matches request URLs against the target by string prefix, so a handle built on
+  an upper-case host or an explicit default port could invoke nothing. A
+  capability from another party needs no server known in advance, since the
+  Space URL comes from the capability itself.
 - `WasClient.spaceAt(spaceUrl, options)` opens a handle on an absolute Space URL
   after canonicalizing it (`canonicalSpaceUrl`: trailing slash added, host
   lower-cased). `createSpace` returns `spaceAt` of the create response's
@@ -293,6 +296,12 @@ Failure classes:
   without the link. These say nothing about the protocol.
 
 No failure is memoized, so the next request retries discovery.
+
+A constructor-supplied `serviceDescription` skips the fetch. On a client built
+from `serviceUrl`, its `url` must serialize to that `serviceUrl`, or
+`IncompatibleServerError` is thrown: a server is identified by its service URL,
+so a copy of another one is a cache keyed wrongly. A client built from
+`spacesUrl` names no service URL and accepts the copy as given.
 
 `createSpace` and `listSpaces` address `info.spacesUrl`, and throw
 `NotSupportedError` before any request when the chosen entry has no `spaces`

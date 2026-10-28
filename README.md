@@ -145,7 +145,8 @@ Spaces Repository URL (`https://host/spaces/`), which the client probes with an
 unsigned `HEAD` for the `Link: <...>; rel="service"` header. Giving both or
 neither, or a URL that is not absolute `http(s)`, is refused with
 `ValidationError`. The one given is exposed as `was.serviceUrl` or
-`was.spacesUrl`, and the other is `undefined`.
+`was.spacesUrl` (the latter with its trailing slash supplied), and the other is
+`undefined`.
 
 A Space URL is received. It is not assembled from a server root. It arrives as
 the `Location` of a create response, a listing item's `url`, a linkset entry, a
@@ -260,9 +261,10 @@ that copy without fetching, and `service({ refresh: true })` discovers afresh.
 The client exposes the PWS containment model
 (`SpacesRepository > Space > Collection > Resource`) as navigational handles.
 Handles are lazy and synchronous to obtain -- only the verb methods hit the
-network. Lazy chains never throw: `was.spaceAt(url).collection(y)` does no I/O
-and just accumulates URL context. Existence is checked on the first network
-verb.
+network. A chain such as `was.spaceAt(url).collection(y)` does no I/O and just
+accumulates URL context; the only way it throws is `ValidationError`, on a URL
+that cannot name a Space or an id on the reserved-segment registry. Existence is
+checked on the first network verb.
 
 ```ts
 const space = await was.createSpace({ name: 'Home' })
@@ -509,7 +511,10 @@ is rooted at the target's own root capability. Passing `spaceUrl` roots it at
 that Space instead, and throws `ValidationError` if `target` is not at or
 beneath the Space. The recipient rebuilds access from the received zcap with
 `fromCapability()`, which reads the Space off the capability's chain root. A
-zcap not rooted in a Space is refused with `ValidationError`.
+zcap whose chain starts at no root capability, or at one whose target cannot be
+a Space URL, is refused with `ValidationError`, as is one whose
+`invocationTarget` is not the canonical form of the URL the handle would
+address. The server is the authority on whether the root names a Space.
 
 ```ts
 // Alice grants Bob read access to a resource.

@@ -91,6 +91,17 @@ function transport(request: ReturnType<typeof vi.fn>, contentType?: string) {
   })
 }
 
+describe('WasTransport -- construction', () => {
+  it('reports its Space URL in canonical form', () => {
+    const built = new WasTransport({
+      was: { request: vi.fn() } as never,
+      spaceUrl: 'https://WAS.example:443/space/s',
+      collectionId: 'docs'
+    })
+    expect(built.spaceUrl).toBe('https://was.example/space/s/')
+  })
+})
+
 describe('WasTransport -- insert', () => {
   /**
    * A request stub whose PUT answers `putStatus` (or succeeds when undefined).

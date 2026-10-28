@@ -18,9 +18,14 @@
  * URL from a server root, because the spec defines none.
  */
 import type { ZcapClient } from '@interop/ezcap'
+import { isValidTarget } from '@interop/zcap'
 import type { HttpResponse } from '@interop/http-client'
 import type { ServiceDescription } from '@interop/storage-core'
-import { canonicalContainerUrl, parseSpaceTarget } from './internal/paths.js'
+import {
+  canonicalContainerUrl,
+  parseAbsoluteHttpUrl,
+  parseSpaceTarget
+} from './internal/paths.js'
 import type { ClientContext } from './internal/request.js'
 import { send, rawRequest, unsignedRequest } from './internal/request.js'
 import { parseResource, readJsonData } from './internal/content.js'
@@ -41,7 +46,12 @@ import {
   readServiceDescription,
   selectServiceVersion
 } from './internal/service.js'
-import { NotSupportedError, ValidationError, WasServerError } from './errors.js'
+import {
+  IncompatibleServerError,
+  NotSupportedError,
+  ValidationError,
+  WasServerError
+} from './errors.js'
 import { zcapClientForSigner } from './zcapClient.js'
 import type { EncryptionProvider } from './codec.js'
 import { Space } from './Space.js'
@@ -88,16 +98,11 @@ function absoluteHttpUrl({
   name: string
   value: string
 }): string {
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch (err) {
-    throw new ValidationError(`${name} "${value}" is not an absolute URL.`, {
-      cause: err
-    })
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new ValidationError(`${name} "${value}" is not an http(s) URL.`)
+  const parsed = parseAbsoluteHttpUrl(value)
+  if (parsed === null) {
+    throw new ValidationError(
+      `${name} "${value}" is not an absolute http(s) URL.`
+    )
   }
   return parsed.toString()
 }
@@ -110,9 +115,10 @@ export class WasClient {
   readonly serviceUrl?: string
   /**
    * The Spaces Repository URL the client was built from, when it was built
-   * from one. Discovery probes it for the `service` link. The URL
-   * `createSpace` and `listSpaces` address is the service description's
-   * `spaces` member, not this value.
+   * from one, in canonical container form (trailing slash supplied).
+   * Discovery probes it for the `service` link. The URL `createSpace` and
+   * `listSpaces` address is the service description's `spaces` member, not
+   * this value.
    */
   readonly spacesUrl?: string
   readonly zcapClient: ZcapClient
@@ -139,8 +145,9 @@ export class WasClient {
    *   description the caller already holds (from a cache, say). The client
    *   selects its version from this copy instead of discovering the document,
    *   and still refuses it with `IncompatibleServerError` if it names no
-   *   version this client speaks. `service({ refresh: true })` discards it
-   *   and discovers afresh.
+   *   version this client speaks, or (for a client built from `serviceUrl`)
+   *   if its `url` is another server's service URL. `service({ refresh:
+   *   true })` discards it and discovers afresh.
    * @throws {ValidationError}   when neither or both of `serviceUrl` and
    *   `spacesUrl` are given, or the one given is not an absolute http(s) URL
    */
@@ -167,10 +174,12 @@ export class WasClient {
         value: serviceUrl
       })
     } else {
-      this.spacesUrl = absoluteHttpUrl({
-        name: 'spacesUrl',
-        value: spacesUrl as string
-      })
+      // Canonical container form, so the probe addresses the container
+      // itself rather than its redirect, and `was.spacesUrl` reads the same
+      // as the `spacesUrl` discovery reports for the same repository.
+      this.spacesUrl = canonicalContainerUrl(
+        absoluteHttpUrl({ name: 'spacesUrl', value: spacesUrl as string })
+      )
     }
     this.zcapClient = zcapClient
     this.encryption = encryption
@@ -233,12 +242,40 @@ export class WasClient {
 
   readonly #service = new Memo<ServiceInfo>(async () => {
     if (this.#serviceDescription !== undefined) {
-      return selectServiceVersion(this.#serviceDescription)
+      const info = selectServiceVersion(this.#serviceDescription)
+      this.#assertDescribesThisServer(info)
+      return info
     }
     return this.serviceUrl !== undefined
       ? readServiceDescription({ serviceUrl: this.serviceUrl })
       : discoverService({ url: this.spacesUrl as string })
   })
+
+  /**
+   * Refuses a caller-supplied service description of another server than
+   * the one this client was built for: a cache entry keyed wrongly, or kept
+   * across deployments, would otherwise route `createSpace` and `listSpaces`
+   * to the other server's Spaces Repository. A server is identified by its
+   * service URL, so the description's `url` must be the `serviceUrl` given.
+   * A client built from `spacesUrl` names no service URL and is not checked;
+   * nor is a discovered description, which came from the server named.
+   *
+   * @param info {ServiceInfo}
+   * @throws {IncompatibleServerError}
+   */
+  #assertDescribesThisServer(info: ServiceInfo): void {
+    if (this.serviceUrl === undefined) {
+      return
+    }
+    const described = parseAbsoluteHttpUrl(info.description.url)?.toString()
+    if (described !== this.serviceUrl) {
+      throw new IncompatibleServerError(
+        `The service description given is of ` +
+          `"${info.description.url}", but this client was built for ` +
+          `"${this.serviceUrl}".`
+      )
+    }
+  }
 
   /**
    * Discovers the server's service description and the WAS version this
@@ -581,8 +618,9 @@ export class WasClient {
    * @returns {Space | Collection | Resource}
    * @throws {ValidationError}   when the capability's chain starts at no root
    *   capability or at one whose target cannot be a Space URL, or its
-   *   `invocationTarget` is not at or beneath that Space, or addresses a
-   *   reserved sub-resource with no navigational handle
+   *   `invocationTarget` is not at or beneath that Space, addresses a
+   *   reserved sub-resource with no navigational handle, or is not in
+   *   canonical form (so the handle's requests would fall outside it)
    */
   fromCapability(
     zcap: IZcap,
@@ -613,8 +651,9 @@ export class WasClient {
       )
     }
     const context = this.#context
+    let handle: Space | Collection | Resource
     if (parsed.kind === 'resource') {
-      return new Resource({
+      handle = new Resource({
         context,
         spaceUrl,
         collectionId: parsed.collectionId,
@@ -622,22 +661,34 @@ export class WasClient {
         capability: zcap,
         encryption
       })
-    }
-    if (parsed.kind === 'collection') {
-      return new Collection({
+    } else if (parsed.kind === 'collection') {
+      handle = new Collection({
         context,
         spaceUrl,
         collectionId: parsed.collectionId,
         capability: zcap,
         encryption
       })
+    } else {
+      handle = new Space({ context, spaceUrl, capability: zcap, encryption })
     }
-    return new Space({
-      context,
-      spaceUrl,
-      capability: zcap,
-      encryption
-    })
+    // `send` matches every request URL against the capability's target by
+    // string prefix, so a target in a non-canonical serialization (upper-case
+    // host, explicit default port) would let the handle be built and then
+    // refuse every request from it. Refuse it here, by name.
+    if (
+      !isValidTarget({
+        invocationTarget: handle.url,
+        baseInvocationTarget: target,
+        allowTargetAttenuation: true
+      })
+    ) {
+      throw new ValidationError(
+        `invocationTarget "${target}" is not in canonical form: the handle ` +
+          `would address "${handle.url}", which the capability does not cover.`
+      )
+    }
+    return handle
   }
 
   /**

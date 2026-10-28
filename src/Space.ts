@@ -229,21 +229,20 @@ export class Space {
     this.#context = context
     this.url = canonicalSpaceUrl(spaceUrl)
     this.id = spaceIdOfCanonicalUrl(this.url)
+    this.#metaUrl = spaceMetaUrl({ spaceUrl: this.url })
+    this.#policyUrl = spacePolicyUrl({ spaceUrl: this.url })
     this.#capability = capability
     this.#encryption = encryption
   }
 
   /**
    * The Space Metadata object: the Space's description, read and replaced at
-   * the reserved `meta` segment rather than at the container URL.
+   * the reserved `meta` segment rather than at the container URL. Derived
+   * once, like every URL this handle addresses: `url` is canonical already.
    */
-  get #metaUrl(): string {
-    return spaceMetaUrl({ spaceUrl: this.url })
-  }
+  readonly #metaUrl: string
 
-  get #policyUrl(): string {
-    return spacePolicyUrl({ spaceUrl: this.url })
-  }
+  readonly #policyUrl: string
 
   /**
    * Reads the Space Metadata object -- the Space's description, at its `meta`

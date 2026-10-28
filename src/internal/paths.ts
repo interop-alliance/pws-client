@@ -96,24 +96,36 @@ function encodeResourceId(resourceId: string): string {
 }
 
 /**
- * Parses an absolute `http(s)` URL with no query or fragment, or returns
- * `null`. The one rule for which URLs may name a container here.
+ * Parses an absolute `http(s)` URL, or returns `null`. The one rule for which
+ * URLs may name a server, a Spaces Repository, or a container here; the
+ * callers that need more (no query, a path) narrow it.
  *
  * @param url {string}
  * @returns {URL | null}
  */
-function parseContainerUrl(url: string): URL | null {
+export function parseAbsoluteHttpUrl(url: string): URL | null {
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
     return null
   }
-  if (
-    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
-    parsed.search !== '' ||
-    parsed.hash !== ''
-  ) {
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * {@link parseAbsoluteHttpUrl} narrowed to a URL with no query or fragment:
+ * the rule for which URLs may name a container.
+ *
+ * @param url {string}
+ * @returns {URL | null}
+ */
+function parseContainerUrl(url: string): URL | null {
+  const parsed = parseAbsoluteHttpUrl(url)
+  if (parsed === null || parsed.search !== '' || parsed.hash !== '') {
     return null
   }
   return parsed

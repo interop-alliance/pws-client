@@ -23,7 +23,13 @@ export default async function setup(): Promise<() => Promise<void>> {
   // The testing counterpart hands back the URL the server listens on. The
   // service description is found the way any client finds it: through the
   // `service` link the server puts on every response, whatever the status.
-  const { description } = await discoverService({ url: serverUrl })
+  let description
+  try {
+    ;({ description } = await discoverService({ url: serverUrl }))
+  } catch (err) {
+    await fastify.close()
+    throw err
+  }
   process.env.TEST_SERVER_URL = description.url
   return async () => {
     await fastify.close()
