@@ -26,7 +26,8 @@ import type { RequestArgs } from '../helpers/stubClient.js'
 import {
   clientWithRequestSpy,
   clientWithStub,
-  jsonResponse
+  jsonResponse,
+  spaceUrlFor
 } from '../helpers/stubClient.js'
 import { installFileReader, rnBlob } from '../helpers/rnBlob.js'
 
@@ -51,7 +52,7 @@ describe('space.backends()', () => {
       { id: 'default', name: 'Server Filesystem', managedBy: 'server' }
     ]
     const { client, calls } = storageClient({ data: backends })
-    const result = await client.space('s').backends()
+    const result = await client.spaceAt(spaceUrlFor('s')).backends()
     expect(calls[0]?.url).toBe('https://was.example/space/s/backends')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(backends)
@@ -59,7 +60,7 @@ describe('space.backends()', () => {
 
   it('returns null when the space is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').backends()).toBeNull()
+    expect(await client.spaceAt(spaceUrlFor('s')).backends()).toBeNull()
   })
 })
 
@@ -78,7 +79,9 @@ describe('space.registerBackend()', () => {
       connection: { kind: 'oauth2-google', status: 'registered' }
     }
     const { client, calls } = storageClient({ data: descriptor })
-    const result = await client.space('s').registerBackend(registration)
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .registerBackend(registration)
     expect(calls[0]?.url).toBe('https://was.example/space/s/backends')
     expect(calls[0]?.method).toBe('POST')
     expect(calls[0]?.json).toEqual(registration)
@@ -88,7 +91,7 @@ describe('space.registerBackend()', () => {
   it('throws ConflictError when the id already exists / provider is barred (409)', async () => {
     const { client } = storageClient({ fail: 409 })
     await expect(
-      client.space('s').registerBackend(registration)
+      client.spaceAt(spaceUrlFor('s')).registerBackend(registration)
     ).rejects.toBeInstanceOf(ConflictError)
   })
 
@@ -96,7 +99,9 @@ describe('space.registerBackend()', () => {
     const client = clientWithStub(() =>
       jsonResponse({ status: 201, headers: { 'content-type': 'text/plain' } })
     )
-    const attempt = client.space('s').registerBackend(registration)
+    const attempt = client
+      .spaceAt(spaceUrlFor('s'))
+      .registerBackend(registration)
     await expect(attempt).rejects.toBeInstanceOf(WasServerError)
     await expect(attempt).rejects.toThrow(/text\/plain/)
   })
@@ -106,7 +111,9 @@ describe('space.import()', () => {
   it('POSTs the tar and returns the import stats', async () => {
     const stats = { collections: 1, resources: 2 }
     const { client, calls } = storageClient({ data: stats })
-    const result = await client.space('s').import(new Uint8Array([1, 2, 3]))
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .import(new Uint8Array([1, 2, 3]))
     expect(calls[0]?.method).toBe('POST')
     expect(calls[0]?.url).toBe('https://was.example/space/s/import')
     expect(result).toEqual(stats)
@@ -116,7 +123,9 @@ describe('space.import()', () => {
     const client = clientWithStub(() =>
       jsonResponse({ status: 200, headers: { 'content-type': 'text/html' } })
     )
-    const attempt = client.space('s').import(new Uint8Array([1, 2, 3]))
+    const attempt = client
+      .spaceAt(spaceUrlFor('s'))
+      .import(new Uint8Array([1, 2, 3]))
     await expect(attempt).rejects.toBeInstanceOf(WasServerError)
     await expect(attempt).rejects.toThrow(/text\/html/)
   })
@@ -137,7 +146,9 @@ describe('space.updateBackend()', () => {
       connection: { kind: 'oauth2-google', status: 'registered' }
     }
     const { client, calls } = storageClient({ data: descriptor })
-    const result = await client.space('s').updateBackend(registration)
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .updateBackend(registration)
     expect(calls[0]?.url).toBe(
       'https://was.example/space/s/backends/gdrive-personal'
     )
@@ -149,14 +160,16 @@ describe('space.updateBackend()', () => {
   it('returns null on an in-place replace (204, no body)', async () => {
     // No `data` -> the stub mimics a 204 with no parsed body.
     const { client } = storageClient()
-    expect(await client.space('s').updateBackend(registration)).toBeNull()
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).updateBackend(registration)
+    ).toBeNull()
   })
 })
 
 describe('space.deregisterBackend()', () => {
   it('DELETEs the per-id path', async () => {
     const { client, calls } = storageClient()
-    await client.space('s').deregisterBackend('gdrive-personal')
+    await client.spaceAt(spaceUrlFor('s')).deregisterBackend('gdrive-personal')
     expect(calls[0]?.url).toBe(
       'https://was.example/space/s/backends/gdrive-personal'
     )
@@ -166,7 +179,7 @@ describe('space.deregisterBackend()', () => {
   it('resolves (idempotent) when the backend is absent (404)', async () => {
     const { client } = storageClient({ fail: 404 })
     await expect(
-      client.space('s').deregisterBackend('missing')
+      client.spaceAt(spaceUrlFor('s')).deregisterBackend('missing')
     ).resolves.toBeUndefined()
   })
 })
@@ -175,7 +188,7 @@ describe('space.quotas()', () => {
   it('GETs the quotas endpoint and returns the report', async () => {
     const report = { respondedAt: '2026-06-12T13:25:00Z', backends: [] }
     const { client, calls } = storageClient({ data: report })
-    const result = await client.space('s').quotas()
+    const result = await client.spaceAt(spaceUrlFor('s')).quotas()
     expect(calls[0]?.url).toBe('https://was.example/space/s/quotas')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(report)
@@ -184,7 +197,7 @@ describe('space.quotas()', () => {
   it('requests the per-collection breakdown with includeCollections', async () => {
     const report = { respondedAt: '2026-06-12T13:25:00Z', backends: [] }
     const { client, calls } = storageClient({ data: report })
-    await client.space('s').quotas({ includeCollections: true })
+    await client.spaceAt(spaceUrlFor('s')).quotas({ includeCollections: true })
     expect(calls[0]?.url).toBe(
       'https://was.example/space/s/quotas?include=collections'
     )
@@ -193,7 +206,7 @@ describe('space.quotas()', () => {
 
   it('returns null when the space is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').quotas()).toBeNull()
+    expect(await client.spaceAt(spaceUrlFor('s')).quotas()).toBeNull()
   })
 })
 
@@ -205,7 +218,10 @@ describe('collection.backend()', () => {
       managedBy: 'server'
     }
     const { client, calls } = storageClient({ data: backend })
-    const result = await client.space('s').collection('c').backend()
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .backend()
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/backend')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(backend)
@@ -213,7 +229,9 @@ describe('collection.backend()', () => {
 
   it('returns null when the collection is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').collection('c').backend()).toBeNull()
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).collection('c').backend()
+    ).toBeNull()
   })
 })
 
@@ -229,7 +247,10 @@ describe('collection.quota()', () => {
       measuredAt: '2026-06-12T13:25:00Z'
     }
     const { client, calls } = storageClient({ data: usage })
-    const result = await client.space('s').collection('c').quota()
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .quota()
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/quota')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(usage)
@@ -237,7 +258,9 @@ describe('collection.quota()', () => {
 
   it('returns null when the collection is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').collection('c').quota()).toBeNull()
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).collection('c').quota()
+    ).toBeNull()
   })
 })
 
@@ -249,7 +272,11 @@ describe('resource.meta()', () => {
       custom: { name: 'Hello' }
     }
     const { client, calls } = storageClient({ data: meta })
-    const result = await client.space('s').collection('c').resource('r').meta()
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .meta()
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/r/meta')
     expect(calls[0]?.method).toBe('GET')
     // A WAS server serves an ETag on every read, so the metadata carries one.
@@ -258,7 +285,11 @@ describe('resource.meta()', () => {
 
   it('returns null when the resource is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    const result = await client.space('s').collection('c').resource('r').meta()
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .meta()
     expect(result).toBeNull()
   })
 
@@ -270,7 +301,7 @@ describe('resource.meta()', () => {
     // from the `null` (missing/unauthorized) return.
     const { client } = storageClient({ data: undefined })
     await expect(
-      client.space('s').collection('c').resource('r').meta()
+      client.spaceAt(spaceUrlFor('s')).collection('c').resource('r').meta()
     ).rejects.toThrow(WasServerError)
   })
 })
@@ -279,7 +310,7 @@ describe('resource.setMeta()', () => {
   it('PUTs the custom object to the meta endpoint', async () => {
     const { client, calls } = storageClient()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('r')
       .setMeta({ custom: { name: 'Hi', tags: { project: 'demo' } } })
@@ -292,7 +323,11 @@ describe('resource.setMeta()', () => {
 
   it('clears the custom object when called with no argument', async () => {
     const { client, calls } = storageClient()
-    await client.space('s').collection('c').resource('r').setMeta()
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .setMeta()
     expect(calls[0]?.json).toEqual({ custom: {} })
   })
 })
@@ -306,7 +341,7 @@ describe('collection.meta()', () => {
       custom: { name: 'Notes' }
     }
     const { client, calls } = storageClient({ data: meta })
-    const result = await client.space('s').collection('c').meta()
+    const result = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta')
     expect(calls[0]?.method).toBe('GET')
     // A WAS server serves an ETag on every read, so the metadata carries one.
@@ -319,20 +354,22 @@ describe('collection.meta()', () => {
     const { client } = storageClient({
       data: { createdBy: 'did:example:alice' }
     })
-    const result = await client.space('s').collection('c').meta()
+    const result = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(result?.custom).toEqual({})
   })
 
   it('returns null when the collection is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').collection('c').meta()).toBeNull()
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
+    ).toBeNull()
   })
 
   it('throws a WasServerError on a 200 with no JSON body (not a raw TypeError)', async () => {
     const { client } = storageClient({ data: undefined })
-    await expect(client.space('s').collection('c').meta()).rejects.toThrow(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').meta()
+    ).rejects.toThrow(WasServerError)
   })
 
   it('carries the metaVersion etag when the backend versions metadata', async () => {
@@ -340,7 +377,7 @@ describe('collection.meta()', () => {
       data: { custom: { name: 'Notes' } },
       etag: '"3"'
     })
-    const result = await client.space('s').collection('c').meta()
+    const result = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(result?.etag).toBe('"3"')
   })
 })
@@ -359,7 +396,7 @@ describe('collection.describe() / meta(): one path, one validator', () => {
       data: stored,
       etag: '"9"'
     })
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     const described = await collection.describe()
     const withEtag = await collection.describeWithEtag()
     const meta = await collection.meta()
@@ -393,7 +430,7 @@ describe('collection.setMeta()', () => {
       }
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'Notes', tags: { project: 'demo' } } })
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta')
@@ -418,7 +455,7 @@ describe('collection.setMeta()', () => {
     const { client, calls } = storageClient({
       data: { id: 'c', type: ['Collection'] }
     })
-    await client.space('s').collection('c').setMeta()
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setMeta()
     expect(calls[1]?.json).toEqual({ id: 'c', custom: {} })
   })
 
@@ -427,7 +464,10 @@ describe('collection.setMeta()', () => {
       data: { id: 'c', type: ['Collection'] },
       etag: '"7"'
     })
-    await client.space('s').collection('c').setMeta({ custom: {} })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .setMeta({ custom: {} })
     expect(calls[1]?.headers?.['if-match']).toBe('"7"')
   })
 
@@ -436,7 +476,7 @@ describe('collection.setMeta()', () => {
       data: { id: 'c', type: ['Collection'] }
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'Notes' } }, { ifMatch: '"2"' })
     expect(calls[1]?.headers?.['if-match']).toBe('"2"')
@@ -455,7 +495,10 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
         text: async () => body
       } as unknown as HttpResponse
     })
-    const result = await client.space('s').collection('c').getHistoryLog()
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .getHistoryLog()
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta/log')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual({ body, etag: '"g.1"' })
@@ -463,7 +506,9 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
 
   it('returns null when there is no log, or the collection is not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').collection('c').getHistoryLog()).toBeNull()
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).collection('c').getHistoryLog()
+    ).toBeNull()
   })
 
   it('refuses a log served as JSON, whose body the HTTP client pre-parsed', async () => {
@@ -479,7 +524,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
         }) as unknown as HttpResponse
     )
     await expect(
-      client.space('s').collection('c').getHistoryLog()
+      client.spaceAt(spaceUrlFor('s')).collection('c').getHistoryLog()
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
@@ -487,7 +532,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
     const { client, calls } = storageClient()
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .putHistoryLog('{}\n', { ifMatch: undefined })
     ).rejects.toBeInstanceOf(ValidationError)
@@ -498,7 +543,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
     const body = '{"versionId":"1-a","state":{"type":"X"}}\n'
     const { client, calls } = storageClient({ etag: '"g.1"' })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .putHistoryLog(body, { ifNoneMatch: true })
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta/log')
@@ -512,7 +557,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
   it('sends If-Match for a compare-and-swap append', async () => {
     const { client, calls } = storageClient()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .putHistoryLog('{}\n', { ifMatch: '"g.1"' })
     expect(calls[0]?.headers?.['if-match']).toBe('"g.1"')
@@ -523,7 +568,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
     const { client } = storageClient({ fail: 412 })
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .putHistoryLog('{}\n', { ifMatch: '"x"' })
     ).rejects.toBeInstanceOf(PreconditionFailedError)
@@ -539,7 +584,7 @@ describe('collection.setName() / setTags()', () => {
         custom: { name: 'Old', tags: { project: 'demo' } }
       }
     })
-    await client.space('s').collection('c').setName('New')
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setName('New')
     // The patch's read carries the write's compose baseline forward (see
     // `#recentRead`), so this is one GET and one PUT.
     expect(calls[1]?.method).toBe('PUT')
@@ -557,7 +602,10 @@ describe('collection.setName() / setTags()', () => {
         custom: { name: 'Keep', tags: { project: 'demo' } }
       }
     })
-    await client.space('s').collection('c').setTags({ status: 'final' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .setTags({ status: 'final' })
     expect(calls[1]?.json).toEqual({
       id: 'c',
       custom: { name: 'Keep', tags: { status: 'final' } }
@@ -569,7 +617,7 @@ describe('collection.setName() / setTags()', () => {
       data: { id: 'c', type: ['Collection'], custom: { name: 'Old' } },
       etag: '"meta-v1"'
     })
-    await client.space('s').collection('c').setName('New')
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setName('New')
     // The write composes against the read the patch just made (it carries the
     // validator the write pins to), so this is one GET and one PUT.
     expect(calls).toHaveLength(2)
@@ -603,7 +651,7 @@ describe('collection.setName() / setTags()', () => {
       }
       return jsonResponse({ status: 204, headers: { etag: '"3"' } })
     })
-    await client.space('s').collection('c').setName('New')
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setName('New')
     const writes = calls.filter(call => call.method === 'PUT')
     expect(writes).toHaveLength(2)
     // The winning write carries the rival's configuration, read fresh.
@@ -625,7 +673,7 @@ describe('collection.setName() / setTags()', () => {
       etag: undefined
     })
     await expect(
-      client.space('s').collection('c').setName('New')
+      client.spaceAt(spaceUrlFor('s')).collection('c').setName('New')
     ).rejects.toBeInstanceOf(NotSupportedError)
     expect(calls).toHaveLength(1)
   })
@@ -640,7 +688,11 @@ describe('resource.setName() / setTags()', () => {
         custom: { name: 'Old', tags: { project: 'demo' } }
       }
     })
-    await client.space('s').collection('c').resource('r').setName('New')
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .setName('New')
     // First call is the GET (meta), second is the PUT.
     expect(calls[1]?.method).toBe('PUT')
     expect(calls[1]?.json).toEqual({
@@ -657,7 +709,7 @@ describe('resource.setName() / setTags()', () => {
       }
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('r')
       .setTags({ status: 'final' })
@@ -674,7 +726,11 @@ describe('resource.setName() / setTags()', () => {
       data: { contentType: 'application/json', custom: { name: 'Old' } },
       etag: '"meta-v1"'
     })
-    await client.space('s').collection('c').resource('r').setName('New')
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .setName('New')
     expect(calls[1]?.headers?.['if-match']).toBe('"meta-v1"')
   })
 
@@ -683,7 +739,11 @@ describe('resource.setName() / setTags()', () => {
       data: { contentType: 'application/json', custom: {} },
       etag: '"meta-v1"'
     })
-    await client.space('s').collection('c').resource('r').setTags({ k: 'v' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .setTags({ k: 'v' })
     expect(calls[1]?.headers?.['if-match']).toBe('"meta-v1"')
   })
 
@@ -695,7 +755,11 @@ describe('resource.setName() / setTags()', () => {
       data: { contentType: 'application/json', size: 7, custom: {} },
       etag: undefined
     })
-    await client.space('s').collection('c').resource('r').setName('New')
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .setName('New')
     expect(calls[1]?.method).toBe('PUT')
     expect(calls[1]?.json).toEqual({ custom: { name: 'New' } })
     expect(calls[1]?.headers?.['if-none-match']).toBe('*')
@@ -709,7 +773,11 @@ describe('resource.setName() / setTags()', () => {
     // before any write goes out instead of replacing `custom` bare.
     const { client, calls } = storageClient({ fail: 404 })
     await expect(
-      client.space('s').collection('c').resource('r').setName('New')
+      client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('c')
+        .resource('r')
+        .setName('New')
     ).rejects.toBeInstanceOf(NotFoundError)
     expect(calls).toHaveLength(1)
     expect(calls[0]?.method).toBe('GET')
@@ -730,7 +798,11 @@ describe('resource.setName() / setTags()', () => {
       etag: undefined
     })
     await expect(
-      client.space('s').collection('c').resource('r').setName('New')
+      client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('c')
+        .resource('r')
+        .setName('New')
     ).rejects.toBeInstanceOf(NotSupportedError)
     expect(calls).toHaveLength(1)
   })
@@ -769,18 +841,18 @@ describe('was.listSpaces()', () => {
 describe('Collection reserved-id guard', () => {
   it('rejects a reserved id at handle construction, before any request', () => {
     const { client, calls } = storageClient()
-    expect(() => client.space('s').collection('export')).toThrow(
+    expect(() => client.spaceAt(spaceUrlFor('s')).collection('export')).toThrow(
       ValidationError
     )
     expect(calls).toHaveLength(0)
   })
 
   it('rejects collection("policy") so delete() cannot wipe the space policy', () => {
-    // `collectionPath(s, 'policy')` is byte-identical to the space policy path,
+    // The collection URL for 'policy' is byte-identical to the Space policy URL,
     // so an unguarded handle's DELETE would be wire-identical to
     // `space.clearPolicy()`.
     const { client, calls } = storageClient()
-    expect(() => client.space('s').collection('policy')).toThrow(
+    expect(() => client.spaceAt(spaceUrlFor('s')).collection('policy')).toThrow(
       ValidationError
     )
     expect(calls).toHaveLength(0)
@@ -792,7 +864,9 @@ describe('Collection reserved-id guard', () => {
     // storage-core 0.14.0's reserved-Collection-id set yet, so the client names
     // it locally until a release adds it upstream.
     const { client, calls } = storageClient()
-    expect(() => client.space('s').collection('meta')).toThrow(ValidationError)
+    expect(() => client.spaceAt(spaceUrlFor('s')).collection('meta')).toThrow(
+      ValidationError
+    )
     expect(calls).toHaveLength(0)
   })
 
@@ -802,14 +876,17 @@ describe('Collection reserved-id guard', () => {
     // return it as if it were resource content.
     const { client, calls } = storageClient()
     await expect(
-      client.space('s').collection('c').get('policy')
+      client.spaceAt(spaceUrlFor('s')).collection('c').get('policy')
     ).rejects.toThrow(ValidationError)
     expect(calls).toHaveLength(0)
   })
 
   it('allows configuring an ordinary collection id', async () => {
     const { client, calls } = storageClient({ data: {} })
-    await client.space('s').collection('docs').configure({ name: 'Docs' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('docs')
+      .configure({ name: 'Docs' })
     // describe() GET + configure() PUT.
     expect(calls.some(call => call.method === 'PUT')).toBe(true)
   })
@@ -827,7 +904,7 @@ describe('Collection reserved-id guard', () => {
     }
     const { client, calls } = storageClient({ data: current })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('docs')
       .configure({ name: 'Renamed' })
     const put = calls.find(call => call.method === 'PUT')
@@ -852,7 +929,7 @@ describe('Collection reserved-id guard', () => {
     }
     const { client, calls } = storageClient({ data: current })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('notes')
       .configure({ name: 'Renamed' })
     const put = calls.find(call => call.method === 'PUT')
@@ -880,7 +957,7 @@ describe('Collection reserved-id guard', () => {
     }
     const { client, calls } = storageClient({ data: current })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('notes')
       .configure({ generator: { id: 'did:key:zOther' } })
     const put = calls.find(call => call.method === 'PUT')
@@ -895,7 +972,7 @@ describe('Collection reserved-id guard', () => {
 describe('space.createCollection() request body', () => {
   it('POSTs the writable fields, including the generator attribution', async () => {
     const { client, calls } = storageClient({ data: { id: 'notes' } })
-    const collection = await client.space('s').createCollection({
+    const collection = await client.spaceAt(spaceUrlFor('s')).createCollection({
       id: 'notes',
       name: 'Notes',
       generator: { id: 'did:key:zApp', origin: 'https://app.example' }
@@ -919,7 +996,10 @@ describe('Collection.configure() unreadable-description guard', () => {
     // server. That is exactly the clobber the merge exists to prevent.
     const { client, calls } = storageClient({ fail: 404 })
     await expect(
-      client.space('s').collection('docs').configure({ name: 'x' })
+      client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('docs')
+        .configure({ name: 'x' })
     ).rejects.toThrow(ValidationError)
     // Only the describe() GET went out; no blind PUT.
     expect(calls).toHaveLength(1)
@@ -944,7 +1024,7 @@ describe('Collection.configure() unreadable-description guard', () => {
       } as unknown as HttpResponse
     })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('docs')
       .configure({ name: 'x', force: true })
     const put = calls.find(call => call.method === 'PUT')
@@ -972,7 +1052,7 @@ describe('Collection.configure() unreadable-description guard', () => {
       } as unknown as HttpResponse
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('docs')
       .configure({
         name: 'x',
@@ -1008,7 +1088,7 @@ describe('Collection.configure() unreadable-description guard', () => {
     // `encryption-immutable`) -- the very harm the guard covers.
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('docs')
         .configure({ name: 'x', backend: { id: 'custom' } })
     ).rejects.toThrow(ValidationError)
@@ -1022,7 +1102,7 @@ describe('Collection.configure() unreadable-description guard', () => {
     const { client, calls } = storageClient()
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('docs')
         .configure({ name: 'x', current: null })
     ).rejects.toThrow(ValidationError)
@@ -1038,9 +1118,9 @@ describe('Space.configure() unreadable-description guard', () => {
     // from a `null` current -- silently defaulting `controller` (a stealth
     // ownership change) and dropping the existing name. The guard blocks that.
     const { client, calls } = storageClient({ fail: 404 })
-    await expect(client.space('s').configure({ name: 'x' })).rejects.toThrow(
-      ValidationError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).configure({ name: 'x' })
+    ).rejects.toThrow(ValidationError)
     // Only the describe() GET went out; no blind PUT.
     expect(calls).toHaveLength(1)
     expect(calls[0]?.method).toBe('GET')
@@ -1073,7 +1153,9 @@ describe('Space.configure() unreadable-description guard', () => {
 
   it('proceeds with force: true (deliberate create through a handle)', async () => {
     const { client, calls } = guardedClient()
-    const result = await client.space('s').configure({ name: 'x', force: true })
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'x', force: true })
     const put = calls.find(call => call.method === 'PUT')
     // A guarded create: a space that exists but was unreadable is not
     // overwritten (the server answers 412).
@@ -1085,7 +1167,7 @@ describe('Space.configure() unreadable-description guard', () => {
   it('proceeds when both name and controller are supplied explicitly', async () => {
     const { client, calls } = guardedClient()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .configure({ name: 'x', controller: 'did:example:bob' })
     const put = calls.find(call => call.method === 'PUT')
     expect(put?.json).toMatchObject({
@@ -1096,7 +1178,7 @@ describe('Space.configure() unreadable-description guard', () => {
 
   it('sends a supplied type array on the create PUT', async () => {
     const { client, calls } = guardedClient()
-    await client.space('s').configure({
+    await client.spaceAt(spaceUrlFor('s')).configure({
       controller: 'did:example:bob',
       type: ['Space', 'AuxiliarySpace', 'DelegatedClientsSpace'],
       force: true
@@ -1110,7 +1192,9 @@ describe('Space.configure() unreadable-description guard', () => {
 
   it('omits type from the PUT when neither supplied nor current', async () => {
     const { client, calls } = guardedClient()
-    const result = await client.space('s').configure({ name: 'x', force: true })
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'x', force: true })
     const put = calls.find(call => call.method === 'PUT')
     expect(put?.json).not.toHaveProperty('type')
     // The server's `type` was never read, so the result does not claim one.
@@ -1120,7 +1204,7 @@ describe('Space.configure() unreadable-description guard', () => {
   it('fails closed on a supplied `current: null`', async () => {
     const { client, calls } = storageClient()
     await expect(
-      client.space('s').configure({ name: 'x', current: null })
+      client.spaceAt(spaceUrlFor('s')).configure({ name: 'x', current: null })
     ).rejects.toThrow(ValidationError)
     // Not even the describe() GET went out: the caller supplied the answer.
     expect(calls).toHaveLength(0)
@@ -1140,7 +1224,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
       data: current,
       etag: '"7"'
     })
-    const read = await client.space('s').describeWithEtag()
+    const read = await client.spaceAt(spaceUrlFor('s')).describeWithEtag()
     expect(calls[0]?.url).toBe('https://was.example/space/s/meta')
     expect(calls[0]?.method).toBe('GET')
     expect(read).toEqual({ description: current, etag: '"7"' })
@@ -1148,13 +1232,13 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
 
   it('returns null when the space is missing or not visible (404)', async () => {
     const { client } = storageClient({ fail: 404 })
-    expect(await client.space('s').describeWithEtag()).toBeNull()
+    expect(await client.spaceAt(spaceUrlFor('s')).describeWithEtag()).toBeNull()
   })
 
   it('PUTs the given fields under If-Match, with no read or merge first', async () => {
     const { client, calls } = storageClient({ etag: '"8"' })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .replaceDescription(
         { name: 'Renamed', controller: 'did:example:alice' },
         { ifMatch: '"7"' }
@@ -1178,7 +1262,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
       etag: '"1"'
     })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .replaceDescription(
         { name: 'Home', controller: 'did:example:alice', type: ['Space'] },
         { ifNoneMatch: true }
@@ -1196,7 +1280,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
   it('sends no precondition header when neither option is given', async () => {
     const { client, calls } = storageClient()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .replaceDescription({ controller: 'did:example:alice' })
     expect(calls[0]?.headers).toBeUndefined()
     expect(calls[0]?.json).toEqual({ id: 's', controller: 'did:example:alice' })
@@ -1206,7 +1290,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
     const { client } = storageClient({ fail: 412 })
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .replaceDescription(
           { controller: 'did:example:alice' },
           { ifNoneMatch: true }
@@ -1218,7 +1302,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
     const { client, calls } = storageClient()
     // A description read from another Space, handed back with one change.
     const other = { ...current, id: 'other', name: 'Renamed' }
-    await client.space('s').replaceDescription(other)
+    await client.spaceAt(spaceUrlFor('s')).replaceDescription(other)
     expect(calls[0]?.url).toBe('https://was.example/space/s/meta')
     expect(calls[0]?.json).toMatchObject({ id: 's', name: 'Renamed' })
   })
@@ -1227,7 +1311,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
     const { client, calls } = storageClient()
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .replaceDescription(
           { controller: 'did:example:alice' },
           { ifMatch: '"7"', ifNoneMatch: true }
@@ -1249,7 +1333,9 @@ describe('configure() with a supplied current description', () => {
       etag: '"g.1"'
     } as SpaceMetadata & { etag: string }
     const { client, calls } = storageClient()
-    await client.space('s').configure({ name: 'Renamed', current })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'Renamed', current })
     // One request, the PUT: `type` and `controller` still carry forward, from
     // the supplied description rather than from a second GET.
     expect(calls).toHaveLength(1)
@@ -1271,7 +1357,7 @@ describe('configure() with a supplied current description', () => {
     } as CollectionMetadata & { etag: string }
     const { client, calls } = storageClient()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('docs')
       .configure({ name: 'Renamed', current })
     // One request, the PUT: the supplied object is the baseline the write
@@ -1323,7 +1409,7 @@ describe('Space.configure() type carry-forward', () => {
       } as unknown as HttpResponse
     })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .configure({ controller: 'did:example:promoted' })
     const put = calls.find(call => call.method === 'PUT')
     expect(put?.json).toMatchObject({ type: current.type })
@@ -1376,7 +1462,9 @@ describe('Space.configure() compare-and-swap', () => {
       }
       return jsonResponse({ status: 204, headers: { etag: '"3"' } })
     })
-    const result = await client.space('s').configure({ name: 'Renamed' })
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'Renamed' })
     expect(calls.map(call => call.method)).toEqual(['GET', 'PUT', 'GET', 'PUT'])
     expect(calls[1]?.headers?.['if-match']).toBe('"1"')
     expect(calls[1]?.json).toMatchObject({
@@ -1413,7 +1501,7 @@ describe('Space.configure() compare-and-swap', () => {
       }
       return jsonResponse({ status: 204, headers: { etag: '"7"' } })
     })
-    await client.space('s').configure({
+    await client.spaceAt(spaceUrlFor('s')).configure({
       controller: 'did:example:bob',
       current: {
         ...stored,
@@ -1450,7 +1538,7 @@ describe('Space.configure() compare-and-swap', () => {
       return failWith(412)
     })
     await expect(
-      client.space('s').configure({ name: 'Renamed' })
+      client.spaceAt(spaceUrlFor('s')).configure({ name: 'Renamed' })
     ).rejects.toThrow(ValidationError)
     expect(calls.map(call => call.method)).toEqual(['GET', 'PUT', 'GET'])
   })
@@ -1472,7 +1560,9 @@ describe('Space.configure() compare-and-swap', () => {
         headers: { etag: '"1"' }
       })
     })
-    const result = await client.space('s').configure({ name: 'x', force: true })
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'x', force: true })
     expect(calls.find(call => call.method === 'PUT')?.json).not.toHaveProperty(
       'type'
     )
@@ -1488,7 +1578,9 @@ describe('Space.configure() compare-and-swap', () => {
         ? jsonResponse({ data: stored, status: 200, headers: { etag: '"1"' } })
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
-    const result = await client.space('s').configure({ name: 'Renamed' })
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'Renamed' })
     expect(result.description.name).toBe('Renamed')
     expect(result.description.controller).toBe('did:example:alice')
     expect(result.etag).toBe('"2"')
@@ -1500,7 +1592,9 @@ describe('Space.configure() compare-and-swap', () => {
         ? jsonResponse({ data: stored, status: 200, headers: { etag: '"1"' } })
         : jsonResponse({ status: 204 })
     )
-    const result = await client.space('s').configure({ name: 'Renamed' })
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .configure({ name: 'Renamed' })
     expect(result).not.toHaveProperty('etag')
   })
 })
@@ -1535,14 +1629,18 @@ describe('resource.getText() / getBytes() on a JSON-typed resource', () => {
 
   it('getText() re-serializes the pre-parsed data instead of crashing', async () => {
     const client = clientWithConsumedJsonBody({ a: 1 })
-    const text = await client.space('s').collection('c').resource('r').getText()
+    const text = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .getText()
     expect(text).toBe('{"a":1}')
   })
 
   it('getBytes() re-serializes the pre-parsed data instead of crashing', async () => {
     const client = clientWithConsumedJsonBody({ a: 1 })
     const bytes = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('r')
       .getBytes()
@@ -1564,7 +1662,10 @@ describe('resource.getText() / getBytes() on a JSON-typed resource', () => {
         }
       } as unknown as HttpResponse
     })
-    const resource = client.space('s').collection('c').resource('r')
+    const resource = client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
     expect(await resource.getText()).toBe(body)
     expect(await resource.getBytes()).toEqual(new TextEncoder().encode(body))
   })
@@ -1592,7 +1693,10 @@ describe("resource.getWithEtag({ as: 'text' })", () => {
       data: undefined,
       blob: async () => new Blob([body], { type: 'text/jsonl' })
     })
-    const resource = client.space('s').collection('c').resource('r')
+    const resource = client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
     expect(await resource.getWithEtag({ as: 'text' })).toEqual({
       data: body,
       etag: '"v1"'
@@ -1604,7 +1708,10 @@ describe("resource.getWithEtag({ as: 'text' })", () => {
       headers: new Headers({ 'content-type': 'application/json' }),
       data: { a: 1 }
     })
-    const resource = client.space('s').collection('c').resource('r')
+    const resource = client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
     expect(await resource.getWithEtag({ as: 'text' })).toEqual({
       data: '{"a":1}'
     })
@@ -1621,7 +1728,10 @@ describe("resource.getWithEtag({ as: 'text' })", () => {
         data: undefined,
         blob: async () => rnBlob([body], { type: 'text/plain' })
       })
-      const resource = client.space('s').collection('c').resource('r')
+      const resource = client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('c')
+        .resource('r')
       expect(await resource.getWithEtag({ as: 'text' })).toEqual({
         data: body,
         etag: '"v1"'
@@ -1660,7 +1770,10 @@ describe('collection.add() Location resolution', () => {
    * @returns {Promise<object>}   the `AddResult`
    */
   async function addThrough(client: WasClient) {
-    return client.space('s').collection('c').add({ hello: 'world' })
+    return client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .add({ hello: 'world' })
   }
 
   it('resolves a relative Location header to an absolute AddResult.url', async () => {
@@ -1698,7 +1811,7 @@ describe('Resource reserved-id guard (path-collision safety)', () => {
       'meta'
     ]) {
       expect(() =>
-        client.space('s').collection('c').resource(reserved)
+        client.spaceAt(spaceUrlFor('s')).collection('c').resource(reserved)
       ).toThrow(ValidationError)
     }
     expect(calls).toHaveLength(0)
@@ -1707,7 +1820,7 @@ describe('Resource reserved-id guard (path-collision safety)', () => {
   it('allows an ordinary resource id', () => {
     const { client } = storageClient()
     expect(() =>
-      client.space('s').collection('c').resource('greeting')
+      client.spaceAt(spaceUrlFor('s')).collection('c').resource('greeting')
     ).not.toThrow()
   })
 })

@@ -23,8 +23,8 @@ import {
   provisionVault
 } from '../helpers/chunkedVault.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * The routing threshold and chunk size these tests provision the codec with,
@@ -40,7 +40,7 @@ describeLive('resource.put() over a stored document (live server)', () => {
 
   beforeAll(async () => {
     const client = await chunkedClient({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       maxBlobBytes: MAX_BLOB_BYTES,
       chunkSize: CHUNK_SIZE
     })
@@ -68,7 +68,7 @@ describeLive('resource.put() over a stored document (live server)', () => {
    * @returns {Promise<number | undefined>}
    */
   function chunk(resourceId: string, chunkIndex: number) {
-    return chunkStatus({ was, spaceId: space.id, resourceId, chunkIndex })
+    return chunkStatus({ was, spaceUrl: space.url, resourceId, chunkIndex })
   }
 
   it('shrinks a chunked document and reaps the chunks beyond the new count', async () => {

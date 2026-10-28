@@ -41,14 +41,14 @@ import {
 import type { WritePrecondition } from './conditional.js'
 
 /**
- * Sends an encoded write (`PUT`/`POST`) to a resource path, applying the
+ * Sends an encoded write (`PUT`/`POST`) to a resource URL, applying the
  * encoded body (`json` or `body`), its content-type, and the conditional-write
  * precondition. A write is never a `read`, so the response is always present
  * (errors throw via `send`).
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}                  the resource path to write
+ * @param options.url {string}                   the resource URL to write
  * @param options.method {string}                `PUT` or `POST`
  * @param options.encoded {EncodedWrite}         the codec's encoded write
  * @param [options.capability] {IZcap}
@@ -58,13 +58,13 @@ import type { WritePrecondition } from './conditional.js'
 export async function sendEncodedWrite(
   context: ClientContext,
   {
-    path,
+    url,
     method,
     encoded,
     capability,
     precondition
   }: {
-    path: string
+    url: string
     method: string
     encoded: EncodedWrite
     capability?: IZcap
@@ -72,7 +72,7 @@ export async function sendEncodedWrite(
   }
 ): Promise<HttpResponse> {
   const response = await send(context, {
-    path,
+    url,
     method,
     capability,
     json: encoded.json,
@@ -120,7 +120,7 @@ export function codecRequestContext(
 
 /**
  * The outcome of {@link insertResource}: either the ordinary single-request
- * write (the codec's encoding, the path written, and the response) or the
+ * write (the codec's encoding, the URL written, and the response) or the
  * result of a codec's multi-request {@link ChunkedWrite} plan, which has no one
  * canonical response.
  */
@@ -128,13 +128,13 @@ export type InsertOutcome =
   | {
       chunked?: false
       encoded: EncodedWrite
-      path: string
+      url: string
       response: HttpResponse
     }
   | {
       chunked: true
       id: string
-      path: string
+      url: string
       contentType?: string
       etag?: string
     }
@@ -150,21 +150,21 @@ export type InsertOutcome =
  * preconditions.
  *
  * A codec that mints its own id (e.g. the encrypting codec's EDV id) writes it
- * by `PUT` to that id's path; a codec that mints none (the identity codec)
- * `POST`s to the items path and lets the server mint one. A conditional codec
+ * by `PUT` to that id's URL; a codec that mints none (the identity codec)
+ * `POST`s to the items URL and lets the server mint one. A conditional codec
  * computes the precondition itself (the EDV codec guards its fresh insert with
  * `If-None-Match: *`); an insert through a non-conditional codec is
  * unconditional, since `add()` names no target revision to pin against.
  *
- * Returns the codec's encoded write and the path actually written alongside the
+ * Returns the codec's encoded write and the URL actually written alongside the
  * response, so the caller can shape its result (the created id and URL) without
  * re-deriving either.
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.itemsPath {string}       the collection's items path, the
+ * @param options.itemsUrl {string}       the collection's items URL, the
  *   `POST` target when the codec mints no id
- * @param options.pathForId {function}     builds the resource path for a
+ * @param options.urlForId {function}     builds the resource URL for a
  *   codec-minted id
  * @param options.codec {ResourceCodec}    the collection's resolved codec
  * @param options.data {ResourceData}      the plaintext value
@@ -175,15 +175,15 @@ export type InsertOutcome =
 export async function insertResource(
   context: ClientContext,
   {
-    itemsPath,
-    pathForId,
+    itemsUrl,
+    urlForId,
     codec,
     data,
     contentType,
     capability
   }: {
-    itemsPath: string
-    pathForId: (id: string) => string
+    itemsUrl: string
+    urlForId: (id: string) => string
     codec: ResourceCodec
     data: ResourceData
     contentType?: string
@@ -198,7 +198,7 @@ export async function insertResource(
     return {
       chunked: true,
       id,
-      path: pathForId(id),
+      url: urlForId(id),
       contentType: write.resourceContentType,
       ...(etag !== undefined && { etag })
     }
@@ -207,15 +207,15 @@ export async function insertResource(
   const chosen = codec.conditionalWrites
     ? encodedPrecondition(encoded)
     : undefined
-  const path = encoded.id !== undefined ? pathForId(encoded.id) : itemsPath
+  const url = encoded.id !== undefined ? urlForId(encoded.id) : itemsUrl
   const response = await sendEncodedWrite(context, {
-    path,
+    url,
     method: encoded.id !== undefined ? 'PUT' : 'POST',
     capability,
     encoded,
     precondition: chosen
   })
-  return { encoded, path, response }
+  return { encoded, url, response }
 }
 
 /**
@@ -245,7 +245,7 @@ export async function insertResource(
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}                  the resource path to write
+ * @param options.url {string}                   the resource URL to write
  * @param options.codec {ResourceCodec}          the collection's resolved codec
  * @param options.id {string}                    the resource id
  * @param options.data {ResourceData}            the plaintext value
@@ -258,7 +258,7 @@ export async function insertResource(
 export async function upsertResource(
   context: ClientContext,
   {
-    path,
+    url,
     codec,
     id,
     data,
@@ -266,7 +266,7 @@ export async function upsertResource(
     capability,
     precondition: callerPrecondition
   }: {
-    path: string
+    url: string
     codec: ResourceCodec
     id: string
     data: ResourceData
@@ -283,7 +283,7 @@ export async function upsertResource(
   let current: HttpResponse | null | undefined
   if (codec.conditionalWrites) {
     current = await send(context, {
-      path,
+      url,
       method: 'GET',
       capability,
       read: true
@@ -291,7 +291,7 @@ export async function upsertResource(
     // The caller's own compare-and-swap baseline is checked against what the
     // pre-read just observed, so a lost race fails here rather than being
     // encoded into a sequence advance the server would then reject.
-    assertPreconditionAgainstPreRead({ path, current, precondition })
+    assertPreconditionAgainstPreRead({ url, current, precondition })
   }
   const write = await codec.encode({
     id,
@@ -307,7 +307,7 @@ export async function upsertResource(
   })
   if (isChunkedWrite(write)) {
     return await runChunkedPlan(context, {
-      path,
+      url,
       write,
       capability,
       current
@@ -322,7 +322,7 @@ export async function upsertResource(
     : precondition
   try {
     const response = await sendEncodedWrite(context, {
-      path,
+      url,
       method: 'PUT',
       capability,
       encoded,
@@ -335,7 +335,7 @@ export async function upsertResource(
       codec.conditionalWrites &&
       current === null
     ) {
-      throw maskedInsertRejected({ err, path })
+      throw maskedInsertRejected({ err, url })
     }
     throw err
   }
@@ -356,7 +356,7 @@ export async function upsertResource(
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}   the resource path the plan writes
+ * @param options.url {string}   the resource URL the plan writes
  * @param options.write {ChunkedWrite}   the codec's plan
  * @param [options.capability] {IZcap}
  * @param options.current {HttpResponse | null | undefined}   the pre-read's
@@ -366,12 +366,12 @@ export async function upsertResource(
 async function runChunkedPlan(
   context: ClientContext,
   {
-    path,
+    url,
     write,
     capability,
     current
   }: {
-    path: string
+    url: string
     write: ChunkedWrite
     capability?: IZcap
     current: HttpResponse | null | undefined
@@ -386,7 +386,7 @@ async function runChunkedPlan(
     // A `null` pre-read means a conditional codec looked and found nothing,
     // so the plan wrote create-if-absent.
     if (err instanceof PreconditionFailedError && current === null) {
-      throw maskedInsertRejected({ err, path })
+      throw maskedInsertRejected({ err, url })
     }
     throw err
   }
@@ -400,19 +400,19 @@ async function runChunkedPlan(
  *
  * @param options {object}
  * @param options.err {PreconditionFailedError}   the server's 412
- * @param options.path {string}   the resource path written
+ * @param options.url {string}   the resource URL written
  * @returns {PreconditionFailedError}
  */
 function maskedInsertRejected({
   err,
-  path
+  url
 }: {
   err: PreconditionFailedError
-  path: string
+  url: string
 }): PreconditionFailedError {
   const { status, type, title, details, requestUrl } = err
   return new PreconditionFailedError(
-    `Cannot update the document at "${path}": it exists, but its current ` +
+    `Cannot update the document at "${url}": it exists, but its current ` +
       'version is not readable with this capability (WAS masks ' +
       'unauthorized reads as 404), so the write was encoded as a fresh ' +
       'insert and the server rejected it. A conditional codec ' +

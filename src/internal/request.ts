@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The load-bearing transport layer: wraps `zcapClient.request(...)`, resolving
- * paths against the server base URL and defaulting the capability `action` to the
- * HTTP method (never ezcap's `read`/`write`). `send()` adds the typed-error
+ * The load-bearing transport layer: wraps `zcapClient.request(...)` on an
+ * absolute URL, defaulting the capability `action` to the HTTP method (never
+ * ezcap's `read`/`write`). `send()` adds the typed-error
  * mapping and the null-on-404 read translation; `rawRequest()` is the
  * unmapped escape hatch used by `was.request()`. Every signed request first
  * awaits the context's memoized service discovery, so no request reaches a
@@ -14,18 +14,16 @@ import type { ZcapClient } from '@interop/ezcap'
 import { isValidTarget } from '@interop/zcap'
 import type { HttpResponse } from '@interop/http-client'
 import { NotFoundError, WasError, mapError, httpStatus } from '../errors.js'
-import { toUrl } from './paths.js'
 import { dataOrNull } from './content.js'
 import { readEtag } from './conditional.js'
 import type { EncryptionProvider } from '../codec.js'
 import type { IZcap, RequestInput, ServiceInfo } from '../types.js'
 
 /**
- * The shared context threaded through every handle: the server base URL, the
- * wrapped ezcap client, the controller DID of its signer, the optional
- * encryption provider that supplies an encrypting codec for the collections
- * the client holds keys for, and the memoized service discovery every signed
- * request waits on.
+ * The shared context threaded through every handle: the wrapped ezcap client,
+ * the controller DID of its signer, the optional encryption provider that
+ * supplies an encrypting codec for the collections the client holds keys
+ * for, and the memoized service discovery every signed request waits on.
  *
  * `controllerDid` is a lazy read, not a stored string: `WasClient` backs it
  * with a getter so that building a context (and therefore a handle) never
@@ -35,7 +33,6 @@ import type { IZcap, RequestInput, ServiceInfo } from '../types.js'
  * controller) rather than at construction.
  */
 export interface ClientContext {
-  baseUrl: string
   zcapClient: ZcapClient
   controllerDid: string
   encryption?: EncryptionProvider
@@ -43,9 +40,8 @@ export interface ClientContext {
 }
 
 /**
- * A single signed request: the public `RequestInput` shape (either `path`,
- * resolved against `baseUrl`, or an absolute `url` must be given) plus the
- * `send()`-level 404 translations.
+ * A single signed request: the public `RequestInput` shape (an absolute
+ * `url`) plus the `send()`-level 404 translations.
  */
 export interface SendInput extends RequestInput {
   /**
@@ -57,16 +53,6 @@ export interface SendInput extends RequestInput {
    * delete of an already-absent target succeeds (idempotent delete).
    */
   idempotent?: boolean
-}
-
-function resolveRequestUrl(context: ClientContext, input: SendInput): string {
-  if (input.url !== undefined) {
-    return input.url
-  }
-  if (input.path === undefined) {
-    throw new TypeError('Either "path" or "url" is required.')
-  }
-  return toUrl({ baseUrl: context.baseUrl, path: input.path })
 }
 
 /**
@@ -84,7 +70,7 @@ export async function rawRequest(
   context: ClientContext,
   input: SendInput
 ): Promise<HttpResponse> {
-  const url = resolveRequestUrl(context, input)
+  const { url } = input
   await context.service()
   // Uppercase the method and the action, as `grant()` does: the server
   // matches the signed action case-sensitively against the request method,
@@ -126,8 +112,7 @@ export async function fetchMapped(
  * Sends an **unsigned** request (a plain `fetch`, no capability invocation), for
  * reading public (`PublicCanRead`) resources that need no authorization. Applies
  * the same typed-error mapping and null-on-404 read translation as `send()`.
- * Takes an absolute `url` -- public reads address a resource by its link, not by
- * a server-relative path.
+ * Takes an absolute `url` -- public reads address a resource by its link.
  *
  * @param input {object}
  * @param input.url {string}                    absolute URL to read
@@ -195,7 +180,7 @@ export async function send(
 ): Promise<HttpResponse | null> {
   const invocationTarget = input.capability?.invocationTarget
   if (invocationTarget !== undefined) {
-    const url = resolveRequestUrl(context, input)
+    const { url } = input
     if (
       !isValidTarget({
         invocationTarget: url,
@@ -231,22 +216,22 @@ export async function send(
 
 /**
  * The GET-a-JSON-description read shared across the handles: a signed
- * null-on-404 `GET` of `path` whose pre-parsed body is unwrapped as `T`. Both
+ * null-on-404 `GET` of `url` whose pre-parsed body is unwrapped as `T`. Both
  * a missing/unauthorized target (404) and a bodyless/non-JSON response resolve
  * to `null` (see `dataOrNull`).
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}          the path to read
+ * @param options.url {string}           the absolute URL to read
  * @param [options.capability] {IZcap}   capability attached to the request
  * @returns {Promise<T | null>}
  */
 export async function readData<T>(
   context: ClientContext,
-  { path, capability }: { path: string; capability?: IZcap }
+  { url, capability }: { url: string; capability?: IZcap }
 ): Promise<T | null> {
   const response = await send(context, {
-    path,
+    url,
     method: 'GET',
     capability,
     read: true
@@ -262,16 +247,16 @@ export async function readData<T>(
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}          the path to read
+ * @param options.url {string}           the absolute URL to read
  * @param [options.capability] {IZcap}   capability attached to the request
  * @returns {Promise<{ data: T; etag?: string } | null>}
  */
 export async function readDataWithEtag<T>(
   context: ClientContext,
-  { path, capability }: { path: string; capability?: IZcap }
+  { url, capability }: { url: string; capability?: IZcap }
 ): Promise<{ data: T; etag?: string } | null> {
   const response = await send(context, {
-    path,
+    url,
     method: 'GET',
     capability,
     read: true

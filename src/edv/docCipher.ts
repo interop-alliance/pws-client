@@ -33,7 +33,7 @@
  * stay stable across a rotation.
  *
  * The cipher also reads a chunked envelope, in one of two ways. Given the
- * Space the collection lives in (`spaceId`), `decrypt` fetches its chunk
+ * Space the collection lives in (`spaceUrl`), `decrypt` fetches its chunk
  * resources through the request context the caller passes
  * (`collection.codecContext()`). Given a `chunkSource` instead, `decrypt`
  * reads the chunks from bytes the caller already holds, such as an archive's
@@ -154,7 +154,7 @@ export interface EdvDocCipher extends DocCipher {
   /**
    * {@link DocCipher.decrypt}, widened with `chunkSource`: a chunked envelope's
    * chunks come from `context` (fetched from the server, on a cipher built
-   * with a `spaceId`) or from `chunkSource` (bytes the caller holds, on any
+   * with a `spaceUrl`) or from `chunkSource` (bytes the caller holds, on any
    * cipher). Passing both throws `ValidationError`. Passing neither throws
    * `EncryptionError` for a chunked envelope. A chunk the source does not hold
    * throws `NotFoundError`, and a chunk whose `was` binding differs from the
@@ -249,7 +249,8 @@ export interface EdvDocCipher extends DocCipher {
  *   the real id, not a label: the collection's metadata envelope is
  *   AEAD-bound to it (`was.collection`), so `applyMeta` refuses an envelope
  *   bound elsewhere.
- * @param [options.spaceId] {string}   the WAS Space holding the collection.
+ * @param [options.spaceUrl] {string}   the URL of the WAS Space holding the
+ *   collection.
  *   It gives the codec a route to a chunked document's chunk resources, so a
  *   `decrypt` that also passes a request context reassembles a chunked
  *   envelope. Without it such a `decrypt` throws `NotSupportedError`; a
@@ -273,7 +274,7 @@ export async function createEdvDocCipher({
   keyAgreementKey,
   keyResolver,
   collectionId,
-  spaceId,
+  spaceUrl,
   idDerivation = 'content',
   encryption,
   meta
@@ -281,7 +282,7 @@ export async function createEdvDocCipher({
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
   collectionId: string
-  spaceId?: string
+  spaceUrl?: string
   idDerivation?: 'content' | 'random'
   encryption: CollectionEncryption
   meta?: { custom?: unknown }
@@ -290,12 +291,12 @@ export async function createEdvDocCipher({
   // address, and only the chunked-stream paths address one. Loading the
   // factory here rather than at module scope keeps `WasTransport` out of an
   // offline caller's import graph: a `createEdvDocCipher` call with no
-  // `spaceId` evaluates no transport module at all.
+  // `spaceUrl` evaluates no transport module at all.
   let transportFactory: CodecTransportFactory | undefined
-  if (spaceId !== undefined) {
+  if (spaceUrl !== undefined) {
     const { wasTransportFactory } = await import('./transportFactory.js')
     transportFactory = wasTransportFactory({
-      spaceId,
+      spaceUrl,
       collectionId,
       contentType: DEFAULT_CONTENT_TYPE
     })

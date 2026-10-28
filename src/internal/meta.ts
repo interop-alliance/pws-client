@@ -17,14 +17,14 @@
  * left as stored, because the codec that would decode it is itself resolved
  * from the same object's `encryption` member. It lives here rather than beside
  * the Collection Metadata helpers in `describe.ts` so those stay free of the
- * transport layer; the request shape (path, capability, null-unwrap,
+ * transport layer; the request shape (URL, capability, null-unwrap,
  * validator) is still stated in one place, shared by `Collection`'s read and
  * write paths and by the codec resolver's descriptor discovery.
  */
 import { NotFoundError, WasServerError } from '../errors.js'
 import { compareAndSwap } from './cas.js'
 import type { StoredCollectionMetadata } from './describe.js'
-import { collectionMeta } from './paths.js'
+import { collectionMetaUrl } from './paths.js'
 import type { MetaReadSlot, MetaWriteSlot, ResourceCodec } from '../codec.js'
 import type { ClientContext } from './request.js'
 import { readDataWithEtag, send } from './request.js'
@@ -43,7 +43,7 @@ import type {
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.metaPath {string}   the `/meta` sub-resource path
+ * @param options.metaUrl {string}   the `/meta` sub-resource URL
  * @param options.codec {Promise<ResourceCodec>}   the resolving codec, awaited
  *   concurrently with the read
  * @param options.subject {string}   the metadata's owner as it reads in the
@@ -64,14 +64,14 @@ export async function readMeta<
 >(
   context: ClientContext,
   {
-    metaPath,
+    metaUrl,
     codec: codecPromise,
     subject,
     slot,
     capability,
     onStored
   }: {
-    metaPath: string
+    metaUrl: string
     codec: Promise<ResourceCodec>
     subject: string
     slot: MetaReadSlot
@@ -88,7 +88,7 @@ export async function readMeta<
   const [codec, response] = await withCodec(
     codecPromise,
     send(context, {
-      path: metaPath,
+      url: metaUrl,
       method: 'GET',
       capability,
       read: true
@@ -138,7 +138,7 @@ export async function readMeta<
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.metaPath {string}   the `meta` sub-resource path
+ * @param options.metaUrl {string}   the `meta` sub-resource URL
  * @param options.codec {Promise<ResourceCodec>}   the resolving codec
  * @param options.custom {ResourceMetadataCustomInput}   the user-writable
  *   properties, as a full replacement
@@ -152,7 +152,7 @@ export async function readMeta<
 export async function writeMeta(
   context: ClientContext,
   {
-    metaPath,
+    metaUrl,
     codec: codecPromise,
     custom,
     slot,
@@ -160,7 +160,7 @@ export async function writeMeta(
     ifNoneMatch,
     capability
   }: {
-    metaPath: string
+    metaUrl: string
     codec: Promise<ResourceCodec>
     custom: ResourceMetadataCustomInput
     slot: MetaWriteSlot
@@ -172,7 +172,7 @@ export async function writeMeta(
   const codec = await codecPromise
   const { custom: encoded } = await codec.encodeMeta({ custom, slot })
   const response = await send(context, {
-    path: metaPath,
+    url: metaUrl,
     method: 'PUT',
     capability,
     json: { custom: encoded },
@@ -285,17 +285,20 @@ export async function patchCustom(
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.collectionId {string}
  * @param [options.capability] {IZcap}   capability attached to the request
  * @returns {Promise<{ metadata: StoredCollectionMetadata; etag?: string } | null>}
  */
 export async function readCollectionMetadata(
   context: ClientContext,
-  options: { spaceId: string; collectionId: string; capability?: IZcap }
+  options: { spaceUrl: string; collectionId: string; capability?: IZcap }
 ): Promise<{ metadata: StoredCollectionMetadata; etag?: string } | null> {
   const read = await readDataWithEtag<StoredCollectionMetadata>(context, {
-    path: collectionMeta(options.spaceId, options.collectionId),
+    url: collectionMetaUrl({
+      spaceUrl: options.spaceUrl,
+      collectionId: options.collectionId
+    }),
     capability: options.capability
   })
   if (read === null) {

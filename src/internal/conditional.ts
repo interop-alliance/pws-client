@@ -234,17 +234,17 @@ export function readEtag(response: ResponseLike | null): string | undefined {
  * the server.
  *
  * @param options {object}
- * @param options.path {string}                       the resource path written
+ * @param options.url {string}                        the resource URL written
  * @param options.current {ResponseLike | null}       the pre-read document
  * @param [options.precondition] {WritePrecondition}  the caller's precondition
  * @returns {void}
  */
 export function assertPreconditionAgainstPreRead({
-  path,
+  url,
   current,
   precondition
 }: {
-  path: string
+  url: string
   current: ResponseLike | null
   precondition?: WritePrecondition
 }): void {
@@ -253,7 +253,7 @@ export function assertPreconditionAgainstPreRead({
   }
   if (precondition.ifNoneMatch && current !== null) {
     throw new PreconditionFailedError(
-      `Cannot create the document at "${path}": create-if-absent was ` +
+      `Cannot create the document at "${url}": create-if-absent was ` +
         'requested (ifNoneMatch), but a document is already stored there. ' +
         'Re-read it and write an update instead.',
       { status: 412 }
@@ -264,7 +264,7 @@ export function assertPreconditionAgainstPreRead({
   }
   if (current === null) {
     throw new PreconditionFailedError(
-      `Cannot update the document at "${path}": an ifMatch validator was ` +
+      `Cannot update the document at "${url}": an ifMatch validator was ` +
         'supplied, but no current document is readable there -- it was ' +
         'deleted, or it is not readable with this capability (WAS masks ' +
         'unauthorized reads as 404). Re-read the resource before retrying.',
@@ -274,7 +274,7 @@ export function assertPreconditionAgainstPreRead({
   const etag = readEtag(current)
   if (etag !== undefined && etag !== precondition.ifMatch) {
     throw new PreconditionFailedError(
-      `Cannot update the document at "${path}": its current version ` +
+      `Cannot update the document at "${url}": its current version ` +
         `(${etag}) is not the one the write was pinned to ` +
         `(${precondition.ifMatch}) -- another writer changed it. Re-read the ` +
         'resource, rebase the change, and retry.',

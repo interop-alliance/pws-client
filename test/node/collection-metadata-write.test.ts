@@ -26,7 +26,12 @@ import type {
   ResourceCodec
 } from '../../src/index.js'
 import type { RequestArgs } from '../helpers/stubClient.js'
-import { jsonResponse, serviceDescriptionFor } from '../helpers/stubClient.js'
+import {
+  jsonResponse,
+  serviceDescriptionFor,
+  serviceUrlFor,
+  spaceUrlFor
+} from '../helpers/stubClient.js'
 
 /**
  * Builds a `WasClient` whose stub answers each request through `handler`,
@@ -52,7 +57,7 @@ function clientWith(
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serverUrl: 'https://was.example/spaces/',
+    serviceUrl: serviceUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     ...(encryption !== undefined && { encryption })
@@ -109,7 +114,7 @@ describe('the merge runs against the version the write pins to', () => {
       return jsonResponse({ status: 204, headers: { etag: '"3"' } })
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Renamed', force: true })
     const writes = calls.filter(call => call.method === 'PUT')
@@ -143,7 +148,7 @@ describe('the merge runs against the version the write pins to', () => {
       }
       return jsonResponse({ status: 204, headers: { etag: '"3"' } })
     })
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     const read = await collection.describeWithEtag()
     await collection.configure({
       name: 'Renamed',
@@ -163,7 +168,7 @@ describe('the merge runs against the version the write pins to', () => {
         ? served({ id: 'c', type: ['Collection'], name: 'Old' }, '"1"')
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await collection.describe()
     await collection.configure({ name: 'Renamed', force: true })
     expect(calls.map(call => call.method)).toEqual(['GET', 'PUT'])
@@ -213,7 +218,7 @@ describe('configure() beside a concurrent recipient grant', () => {
       return jsonResponse({ status: 204, headers: { etag: '"3"' } })
     })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Renamed' })
     const writes = calls.filter(call => call.method === 'PUT')
@@ -240,7 +245,7 @@ describe('configure() beside a concurrent recipient grant', () => {
     )
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .configure({ name: 'Renamed', ifMatch: '"1"' })
     ).rejects.toBeInstanceOf(PreconditionFailedError)
@@ -266,7 +271,7 @@ describe('configure() beside a concurrent recipient grant', () => {
         : jsonResponse({ status: 204, headers: { etag: '"3"' } })
     )
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({
         name: 'Renamed',
@@ -297,7 +302,7 @@ describe('configure() beside a concurrent recipient grant', () => {
     )
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .configure({ name: 'Renamed', force: true, ifMatch: '"1"' })
     ).rejects.toBeInstanceOf(NotFoundError)
@@ -312,7 +317,7 @@ describe('an annotation write on an unreadable Collection', () => {
     )
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .setMeta({ custom: { name: 'x' } })
     ).rejects.toBeInstanceOf(NotFoundError)
@@ -324,7 +329,7 @@ describe('an annotation write on an unreadable Collection', () => {
       args.method === 'GET' ? failWith(404) : jsonResponse({ status: 204 })
     )
     await expect(
-      client.space('s').collection('c').setName('x')
+      client.spaceAt(spaceUrlFor('s')).collection('c').setName('x')
     ).rejects.toBeInstanceOf(NotFoundError)
     expect(calls.some(call => call.method === 'PUT')).toBe(false)
   })
@@ -335,7 +340,7 @@ describe('an annotation write on an unreadable Collection', () => {
     )
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .setMeta({ custom: {} }, { ifMatch: '"1"' })
     ).rejects.toBeInstanceOf(NotFoundError)
@@ -346,7 +351,7 @@ describe('an annotation write on an unreadable Collection', () => {
       jsonResponse({ status: 201, headers: { etag: '"1"' } })
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'x' } }, { ifNoneMatch: true })
     expect(calls).toHaveLength(1)
@@ -363,7 +368,7 @@ describe('a write naming both ifMatch and ifNoneMatch', () => {
     )
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .replaceDescription({}, { ifMatch: '"1"', ifNoneMatch: true })
     ).rejects.toBeInstanceOf(ValidationError)
@@ -376,7 +381,7 @@ describe('a write naming both ifMatch and ifNoneMatch', () => {
     )
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .setMeta(
           { custom: { name: 'x' } },
@@ -441,7 +446,7 @@ describe('a write that declares encryption', () => {
       }
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .replaceDescription({ name: 'Docs', encryption: descriptor })
     const write = calls.find(call => call.method === 'PUT')
@@ -469,7 +474,7 @@ describe('a write that declares encryption', () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .replaceDescription({ encryption: descriptor })
     const write = calls.find(call => call.method === 'PUT')
@@ -500,7 +505,7 @@ describe('a write that declares encryption', () => {
       }
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .replaceDescription({ encryption: { ...descriptor, currentEpoch: 'e2' } })
     const write = calls.find(call => call.method === 'PUT')
@@ -527,7 +532,7 @@ describe('a write that declares encryption', () => {
       }
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'x' } }, { ifNoneMatch: true })
     expect(calls[0]?.json).toEqual({ id: 'c', custom: { name: 'x' } })
@@ -556,7 +561,7 @@ describe('members this client does not model', () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'x' } })
     const write = calls.find(call => call.method === 'PUT')
@@ -584,7 +589,10 @@ describe('members this client does not model', () => {
           )
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
-    await client.space('s').collection('c').replaceDescription({ name: 'New' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .replaceDescription({ name: 'New' })
     const write = calls.find(call => call.method === 'PUT')
     expect(write?.json).toEqual({
       id: 'c',
@@ -600,7 +608,7 @@ describe('members this client does not model', () => {
         ? served({ id: 'c', type: ['Collection'], name: 'Docs' }, '"1"')
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     const current = await collection.describe()
     await collection.configure({
       name: 'Renamed',
@@ -620,7 +628,7 @@ describe('the plaintext index declaration', () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ plaintext: { indexes: ['title'] }, force: true })
     const write = calls.find(call => call.method === 'PUT')
@@ -648,7 +656,7 @@ describe('the plaintext index declaration', () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Renamed', force: true })
     const write = calls.find(call => call.method === 'PUT')
@@ -675,7 +683,7 @@ describe('the plaintext index declaration', () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ plaintext: { indexes: ['author'] }, force: true })
     const write = calls.find(call => call.method === 'PUT')
@@ -690,7 +698,7 @@ describe('the plaintext index declaration', () => {
     const { client, calls } = clientWith(() =>
       jsonResponse({ data: { id: 'c' }, status: 201 })
     )
-    await client.space('s').createCollection({
+    await client.spaceAt(spaceUrlFor('s')).createCollection({
       id: 'c',
       plaintext: { indexes: ['title'] }
     })
@@ -725,7 +733,7 @@ describe('a custom this reader cannot open', () => {
         }
       }
     )
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     await expect(collection.put('r', { a: 1 })).resolves.toBeDefined()
     await expect(collection.meta()).rejects.toThrow(
       'not an envelope this reader can open'
@@ -743,7 +751,7 @@ describe('a stored custom that is not an object', () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     const { etag } = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'Docs' } })
     expect(etag).toBe('"2"')
@@ -760,7 +768,7 @@ describe("Collection.configure() answers with the write's etag", () => {
         : jsonResponse({ status: 204, headers: { etag: '"2"' } })
     )
     const { description, etag } = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Renamed', force: true })
     expect(description.name).toBe('Renamed')
@@ -780,7 +788,7 @@ describe("Collection.configure() answers with the write's etag", () => {
       })
     })
     const { description, etag } = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Docs', force: true })
     expect(description.name).toBe('Docs')
@@ -803,7 +811,7 @@ describe("Collection.configure() answers with the write's etag", () => {
       return jsonResponse({ status: 204, headers: { etag: '"3"' } })
     })
     const { etag } = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Renamed', force: true })
     expect(etag).toBe('"3"')
@@ -816,7 +824,7 @@ describe("Collection.configure() answers with the write's etag", () => {
         : jsonResponse({ status: 204 })
     )
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .configure({ name: 'Renamed', force: true })
     expect(result).not.toHaveProperty('etag')

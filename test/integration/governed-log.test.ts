@@ -33,11 +33,11 @@ import type {
   CollectionEncryption,
   Space
 } from '../../src/index.js'
-import { collectionLog, toUrl } from '../../src/paths.js'
+import { collectionLogUrl } from '../../src/paths.js'
 import { resourceLogStore } from '../../src/log/index.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 const RESOURCE_LOG_METHOD = 'resource-log:0.1'
 
@@ -107,14 +107,14 @@ describeLive('governing history log (live server)', () => {
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
     owner = WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner()
     })
     space = await owner.createSpace({ name: 'Governed Log Integration' })
     // A Collection with no client-written `encryption` descriptor: the only
     // kind a history log may come to govern.
     await space.createCollection({ id: collectionId, name: 'Vault' })
-    collection = owner.space(space.id).collection(collectionId)
+    collection = owner.spaceAt(space.url).collection(collectionId)
     store = resourceLogStore({ collection })
   })
 
@@ -140,10 +140,7 @@ describeLive('governing history log (live server)', () => {
       ...oneEpoch,
       history: {
         method: RESOURCE_LOG_METHOD,
-        resource: toUrl({
-          baseUrl: owner.baseUrl,
-          path: collectionLog(space.id, collectionId)
-        })
+        resource: collectionLogUrl({ spaceUrl: space.url, collectionId })
       }
     })
   })

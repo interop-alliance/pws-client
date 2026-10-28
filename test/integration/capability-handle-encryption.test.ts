@@ -28,8 +28,8 @@ import { initRecipients } from '../../src/edv/index.js'
 import { makeParty } from '../helpers/party.js'
 import type { Party } from '../helpers/party.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 describeLive('fromCapability with an encryption override (live server)', () => {
   let owner: Party
@@ -40,7 +40,8 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   let notesZcap: IDelegatedZcap
 
   /**
-   * Grants the reader read and write on one resource, by its URL.
+   * Grants the reader read and write on one resource, by its URL, rooted at
+   * the Space.
    *
    * @param url {string}
    * @returns {Promise<IDelegatedZcap>}
@@ -50,13 +51,14 @@ describeLive('fromCapability with an encryption override (live server)', () => {
       to: reader.did,
       actions: ['GET', 'PUT'],
       target: url,
+      spaceUrl: space.url,
       expires: new Date(Date.now() + 60 * 60 * 1000)
     })
   }
 
   beforeAll(async () => {
-    owner = await makeParty({ serverUrl: serverUrl! })
-    reader = await makeParty({ serverUrl: serverUrl! })
+    owner = await makeParty({ serviceUrl: serviceUrl! })
+    reader = await makeParty({ serviceUrl: serviceUrl! })
     space = await owner.was.createSpace({
       name: 'Capability Handle Encryption'
     })

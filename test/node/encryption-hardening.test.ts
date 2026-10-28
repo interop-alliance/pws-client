@@ -22,6 +22,7 @@ import type { HttpResponse } from '@interop/http-client'
 
 import { EncryptionError, IntegrityError } from '../../src/index.js'
 import type { CollectionEncryption } from '../../src/index.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 import type { SingleWriteCodec } from '../helpers/codec.js'
 import type { Collection } from '../../src/Collection.js'
 import type { Space } from '../../src/Space.js'
@@ -161,7 +162,7 @@ async function makeCodec(
   })
   const codecFor = async (forCollection: string): Promise<SingleWriteCodec> => {
     const built = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: forCollection,
       scheme: 'edv',
       encryption
@@ -592,7 +593,7 @@ describe('scheme version gate', () => {
     })
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: { ...encryption, version: 2 }
@@ -610,7 +611,7 @@ describe('scheme version gate', () => {
       resolveKeys: async () => ({ keyAgreementKey: kak, keyResolver })
     })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption: { ...encryption, version: 1 }
@@ -630,7 +631,7 @@ describe('epoch-from-birth routing rule', () => {
     })
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: { scheme: 'edv' }
@@ -638,7 +639,7 @@ describe('epoch-from-birth routing rule', () => {
     ).rejects.toBeInstanceOf(EncryptionError)
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: { scheme: 'edv' }
@@ -678,7 +679,7 @@ describe('epoch-from-birth routing rule', () => {
     })
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption: { scheme: 'edv', epochs: [] }

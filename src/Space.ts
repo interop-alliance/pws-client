@@ -8,26 +8,28 @@
  * replica registration (`registerReplica`/`replicas`/`replica`/
  * `deregisterReplica`/`replicaStatus`), and whole-space `export`/`import`.
  *
- * The Space is an ordinary container: its canonical URL (`/space/{id}/`) lists
- * its Collections, creates one, and deletes the Space, while the Space's own
+ * The Space is an ordinary container: its canonical URL lists its
+ * Collections, creates one, and deletes the Space, while the Space's own
  * description -- the Space Metadata object -- is read and replaced at its
- * `meta` sub-resource.
+ * `meta` sub-resource. The handle is opened on the Space's absolute URL, as
+ * the server named it; every URL beneath the Space derives from that URL and
+ * from nothing above it.
  */
 import type { HttpResponse } from '@interop/http-client'
 import {
-  spacePath,
-  spaceMeta,
-  spaceExport,
-  spaceImport,
-  spaceBackends,
-  registeredBackend,
-  spaceQuotas,
-  spacePolicy,
-  spaceLinkset,
-  spaceReplicas,
-  replicaRegistration,
-  replicaStatus,
-  toUrl
+  canonicalSpaceUrl,
+  spaceIdOfCanonicalUrl,
+  spaceMetaUrl,
+  spaceExportUrl,
+  spaceImportUrl,
+  spaceBackendsUrl,
+  registeredBackendUrl,
+  spaceQuotasUrl,
+  spacePolicyUrl,
+  spaceLinksetUrl,
+  spaceReplicasUrl,
+  replicaRegistrationUrl,
+  replicaStatusUrl
 } from './internal/paths.js'
 import { assertNotReserved } from './internal/reserved.js'
 import { composeAndSwap } from './internal/cas.js'
@@ -150,7 +152,7 @@ function missingJsonBodyError({
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.path {string}
+ * @param options.url {string}
  * @param [options.capability] {IZcap}
  * @param options.expected {string}   what the body should have carried, for
  *   the error message
@@ -159,13 +161,13 @@ function missingJsonBodyError({
 async function readReplicaRecord<T>(
   context: ClientContext,
   {
-    path,
+    url,
     capability,
     expected
-  }: { path: string; capability?: IZcap; expected: string }
+  }: { url: string; capability?: IZcap; expected: string }
 ): Promise<T | null> {
   const response = await send(context, {
-    path,
+    url,
     method: 'GET',
     capability,
     read: true
@@ -185,6 +187,18 @@ async function readReplicaRecord<T>(
 }
 
 export class Space {
+  /**
+   * The Space's absolute URL in canonical (trailing-slash) form, as the
+   * server named it: the URL whose `GET` lists the Space's Collections, whose
+   * `POST` creates one, and whose `DELETE` removes the Space. It is also the
+   * target the Space's root capability names, so a grant prefilled from it
+   * covers the whole Space by prefix -- `meta` and every Collection included.
+   */
+  readonly url: string
+  /**
+   * The Space's id: the last path segment of {@link url}, the value the Space
+   * Metadata object's `id` carries.
+   */
   readonly id: string
 
   readonly #context: ClientContext
@@ -194,49 +208,41 @@ export class Space {
   /**
    * @param options {object}
    * @param options.context {ClientContext}
-   * @param options.spaceId {string}
+   * @param options.spaceUrl {string}   the Space's absolute URL, as the
+   *   server named it; canonicalized (see `canonicalSpaceUrl`)
    * @param [options.capability] {IZcap}   capability attached to every request
    * @param [options.encryption] {EncryptionOverride}   default encryption
    *   override for the Collections reached through this handle
+   * @throws {ValidationError}   when `spaceUrl` is not a Space URL
    */
   constructor({
     context,
-    spaceId,
+    spaceUrl,
     capability,
     encryption
   }: {
     context: ClientContext
-    spaceId: string
+    spaceUrl: string
     capability?: IZcap
     encryption?: EncryptionOverride
   }) {
     this.#context = context
-    this.id = spaceId
+    this.url = canonicalSpaceUrl(spaceUrl)
+    this.id = spaceIdOfCanonicalUrl(this.url)
     this.#capability = capability
     this.#encryption = encryption
-  }
-
-  /**
-   * The Space container in canonical (trailing-slash) form: the URL whose
-   * `GET` lists the Space's Collections, whose `POST` creates one, and whose
-   * `DELETE` removes the Space. It is also the target a Space root capability
-   * names, so a grant prefilled from it covers the whole Space by prefix --
-   * `meta` and every Collection included.
-   */
-  get #path(): string {
-    return spacePath(this.id)
   }
 
   /**
    * The Space Metadata object: the Space's description, read and replaced at
    * the reserved `meta` segment rather than at the container URL.
    */
-  get #metaPath(): string {
-    return spaceMeta(this.id)
+  get #metaUrl(): string {
+    return spaceMetaUrl({ spaceUrl: this.url })
   }
 
-  get #policyPath(): string {
-    return spacePolicy(this.id)
+  get #policyUrl(): string {
+    return spacePolicyUrl({ spaceUrl: this.url })
   }
 
   /**
@@ -248,7 +254,7 @@ export class Space {
    */
   async describe(): Promise<SpaceMetadata | null> {
     return readData<SpaceMetadata>(this.#context, {
-      path: this.#metaPath,
+      url: this.#metaUrl,
       capability: this.#capability
     })
   }
@@ -268,7 +274,7 @@ export class Space {
     etag?: string
   } | null> {
     const read = await readDataWithEtag<SpaceMetadata>(this.#context, {
-      path: this.#metaPath,
+      url: this.#metaUrl,
       capability: this.#capability
     })
     return read === null ? null : { description: read.data, etag: read.etag }
@@ -308,7 +314,7 @@ export class Space {
     options: WritePrecondition = {}
   ): Promise<{ description?: SpaceMetadata; etag?: string }> {
     const response = await send(this.#context, {
-      path: this.#metaPath,
+      url: this.#metaUrl,
       method: 'PUT',
       capability: this.#capability,
       // The handle's own `id` goes last: a caller handing back a read
@@ -460,7 +466,7 @@ export class Space {
    */
   async delete(): Promise<void> {
     await send(this.#context, {
-      path: this.#path,
+      url: this.url,
       method: 'DELETE',
       capability: this.#capability,
       idempotent: true
@@ -476,7 +482,7 @@ export class Space {
    * with its own prior discovery may read it as absence.
    *
    * The capability is the one the handle was opened with
-   * (`was.space(id, { capability })`), so a delegated DELETE-only capability
+   * (`was.spaceAt(url, { capability })`), so a delegated DELETE-only capability
    * is supplied by opening the handle with it.
    *
    * @returns {Promise<{ outcome: 'deleted' | 'not-found' }>}
@@ -484,7 +490,7 @@ export class Space {
   async deleteWithOutcome(): Promise<{ outcome: 'deleted' | 'not-found' }> {
     try {
       await send(this.#context, {
-        path: this.#path,
+        url: this.url,
         method: 'DELETE',
         capability: this.#capability
       })
@@ -511,7 +517,7 @@ export class Space {
   collection(collectionId: string, options: HandleOptions = {}): Collection {
     return new Collection({
       context: this.#context,
-      spaceId: this.id,
+      spaceUrl: this.url,
       collectionId,
       capability: options.capability ?? this.#capability,
       encryption: options.encryption ?? this.#encryption
@@ -567,7 +573,7 @@ export class Space {
       ...collectionWritableFields(desc)
     }
     const response = await send(this.#context, {
-      path: this.#path,
+      url: this.url,
       method: 'POST',
       capability: this.#capability,
       json: body
@@ -596,7 +602,7 @@ export class Space {
     // what the returned handle must reflect.
     return new Collection({
       context: this.#context,
-      spaceId: this.id,
+      spaceUrl: this.url,
       collectionId: createdId(response),
       capability: this.#capability,
       ...(canRoute && { encryption: declared })
@@ -615,10 +621,7 @@ export class Space {
    */
   async #collectionsWalk(): Promise<PageWalk<CollectionsList> | null> {
     return signedPageWalk<CollectionsList>(this.#context, {
-      firstUrl: toUrl({
-        baseUrl: this.#context.baseUrl,
-        path: this.#path
-      }),
+      firstUrl: this.url,
       capability: this.#capability
     })
   }
@@ -663,7 +666,7 @@ export class Space {
    */
   async backends(): Promise<BackendDescriptor[] | null> {
     return readData<BackendDescriptor[]>(this.#context, {
-      path: spaceBackends(this.id),
+      url: spaceBackendsUrl({ spaceUrl: this.url }),
       capability: this.#capability
     })
   }
@@ -690,7 +693,7 @@ export class Space {
     registration: BackendRegistration
   ): Promise<BackendDescriptor> {
     const response = await send(this.#context, {
-      path: spaceBackends(this.id),
+      url: spaceBackendsUrl({ spaceUrl: this.url }),
       method: 'POST',
       capability: this.#capability,
       json: registration
@@ -727,7 +730,10 @@ export class Space {
     registration: BackendRegistration
   ): Promise<BackendDescriptor | null> {
     const response = await send(this.#context, {
-      path: registeredBackend(this.id, registration.id),
+      url: registeredBackendUrl({
+        spaceUrl: this.url,
+        backendId: registration.id
+      }),
       method: 'PUT',
       capability: this.#capability,
       json: registration
@@ -751,7 +757,7 @@ export class Space {
    */
   async deregisterBackend(backendId: string): Promise<void> {
     await send(this.#context, {
-      path: registeredBackend(this.id, backendId),
+      url: registeredBackendUrl({ spaceUrl: this.url, backendId }),
       method: 'DELETE',
       capability: this.#capability,
       idempotent: true
@@ -772,11 +778,9 @@ export class Space {
   async quotas({
     includeCollections = false
   }: { includeCollections?: boolean } = {}): Promise<SpaceQuotaReport | null> {
-    const path = includeCollections
-      ? `${spaceQuotas(this.id)}?include=collections`
-      : spaceQuotas(this.id)
+    const quotasUrl = spaceQuotasUrl({ spaceUrl: this.url })
     return readData<SpaceQuotaReport>(this.#context, {
-      path,
+      url: includeCollections ? `${quotasUrl}?include=collections` : quotasUrl,
       capability: this.#capability
     })
   }
@@ -811,7 +815,7 @@ export class Space {
     registration: ReplicaRegistration
   ): Promise<ReplicaRegistration> {
     const response = await send(this.#context, {
-      path: spaceReplicas(this.id),
+      url: spaceReplicasUrl({ spaceUrl: this.url }),
       method: 'POST',
       capability: this.#capability,
       json: registration
@@ -839,7 +843,7 @@ export class Space {
    */
   async replicas(): Promise<ReplicaListing | null> {
     return readReplicaRecord<ReplicaListing>(this.#context, {
-      path: spaceReplicas(this.id),
+      url: spaceReplicasUrl({ spaceUrl: this.url }),
       capability: this.#capability,
       expected: 'the replica listing'
     })
@@ -857,7 +861,7 @@ export class Space {
    */
   async replica(replicaId: string): Promise<ReplicaRegistration | null> {
     return readReplicaRecord<ReplicaRegistration>(this.#context, {
-      path: replicaRegistration(this.id, replicaId),
+      url: replicaRegistrationUrl({ spaceUrl: this.url, replicaId }),
       capability: this.#capability,
       expected: 'the replica registration'
     })
@@ -886,7 +890,7 @@ export class Space {
     replicaId: string
   ): Promise<{ outcome: 'deleted' | 'not-found' }> {
     const response = await send(this.#context, {
-      path: replicaRegistration(this.id, replicaId),
+      url: replicaRegistrationUrl({ spaceUrl: this.url, replicaId }),
       method: 'DELETE',
       capability: this.#capability,
       idempotent: true
@@ -908,7 +912,7 @@ export class Space {
    */
   async replicaStatus(replicaId: string): Promise<ReplicaStatus | null> {
     return readReplicaRecord<ReplicaStatus>(this.#context, {
-      path: replicaStatus(this.id, replicaId),
+      url: replicaStatusUrl({ spaceUrl: this.url, replicaId }),
       capability: this.#capability,
       expected: 'the pull loop status'
     })
@@ -923,7 +927,8 @@ export class Space {
    */
   async grant(options: GrantOptions): Promise<IDelegatedZcap> {
     return delegateGrantAt(this.#context, {
-      path: this.#path,
+      url: this.url,
+      spaceUrl: this.url,
       options,
       capability: this.#capability
     })
@@ -960,7 +965,7 @@ export class Space {
    * @returns {Promise<void>}
    */
   async revoke(zcap: IDelegatedZcap): Promise<void> {
-    return submitRevocation(this.#context, { spaceId: this.id, zcap })
+    return submitRevocation(this.#context, { spaceUrl: this.url, zcap })
   }
 
   /**
@@ -978,7 +983,7 @@ export class Space {
    */
   async #exportResponse(): Promise<HttpResponse> {
     const response = (await send(this.#context, {
-      path: spaceExport(this.id),
+      url: spaceExportUrl({ spaceUrl: this.url }),
       method: 'POST',
       capability: this.#capability
       // A successful export always returns a response (errors throw via send()).
@@ -1059,7 +1064,7 @@ export class Space {
   async import(tar: Uint8Array | Blob): Promise<ImportStats> {
     const body = tar instanceof Uint8Array ? toPlainBytes(tar) : tar
     const response = await send(this.#context, {
-      path: spaceImport(this.id),
+      url: spaceImportUrl({ spaceUrl: this.url }),
       method: 'POST',
       capability: this.#capability,
       body,
@@ -1090,7 +1095,7 @@ export class Space {
    */
   async getPolicy(): Promise<PolicyDocument | null> {
     return readPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -1110,7 +1115,7 @@ export class Space {
     etag?: string
   } | null> {
     return readPolicyWithEtag(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -1135,7 +1140,7 @@ export class Space {
     { ifMatch, ifNoneMatch }: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
     return writePolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       policy,
       ifMatch,
       ifNoneMatch,
@@ -1152,7 +1157,7 @@ export class Space {
    */
   async isPublic(): Promise<boolean> {
     return isPublicPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -1172,7 +1177,7 @@ export class Space {
     etag?: string
   }> {
     return setPublicPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       ifMatch,
       ifNoneMatch,
       capability: this.#capability
@@ -1196,7 +1201,7 @@ export class Space {
     etag?: string
   }> {
     return deletePolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       ifMatch,
       capability: this.#capability
     })
@@ -1210,7 +1215,7 @@ export class Space {
    */
   async linkset(): Promise<LinkSet | null> {
     return readData<LinkSet>(this.#context, {
-      path: spaceLinkset(this.id),
+      url: spaceLinksetUrl({ spaceUrl: this.url }),
       capability: this.#capability
     })
   }

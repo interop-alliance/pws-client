@@ -21,6 +21,7 @@ import {
 } from '../../src/index.js'
 import { ensureSpace, ensureSpaceAndCollection } from '../../src/sync/index.js'
 import { EDV_SCHEME_VERSION } from '../../src/edv/constants.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 
 interface CollectionDesc {
   name?: string
@@ -143,6 +144,8 @@ class FakeSpace {
   readonly replaceCalls: { fields: SpaceDesc; ifNoneMatch?: boolean }[] = []
   readonly collectionIds: string[] = []
   readonly collectionObj: FakeCollection
+  // The handle's id: the last segment of the Space URL it was opened on.
+  readonly id = SPACE
   describeCalls = 0
   private current: SpaceDesc | null
   private readonly failSpace?: Error
@@ -204,12 +207,15 @@ class FakeSpace {
 
 class FakeWas {
   spaceArg?: string
-  // The handle options of every `space()` call, so a test can assert which
+  // The handle options of every `spaceAt()` call, so a test can assert which
   // capability the handle was built with (or that none was).
   readonly spaceOptions: { capability?: unknown }[] = []
   constructor(private readonly spaceObj: FakeSpace) {}
-  space = (id: string, options: { capability?: unknown } = {}): FakeSpace => {
-    this.spaceArg = id
+  spaceAt = (
+    spaceUrl: string,
+    options: { capability?: unknown } = {}
+  ): FakeSpace => {
+    this.spaceArg = spaceUrl
     this.spaceOptions.push(options)
     return this.spaceObj
   }
@@ -229,12 +235,12 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
 
-    expect(was.spaceArg).toBe(SPACE)
+    expect(was.spaceArg).toBe(spaceUrlFor(SPACE))
     expect(space.describeCalls).toBe(1)
     // Both creates are guarded (`If-None-Match: *`): the server settles the
     // race, not a client-side re-read and merge.
@@ -258,7 +264,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -282,7 +288,7 @@ describe('ensureSpaceAndCollection', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -322,7 +328,7 @@ describe('ensureSpaceAndCollection', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -344,7 +350,7 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: new FakeWas(space).asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL
       })
@@ -369,7 +375,7 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: new FakeWas(space).asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL
       })
@@ -382,7 +388,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: 'public-credentials',
       encryption: 'plaintext',
@@ -407,7 +413,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -428,7 +434,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       collectionName: 'Ignored On Existing'
@@ -455,7 +461,7 @@ describe('ensureSpaceAndCollection', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -480,7 +486,7 @@ describe('ensureSpaceAndCollection', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -497,7 +503,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'governed'
@@ -519,7 +525,7 @@ describe('ensureSpaceAndCollection', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'governed'
@@ -545,7 +551,7 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: new FakeWas(space).asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL,
         encryption: 'governed'
@@ -573,7 +579,7 @@ describe('ensureSpaceAndCollection', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'governed'
@@ -596,7 +602,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -616,7 +622,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: 'public-credentials',
       encryption: 'plaintext',
@@ -637,7 +643,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: 'public-credentials',
       encryption: 'plaintext',
@@ -652,7 +658,7 @@ describe('ensureSpaceAndCollection', () => {
     const freshSpace = new FakeSpace()
     await ensureSpaceAndCollection({
       was: new FakeWas(freshSpace).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -662,7 +668,7 @@ describe('ensureSpaceAndCollection', () => {
     // The second run reads the state the first run left behind.
     await ensureSpaceAndCollection({
       was: new FakeWas(freshSpace).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -675,7 +681,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       spaceName: 'My Space'
@@ -688,7 +694,7 @@ describe('ensureSpaceAndCollection', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       collectionName: 'Verifiable Credentials'
@@ -704,13 +710,13 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL
       })
     ).rejects.toMatchObject({
       message: expect.stringContaining(
-        'Failed to configure WAS space "space-abc"'
+        'Failed to configure WAS space "https://was.example/space/space-abc/"'
       ),
       cause
     })
@@ -722,7 +728,7 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL
       })
@@ -739,13 +745,13 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL
       })
     ).rejects.toMatchObject({
       message: expect.stringContaining(
-        'Failed to configure collection "private-credentials" in space "space-abc"'
+        'Failed to configure collection "private-credentials" in space "https://was.example/space/space-abc/"'
       ),
       cause
     })
@@ -760,13 +766,13 @@ describe('ensureSpaceAndCollection', () => {
     await expect(
       ensureSpaceAndCollection({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL
       })
     ).rejects.toMatchObject({
       message: expect.stringContaining(
-        'Failed to configure collection "private-credentials" in space "space-abc"'
+        'Failed to configure collection "private-credentials" in space "https://was.example/space/space-abc/"'
       ),
       cause
     })
@@ -778,7 +784,7 @@ describe('ensureSpaceAndCollection created result', () => {
     const space = new FakeSpace({ current: { name: 'Wallet Space' } })
     const result = await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'plaintext'
@@ -794,7 +800,7 @@ describe('ensureSpaceAndCollection created result', () => {
     })
     const result = await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'plaintext'
@@ -815,7 +821,7 @@ describe('ensureSpaceAndCollection created result', () => {
     })
     const result = await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'plaintext',
@@ -842,7 +848,7 @@ describe('ensureSpaceAndCollection app attribution', () => {
     const space = new FakeSpace()
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       generator: APP
@@ -864,7 +870,7 @@ describe('ensureSpaceAndCollection app attribution', () => {
     const space = new FakeSpace()
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'governed',
@@ -893,7 +899,7 @@ describe('ensureSpaceAndCollection app attribution', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       generator: APP
@@ -919,7 +925,7 @@ describe('ensureSpaceAndCollection app attribution', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       generator: {
@@ -944,7 +950,7 @@ describe('ensureSpaceAndCollection app attribution', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       generator: APP
@@ -964,7 +970,7 @@ describe('ensureSpaceAndCollection app attribution', () => {
     })
     await ensureSpaceAndCollection({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL
     })
@@ -985,7 +991,7 @@ describe('ensureSpace', () => {
     const was = new FakeWas(space)
     const description = await ensureSpace({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID
     })
 
@@ -1009,7 +1015,7 @@ describe('ensureSpace', () => {
     })
     const description = await ensureSpace({
       was: new FakeWas(space).asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID
     })
     expect(space.replaceCalls).toHaveLength(1)
@@ -1030,7 +1036,7 @@ describe('ensureSpace', () => {
     const was = new FakeWas(space)
     const description = await ensureSpace({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID
     })
 
@@ -1044,10 +1050,14 @@ describe('ensureSpace', () => {
     const space = new FakeSpace({ failSpace: cause })
     const was = new FakeWas(space)
     await expect(
-      ensureSpace({ was: was.asClient(), spaceId: SPACE, controllerDid: DID })
+      ensureSpace({
+        was: was.asClient(),
+        spaceUrl: spaceUrlFor(SPACE),
+        controllerDid: DID
+      })
     ).rejects.toMatchObject({
       message: expect.stringContaining(
-        'Failed to configure WAS space "space-abc"'
+        'Failed to configure WAS space "https://was.example/space/space-abc/"'
       ),
       cause
     })
@@ -1061,7 +1071,7 @@ describe('ensureSpaceAndCollection with an invocation capability', () => {
     const was = new FakeWas(new FakeSpace())
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'governed',
@@ -1078,7 +1088,7 @@ describe('ensureSpaceAndCollection with an invocation capability', () => {
     const was = new FakeWas(new FakeSpace({ current: null }))
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       encryption: 'governed',
@@ -1092,7 +1102,7 @@ describe('ensureSpaceAndCollection with an invocation capability', () => {
     const was = new FakeWas(new FakeSpace())
     await ensureSpace({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID
     })
     expect(was.spaceOptions).toEqual([{ capability: undefined }])
@@ -1114,12 +1124,12 @@ describe('ensureSpaceAndCollection with a supplied space description', () => {
       const was = new FakeWas(space)
       const spaceDescription = await ensureSpace({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID
       })
       await ensureSpaceAndCollection({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL,
         spaceDescription
@@ -1135,7 +1145,7 @@ describe('ensureSpaceAndCollection with a supplied space description', () => {
     await expect(
       ensureSpaceAndCollection({
         was: was.asClient(),
-        spaceId: SPACE,
+        spaceUrl: spaceUrlFor(SPACE),
         controllerDid: DID,
         collectionId: COLL,
         spaceDescription: {
@@ -1156,7 +1166,7 @@ describe('ensureSpaceAndCollection with a supplied space description', () => {
     const was = new FakeWas(space)
     await ensureSpaceAndCollection({
       was: was.asClient(),
-      spaceId: SPACE,
+      spaceUrl: spaceUrlFor(SPACE),
       controllerDid: DID,
       collectionId: COLL,
       spaceDescription: {

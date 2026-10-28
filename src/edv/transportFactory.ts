@@ -17,24 +17,24 @@ import type { CodecTransportFactory } from './EdvCodec.js'
  * codec's route to its own document and chunk resources on the server.
  *
  * @param options {object}
- * @param options.spaceId {string}        the Space holding the Collection
+ * @param options.spaceUrl {string}       the Space holding the Collection
  * @param options.collectionId {string}   the Collection
  * @param options.contentType {string}    stored envelope content type
  * @returns {CodecTransportFactory}
  */
 export function wasTransportFactory({
-  spaceId,
+  spaceUrl,
   collectionId,
   contentType
 }: {
-  spaceId: string
+  spaceUrl: string
   collectionId: string
   contentType: string
 }): CodecTransportFactory {
   return ({ context, documentHeaders, baseline }) =>
     new WasTransport({
       was: { request: input => context.request(input) },
-      spaceId,
+      spaceUrl,
       collectionId,
       contentType,
       ...(documentHeaders !== undefined && { documentHeaders }),

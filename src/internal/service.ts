@@ -2,15 +2,17 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Service discovery: finds the server's service description by following the
- * `Link: <...>; rel="service"` header its responses carry, reads the document
- * without a capability invocation, and selects the WAS specification version
- * this client speaks. The spec reserves no path for the document, so nothing
- * here assumes one. The probe is sent to a URL the WAS server itself answers
- * (the client's `serverUrl`, its Spaces Repository URL) rather than to the
- * server root, which a deployment often serves as something else. The client
- * speaks only v0.5, so a server whose responses carry no `service` link (one
- * that predates v0.5) is refused rather than spoken to in the v0.4 layout.
+ * Service discovery: reads the server's service description without a
+ * capability invocation and selects the WAS specification version this client
+ * speaks. A client built from the service URL reads the document directly
+ * (`readServiceDescription`). One built from a Spaces Repository URL first
+ * follows the `Link: <...>; rel="service"` header the server's responses
+ * carry (`discoverService`), probing a URL the WAS server itself answers
+ * rather than a server root, which a deployment often serves as something
+ * else. The spec reserves no path for the document, so nothing here assumes
+ * one. The client speaks only v0.5, so a server whose responses carry no
+ * `service` link (one that predates v0.5) is refused rather than spoken to in
+ * the v0.4 layout.
  */
 import type {
   PwsVersionEntry,
@@ -18,6 +20,7 @@ import type {
   ServiceDescriptionVersionEntry
 } from '@interop/storage-core'
 import { IncompatibleServerError, mapError } from '../errors.js'
+import { canonicalContainerUrl } from './paths.js'
 import { fetchMapped } from './request.js'
 import type { ServiceInfo } from '../types.js'
 
@@ -221,7 +224,7 @@ export function selectServiceVersion(description: unknown): ServiceInfo {
     description: description as unknown as ServiceDescription,
     version: chosen.version,
     entry: chosen,
-    ...(spaces !== undefined && { spacesUrl: spaces }),
+    ...(spaces !== undefined && { spacesUrl: canonicalContainerUrl(spaces) }),
     features: tokens,
     hasFeature(token: string): boolean {
       return tokens.includes(token)
@@ -265,18 +268,62 @@ function refuse({
 }
 
 /**
- * Discovers the service description from a URL the client holds and selects
- * the version to speak: an unsigned `HEAD` of `url` for its `service` link
- * (the response status does not matter), then an unsigned `GET` of the linked
- * document.
+ * Reads the service description at `serviceUrl` with an unsigned `GET` and
+ * selects the version to speak.
+ *
+ * A network failure, and a rate limit or temporary outage (429, 502, 503,
+ * 504), reject with the mapped transport error, since they say nothing about
+ * the protocol the server speaks.
+ *
+ * @param options {object}
+ * @param options.serviceUrl {string}   the service description's URL
+ * @returns {Promise<ServiceInfo>}
+ * @throws {IncompatibleServerError}   when the document cannot be read or
+ *   parsed, or version selection refuses it (see {@link selectServiceVersion})
+ */
+export async function readServiceDescription({
+  serviceUrl
+}: {
+  serviceUrl: string
+}): Promise<ServiceInfo> {
+  const response = await fetchMapped(serviceUrl, {
+    method: 'GET',
+    headers: { accept: 'application/json' }
+  })
+  if (!response.ok) {
+    refuse({
+      status: response.status,
+      requestUrl: serviceUrl,
+      message:
+        `The service description at "${serviceUrl}" answered ` +
+        `${response.status}.`
+    })
+  }
+  let description: unknown
+  try {
+    description = await response.json()
+  } catch (err) {
+    throw new IncompatibleServerError(
+      `The service description at "${serviceUrl}" is not valid JSON.`,
+      { requestUrl: serviceUrl, cause: err }
+    )
+  }
+  return selectServiceVersion(description)
+}
+
+/**
+ * Discovers the service description from a URL the server answers and
+ * selects the version to speak: an unsigned `HEAD` of `url` for its `service`
+ * link (the response status does not matter), then
+ * {@link readServiceDescription} of the linked document.
  *
  * A network failure, and a rate limit or temporary outage (429, 502, 503,
  * 504) that comes without the link, reject with the mapped transport error,
  * since they say nothing about the protocol the server speaks.
  *
  * @param options {object}
- * @param options.url {string}   any WAS URL, typically the client's `serverUrl`
- *   (its Spaces Repository URL)
+ * @param options.url {string}   any URL the WAS server answers, typically a
+ *   Spaces Repository URL
  * @returns {Promise<ServiceInfo>}
  * @throws {IncompatibleServerError}   when the response carries no `service`
  *   link, the linked document cannot be read or parsed, or version selection
@@ -302,27 +349,5 @@ export async function discoverService({
         'client requires.'
     })
   }
-  const response = await fetchMapped(serviceUrl, {
-    method: 'GET',
-    headers: { accept: 'application/json' }
-  })
-  if (!response.ok) {
-    refuse({
-      status: response.status,
-      requestUrl: serviceUrl,
-      message:
-        `The service description at "${serviceUrl}" answered ` +
-        `${response.status}.`
-    })
-  }
-  let description: unknown
-  try {
-    description = await response.json()
-  } catch (err) {
-    throw new IncompatibleServerError(
-      `The service description at "${serviceUrl}" is not valid JSON.`,
-      { requestUrl: serviceUrl, cause: err }
-    )
-  }
-  return selectServiceVersion(description)
+  return readServiceDescription({ serviceUrl })
 }

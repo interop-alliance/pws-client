@@ -16,16 +16,17 @@
  * removes the Collection.
  */
 import {
-  collectionPath,
-  collectionPolicy,
-  collectionLinkset,
-  collectionBackend,
-  collectionQuota,
-  collectionQuery,
-  collectionMeta,
-  collectionLog,
-  resourcePath,
-  toUrl
+  canonicalSpaceUrl,
+  spaceIdOfCanonicalUrl,
+  collectionUrl,
+  collectionPolicyUrl,
+  collectionLinksetUrl,
+  collectionBackendUrl,
+  collectionQuotaUrl,
+  collectionQueryUrl,
+  collectionMetaUrl,
+  collectionLogUrl,
+  resourceUrl
 } from './internal/paths.js'
 import { assertNotReserved } from './internal/reserved.js'
 import {
@@ -196,41 +197,57 @@ function changesMethodFor(capability?: IZcap): 'POST' | 'GET' {
  * opaque checkpoint never breaks the URL.
  *
  * @param options {object}
- * @param options.queryPath {string}   the collection's `/query` path
+ * @param options.queryUrl {string}   the collection's `/query` URL
  * @param options.method {'POST' | 'GET'}
  * @param [options.checkpoint] {ChangesCheckpoint}
  * @param [options.limit] {number}
- * @returns {{ path: string, method: 'POST' | 'GET', json?: object }}
+ * @returns {{ url: string, method: 'POST' | 'GET', json?: object }}
  */
 function changesRequest({
-  queryPath,
+  queryUrl,
   method,
   checkpoint,
   limit
 }: {
-  queryPath: string
+  queryUrl: string
   method: 'POST' | 'GET'
   checkpoint?: ChangesCheckpoint
   limit?: number
-}): { path: string; method: 'POST' | 'GET'; json?: object } {
+}): { url: string; method: 'POST' | 'GET'; json?: object } {
   const params = {
     profile: 'changes',
     ...(checkpoint !== undefined && { checkpoint }),
     ...(limit !== undefined && { limit })
   }
   if (method === 'POST') {
-    return { path: queryPath, method, json: params }
+    return { url: queryUrl, method, json: params }
   }
   const search = new URLSearchParams()
   for (const [name, value] of Object.entries(params)) {
     search.set(name, String(value))
   }
-  return { path: `${queryPath}?${search.toString()}`, method }
+  return { url: `${queryUrl}?${search.toString()}`, method }
 }
 
 export class Collection {
-  readonly spaceId: string
+  /**
+   * The URL of the Space this Collection lives in, in canonical form.
+   */
+  readonly spaceUrl: string
+  /**
+   * The id of that Space: the last path segment of {@link spaceUrl}.
+   */
+  get spaceId(): string {
+    return spaceIdOfCanonicalUrl(this.spaceUrl)
+  }
   readonly id: string
+  /**
+   * The Collection container in canonical (trailing-slash) form: the URL whose
+   * `GET` lists the Collection's Resources, whose `POST` adds one, and whose
+   * `DELETE` removes the Collection. A Collection's own description is not
+   * here -- it is the Metadata object at the reserved `meta` segment.
+   */
+  readonly url: string
 
   readonly #context: ClientContext
   readonly #capability?: IZcap
@@ -244,9 +261,9 @@ export class Collection {
 
   /**
    * @param options {object}
-   * @param options.context {ClientContext} - Shared context (baseUrl, ezcap
-   *   client, controllerDid)
-   * @param options.spaceId {string}
+   * @param options.context {ClientContext} - Shared context (ezcap client,
+   *   controllerDid)
+   * @param options.spaceUrl {string}   the Space's URL, as the server named it
    * @param options.collectionId {string}
    * @param [options.capability] {IZcap} - capability attached to every request
    * @param [options.encryption] {EncryptionOverride} - per-handle encryption
@@ -255,13 +272,13 @@ export class Collection {
    */
   constructor({
     context,
-    spaceId,
+    spaceUrl,
     collectionId,
     capability,
     encryption
   }: {
     context: ClientContext
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     capability?: IZcap
     encryption?: EncryptionOverride
@@ -269,7 +286,7 @@ export class Collection {
     // Guard the id against the Reserved Path Segment Registry up front
     // (mirroring the `Resource` constructor), so a reserved id from caller
     // input can never be mis-targeted at a space-level endpoint.
-    // `collectionPath(s, 'policy')` is byte-identical to the space policy path,
+    // `collectionUrl` of `'policy'` is byte-identical to the space policy URL,
     // so an unguarded `collection('policy').delete()` would silently wipe the
     // space's access-control policy; the same collision exists for `backends` /
     // `quotas` / `linkset` / `export` / `import` / `query`. Guarding in the
@@ -277,30 +294,45 @@ export class Collection {
     // not just writes.
     assertNotReserved({ id: collectionId, kind: 'collection' })
     this.#context = context
-    this.spaceId = spaceId
+    this.spaceUrl = canonicalSpaceUrl(spaceUrl)
+    this.url = collectionUrl({ spaceUrl: this.spaceUrl, collectionId })
     this.id = collectionId
     this.#capability = capability
     this.#encryptionOverride = encryption
     this.#codecHolder = collectionCodecHolder(context, {
-      spaceId,
+      spaceUrl: this.spaceUrl,
       collectionId,
       override: encryption,
       capability
     })
   }
 
-  /**
-   * The Collection container in canonical (trailing-slash) form: the URL whose
-   * `GET` lists the Collection's Resources, whose `POST` adds one, and whose
-   * `DELETE` removes the Collection. A Collection's own description is not
-   * here -- it is the Metadata object at the reserved `meta` segment.
-   */
-  get #path(): string {
-    return collectionPath(this.spaceId, this.id)
+  get #policyUrl(): string {
+    return collectionPolicyUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.id
+    })
   }
 
-  get #policyPath(): string {
-    return collectionPolicy(this.spaceId, this.id)
+  get #queryUrl(): string {
+    return collectionQueryUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.id
+    })
+  }
+
+  /**
+   * The URL of a Resource of this Collection by id (no trailing slash).
+   *
+   * @param resourceId {string}
+   * @returns {string}
+   */
+  #resourceUrl(resourceId: string): string {
+    return resourceUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.id,
+      resourceId
+    })
   }
 
   /**
@@ -416,7 +448,7 @@ export class Collection {
     etag?: string
   } | null> {
     const read = await readCollectionMetadata(this.#context, {
-      spaceId: this.spaceId,
+      spaceUrl: this.spaceUrl,
       collectionId: this.id,
       capability: this.#capability
     })
@@ -550,7 +582,7 @@ export class Collection {
       // (a `412`), so a rebase never reuses that read.
       this.#recentRead = undefined
       const response = await send(this.#context, {
-        path: this.#metaPath,
+        url: this.#metaUrl,
         method: 'PUT',
         capability: this.#capability,
         json: { id: this.id, ...body },
@@ -902,12 +934,12 @@ export class Collection {
     try {
       const [from, to] = await Promise.all([
         codecForDescriptor(this.#context, {
-          spaceId: this.spaceId,
+          spaceUrl: this.spaceUrl,
           collectionId: this.id,
           ...(declared !== undefined && { descriptor: declared })
         }),
         codecForDescriptor(this.#context, {
-          spaceId: this.spaceId,
+          spaceUrl: this.spaceUrl,
           collectionId: this.id,
           ...(encryption !== undefined && { descriptor: encryption })
         })
@@ -957,15 +989,15 @@ export class Collection {
    */
   async delete(): Promise<void> {
     await send(this.#context, {
-      path: this.#path,
+      url: this.url,
       method: 'DELETE',
       capability: this.#capability,
       idempotent: true
     })
   }
 
-  get #metaPath(): string {
-    return collectionMeta(this.spaceId, this.id)
+  get #metaUrl(): string {
+    return collectionMetaUrl({ spaceUrl: this.spaceUrl, collectionId: this.id })
   }
 
   /**
@@ -1004,7 +1036,7 @@ export class Collection {
       return meta
     }
     return readMeta<CollectionMetadata>(this.#context, {
-      metaPath: this.#metaPath,
+      metaUrl: this.#metaUrl,
       codec: Promise.resolve(codec),
       subject: `collection "${this.id}"`,
       slot: { kind: 'collection' },
@@ -1173,10 +1205,6 @@ export class Collection {
     return patchCustom(this, { tags }, { operation: 'Collection tags update' })
   }
 
-  get #logPath(): string {
-    return collectionLog(this.spaceId, this.id)
-  }
-
   /**
    * The absolute URL of the Collection's governing history log, the `meta/log`
    * sub-resource {@link getHistoryLog} reads. A log-governed descriptor's
@@ -1186,7 +1214,7 @@ export class Collection {
    * @returns {string}
    */
   get historyLogUrl(): string {
-    return toUrl({ baseUrl: this.#context.baseUrl, path: this.#logPath })
+    return collectionLogUrl({ spaceUrl: this.spaceUrl, collectionId: this.id })
   }
 
   /**
@@ -1209,7 +1237,7 @@ export class Collection {
    */
   async getHistoryLog(): Promise<{ body: string; etag?: string } | null> {
     const response = await send(this.#context, {
-      path: this.#logPath,
+      url: this.historyLogUrl,
       method: 'GET',
       capability: this.#capability,
       read: true
@@ -1269,7 +1297,7 @@ export class Collection {
       )
     }
     const response = await send(this.#context, {
-      path: this.#logPath,
+      url: this.historyLogUrl,
       method: 'PUT',
       capability: this.#capability,
       body: ENCODER.encode(body),
@@ -1505,7 +1533,7 @@ export class Collection {
     const codec = await this.#codec()
     const query = await indexing.buildQuery({ equals, has })
     const response = await send(this.#context, {
-      path: collectionQuery(this.spaceId, this.id),
+      url: this.#queryUrl,
       method: 'POST',
       capability: this.#capability,
       // The profile is bound here the way `changes()` binds its own: same
@@ -1578,7 +1606,7 @@ export class Collection {
   resource(resourceId: string, options: HandleOptions = {}): Resource {
     return new Resource({
       context: this.#context,
-      spaceId: this.spaceId,
+      spaceUrl: this.spaceUrl,
       collectionId: this.id,
       resourceId,
       capability: options.capability ?? this.#capability,
@@ -1621,10 +1649,9 @@ export class Collection {
     options: { contentType?: string } = {}
   ): Promise<AddResult> {
     const codec = await this.#codec()
-    const itemsPath = this.#path
     const outcome = await insertResource(this.#context, {
-      itemsPath,
-      pathForId: mintedId => resourcePath(this.spaceId, this.id, mintedId),
+      itemsUrl: this.url,
+      urlForId: mintedId => this.#resourceUrl(mintedId),
       codec,
       data,
       contentType: options.contentType,
@@ -1636,13 +1663,13 @@ export class Collection {
     if (outcome.chunked === true) {
       return {
         id: outcome.id,
-        url: toUrl({ baseUrl: this.#context.baseUrl, path: outcome.path }),
+        url: outcome.url,
         contentType: outcome.contentType,
         etag: outcome.etag
       }
     }
 
-    const { encoded, path, response } = outcome
+    const { encoded, url, response } = outcome
     const etag = readEtag(response)
 
     // A codec that mints its own id (e.g. the encrypting codec's EDV id) was
@@ -1651,7 +1678,7 @@ export class Collection {
     if (encoded.id !== undefined) {
       return {
         id: encoded.id,
-        url: toUrl({ baseUrl: this.#context.baseUrl, path }),
+        url,
         // Report the plaintext resource type when the codec resolved one (the
         // EDV codec's `resourceContentType`); otherwise the wire `contentType`,
         // which for the identity codec already is the resource type.
@@ -1672,14 +1699,8 @@ export class Collection {
       // URL so `AddResult.url` is always absolute (consumers like
       // `was.publicRead({ resourceUrl })` require an absolute URL).
       url: location
-        ? new URL(
-            location,
-            toUrl({ baseUrl: this.#context.baseUrl, path: itemsPath })
-          ).toString()
-        : toUrl({
-            baseUrl: this.#context.baseUrl,
-            path: resourcePath(this.spaceId, this.id, id)
-          }),
+        ? new URL(location, this.url).toString()
+        : this.#resourceUrl(id),
       contentType:
         responseBody?.['content-type'] ??
         encoded.resourceContentType ??
@@ -1754,10 +1775,7 @@ export class Collection {
    */
   async #listWalk(): Promise<PageWalk | null> {
     return signedPageWalk(this.#context, {
-      firstUrl: toUrl({
-        baseUrl: this.#context.baseUrl,
-        path: this.#path
-      }),
+      firstUrl: this.url,
       capability: this.#capability
     })
   }
@@ -1877,7 +1895,7 @@ export class Collection {
     } = options
     const response = await send(this.#context, {
       ...changesRequest({
-        queryPath: collectionQuery(this.spaceId, this.id),
+        queryUrl: this.#queryUrl,
         method,
         checkpoint,
         limit
@@ -2063,7 +2081,8 @@ export class Collection {
    */
   async grant(options: GrantOptions): Promise<IDelegatedZcap> {
     return delegateGrantAt(this.#context, {
-      path: this.#path,
+      url: this.url,
+      spaceUrl: this.spaceUrl,
       options,
       capability: this.#capability
     })
@@ -2083,7 +2102,7 @@ export class Collection {
    */
   async getPolicy(): Promise<PolicyDocument | null> {
     return readPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -2103,7 +2122,7 @@ export class Collection {
     etag?: string
   } | null> {
     return readPolicyWithEtag(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -2128,7 +2147,7 @@ export class Collection {
     { ifMatch, ifNoneMatch }: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
     return writePolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       policy,
       ifMatch,
       ifNoneMatch,
@@ -2145,7 +2164,7 @@ export class Collection {
    */
   async isPublic(): Promise<boolean> {
     return isPublicPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       capability: this.#capability
     })
   }
@@ -2165,7 +2184,7 @@ export class Collection {
     etag?: string
   }> {
     return setPublicPolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       ifMatch,
       ifNoneMatch,
       capability: this.#capability
@@ -2189,7 +2208,7 @@ export class Collection {
     etag?: string
   }> {
     return deletePolicy(this.#context, {
-      policyPath: this.#policyPath,
+      policyUrl: this.#policyUrl,
       ifMatch,
       capability: this.#capability
     })
@@ -2203,7 +2222,10 @@ export class Collection {
    */
   async linkset(): Promise<LinkSet | null> {
     return readData<LinkSet>(this.#context, {
-      path: collectionLinkset(this.spaceId, this.id),
+      url: collectionLinksetUrl({
+        spaceUrl: this.spaceUrl,
+        collectionId: this.id
+      }),
       capability: this.#capability
     })
   }
@@ -2224,7 +2246,10 @@ export class Collection {
    */
   async backend(): Promise<BackendDescriptor | null> {
     return readData<BackendDescriptor>(this.#context, {
-      path: collectionBackend(this.spaceId, this.id),
+      url: collectionBackendUrl({
+        spaceUrl: this.spaceUrl,
+        collectionId: this.id
+      }),
       capability: this.#capability
     })
   }
@@ -2239,7 +2264,10 @@ export class Collection {
    */
   async quota(): Promise<BackendUsage | null> {
     return readData<BackendUsage>(this.#context, {
-      path: collectionQuota(this.spaceId, this.id),
+      url: collectionQuotaUrl({
+        spaceUrl: this.spaceUrl,
+        collectionId: this.id
+      }),
       capability: this.#capability
     })
   }

@@ -20,8 +20,8 @@ import { isResourceChange } from '@interop/storage-core'
 import { NotFoundError, WasClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Builds a fresh did:key Ed25519 signer, a WAS client over it, and its DID.
@@ -31,7 +31,7 @@ const describeLive = serverUrl ? describe : describe.skip
 async function freshWasClient(): Promise<{ was: WasClient; did: string }> {
   const keyPair = await Ed25519VerificationKey.generate()
   const was = WasClient.fromSigner({
-    serverUrl: serverUrl!,
+    serviceUrl: serviceUrl!,
     signer: keyPair.didKeySigner()
   })
   return { was, did: was.controllerDid }
@@ -140,7 +140,7 @@ describeLive('collection.changes() (live server)', () => {
       expires: new Date(Date.now() + 60 * 60 * 1000)
     })
     const granted = agent
-      .space(space.id)
+      .spaceAt(space.url)
       .collection('notes', { capability: grant })
 
     // The form is derived from the grant: `GET .../query?profile=changes`,

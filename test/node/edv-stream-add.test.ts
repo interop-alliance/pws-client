@@ -19,6 +19,7 @@ import {
   ValidationError
 } from '../../src/index.js'
 import { blobBytes } from '../../src/edv/core.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 import { bytesOf, drain, flipFirst, streamOf } from '../helpers/bytes.js'
 import {
   chunkPaths,
@@ -295,7 +296,7 @@ describe('add(stream) on a plaintext collection', () => {
     const server = memoryServer()
     const collection = server
       .client({ maxBlobBytes: 16, chunkSize: 24 })
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: 'plaintext' })
     const requests: string[] = []
     server.beforeRequest.run = (args, path) => {

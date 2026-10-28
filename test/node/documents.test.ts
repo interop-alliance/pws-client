@@ -13,7 +13,11 @@ import type { HttpResponse } from '@interop/http-client'
 import { WasServerError } from '../../src/index.js'
 import type { ChangesPage, Collection } from '../../src/index.js'
 import { feedEntry, recordEntry } from '../helpers/changesFeed.js'
-import { clientWithStub, jsonResponse } from '../helpers/stubClient.js'
+import {
+  clientWithStub,
+  jsonResponse,
+  spaceUrlFor
+} from '../helpers/stubClient.js'
 
 /**
  * A collection handle over a stub client whose `changes` POST answers with the
@@ -47,7 +51,7 @@ function collectionWithFeed(
     }
     return jsonResponse({ data: page })
   })
-  return { notes: client.space('s').collection('notes'), bodies }
+  return { notes: client.spaceAt(spaceUrlFor('s')).collection('notes'), bodies }
 }
 
 const notFound = () => Object.assign(new Error('not found'), { status: 404 })

@@ -11,12 +11,12 @@
 import { describe, it, expect } from 'vitest'
 
 import type { Collection, Resource, Space, WasClient } from '../../src/index.js'
-import { clientWithRequestSpy } from '../helpers/stubClient.js'
+import { clientWithRequestSpy, spaceUrlFor } from '../helpers/stubClient.js'
 
 describe('policy handle methods', () => {
   it('setPublic() PUTs { type: PublicCanRead } to the collection policy', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    await client.space('s').collection('c').setPublic()
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setPublic()
     const req = lastRequest()
     expect(req?.url).toBe('https://was.example/space/s/c/policy')
     expect(req?.method).toBe('PUT')
@@ -26,13 +26,13 @@ describe('policy handle methods', () => {
   it('setPolicy() passes an arbitrary (extensible) policy document through', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
     const policy = { type: 'Cedar', policies: ['permit(...)'] }
-    await client.space('s').collection('c').setPolicy(policy)
+    await client.spaceAt(spaceUrlFor('s')).collection('c').setPolicy(policy)
     expect(lastRequest()?.json).toEqual(policy)
   })
 
   it('clearPolicy() DELETEs the collection policy', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    await client.space('s').collection('c').clearPolicy()
+    await client.spaceAt(spaceUrlFor('s')).collection('c').clearPolicy()
     const req = lastRequest()
     expect(req?.url).toBe('https://was.example/space/s/c/policy')
     expect(req?.method).toBe('DELETE')
@@ -40,39 +40,49 @@ describe('policy handle methods', () => {
 
   it('getPolicy() returns the response data', async () => {
     const { client } = clientWithRequestSpy({ data: { type: 'PublicCanRead' } })
-    const policy = await client.space('s').collection('c').getPolicy()
+    const policy = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .getPolicy()
     expect(policy).toEqual({ type: 'PublicCanRead' })
   })
 
   it('getPolicy() returns null when no policy is set (404)', async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
-    const policy = await client.space('s').collection('c').getPolicy()
+    const policy = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .getPolicy()
     expect(policy).toBeNull()
   })
 
   it('targets the policy resource at the space level', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    await client.space('s').setPublic()
+    await client.spaceAt(spaceUrlFor('s')).setPublic()
     expect(lastRequest()?.url).toBe('https://was.example/space/s/policy')
   })
 
   it('targets the policy resource at the resource level', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    await client.space('s').collection('c').resource('r').setPublic()
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .setPublic()
     expect(lastRequest()?.url).toBe('https://was.example/space/s/c/r/policy')
   })
 
   it('getPolicyWithEtag() returns null when no policy is set (404)', async () => {
     const { client } = clientWithRequestSpy({ fail: 404 })
     expect(
-      await client.space('s').collection('c').getPolicyWithEtag()
+      await client.spaceAt(spaceUrlFor('s')).collection('c').getPolicyWithEtag()
     ).toBeNull()
   })
 
   it('setPolicy() with ifNoneMatch sends If-None-Match: *', async () => {
     const { client, lastRequest } = clientWithRequestSpy({ etag: '"p1"' })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setPolicy({ type: 'PublicCanRead' }, { ifNoneMatch: true })
     expect(lastRequest()?.headers?.['if-none-match']).toBe('*')
@@ -81,7 +91,10 @@ describe('policy handle methods', () => {
 
   it('setPolicy() with no precondition sends no conditional headers', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    await client.space('s').collection('c').setPolicy({ type: 'PublicCanRead' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .setPolicy({ type: 'PublicCanRead' })
     expect(lastRequest()?.headers).toBeUndefined()
   })
 
@@ -89,7 +102,7 @@ describe('policy handle methods', () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c')
         .setPolicy(
           { type: 'PublicCanRead' },
@@ -102,7 +115,7 @@ describe('policy handle methods', () => {
   it('setPublic() passes ifMatch through and returns the new ETag', async () => {
     const { client, lastRequest } = clientWithRequestSpy({ etag: '"p2"' })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setPublic({ ifMatch: '"p1"' })
     expect(lastRequest()?.json).toEqual({ type: 'PublicCanRead' })
@@ -112,7 +125,9 @@ describe('policy handle methods', () => {
 
   it('clearPolicy() of an absent policy returns no ETag', async () => {
     const { client } = clientWithRequestSpy()
-    expect(await client.space('s').collection('c').clearPolicy()).toEqual({
+    expect(
+      await client.spaceAt(spaceUrlFor('s')).collection('c').clearPolicy()
+    ).toEqual({
       etag: undefined
     })
   })
@@ -164,17 +179,17 @@ describe('policy handle methods', () => {
     }
 
     itRoundTripsEtag('space', 'https://was.example/space/s/policy', client =>
-      client.space('s')
+      client.spaceAt(spaceUrlFor('s'))
     )
     itRoundTripsEtag(
       'collection',
       'https://was.example/space/s/c/policy',
-      client => client.space('s').collection('c')
+      client => client.spaceAt(spaceUrlFor('s')).collection('c')
     )
     itRoundTripsEtag(
       'resource',
       'https://was.example/space/s/c/r/policy',
-      client => client.space('s').collection('c').resource('r')
+      client => client.spaceAt(spaceUrlFor('s')).collection('c').resource('r')
     )
   })
 
@@ -205,10 +220,12 @@ describe('policy handle methods', () => {
       })
     }
 
-    itChecksIsPublic('space', client => client.space('s'))
-    itChecksIsPublic('collection', client => client.space('s').collection('c'))
+    itChecksIsPublic('space', client => client.spaceAt(spaceUrlFor('s')))
+    itChecksIsPublic('collection', client =>
+      client.spaceAt(spaceUrlFor('s')).collection('c')
+    )
     itChecksIsPublic('resource', client =>
-      client.space('s').collection('c').resource('r')
+      client.spaceAt(spaceUrlFor('s')).collection('c').resource('r')
     )
   })
 
@@ -216,7 +233,10 @@ describe('policy handle methods', () => {
     const { client, lastRequest } = clientWithRequestSpy({
       data: { linkset: [{ anchor: '/space/s/c' }] }
     })
-    const result = await client.space('s').collection('c').linkset()
+    const result = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .linkset()
     expect(lastRequest()?.url).toBe('https://was.example/space/s/c/linkset')
     expect(result).toEqual({ linkset: [{ anchor: '/space/s/c' }] })
   })

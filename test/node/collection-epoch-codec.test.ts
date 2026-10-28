@@ -30,7 +30,11 @@ import type {
 } from '../../src/index.js'
 import { resolveCodec, identityCodec } from '../../src/internal/codec.js'
 import type { ClientContext } from '../../src/internal/request.js'
-import { serviceDescriptionFor } from '../helpers/stubClient.js'
+import {
+  serviceDescriptionFor,
+  serviceUrlFor,
+  spaceUrlFor
+} from '../helpers/stubClient.js'
 
 /**
  * A fake codec bound to a fixed epoch that records each `encode` call, standing
@@ -81,7 +85,7 @@ describe('epoch-bearing encryption override', () => {
     }
     const context = { encryption: provider } as unknown as ClientContext
     await resolveCodec(context, {
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       // A CollectionEncryption descriptor is itself an EncryptionOverride.
       override: descriptor
@@ -196,7 +200,7 @@ describe('rotate-then-write on the same handle', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -206,7 +210,7 @@ describe('rotate-then-write on the same handle', () => {
 
   it('re-resolves the codec under the new epoch after a descriptor rotation', async () => {
     const { client, builtEpochs, encodeLog } = rotatingClient()
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
 
     // First write: descriptor discovery resolves the codec under epoch-1.
     await collection.put('r1', { a: 1 })
@@ -243,7 +247,7 @@ describe('rotate-then-write on the same handle', () => {
       currentEpoch: 'epoch-2'
     }
     const { client, builtEpochs, encodeLog } = rotatingClient(rotated)
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
 
     await collection.put('r1', { a: 1 })
     expect(encodeLog).toEqual(['encode:epoch-1'])
@@ -347,7 +351,7 @@ describe('createCollection pre-seed consults the provider', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -360,7 +364,7 @@ describe('createCollection pre-seed consults the provider', () => {
   it('pre-seeds (no describe round-trip) when the provider can route it', async () => {
     const { client, describeGets, asked } = creatingClient(() => true)
     const collection = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .createCollection({ id: 'c', encryption: declared })
     await collection.put('r1', { a: 1 })
     expect(asked).toEqual([{ scheme: 'edv', encryption: declared }])
@@ -370,7 +374,7 @@ describe('createCollection pre-seed consults the provider', () => {
   it('falls back to descriptor discovery when the provider cannot', async () => {
     const { client, describeGets } = creatingClient(() => false)
     const collection = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .createCollection({ id: 'c', encryption: declared })
     await collection.put('r1', { a: 1 })
     expect(describeGets()).toBe(1)
@@ -379,7 +383,7 @@ describe('createCollection pre-seed consults the provider', () => {
   it('a provider without canRoute is assumed to route every descriptor', async () => {
     const { client, describeGets } = creatingClient(undefined)
     const collection = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .createCollection({ id: 'c', encryption: declared })
     await collection.put('r1', { a: 1 })
     expect(describeGets()).toBe(0)

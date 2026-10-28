@@ -30,8 +30,13 @@ import type {
   ResourceMetadataCustom
 } from '../../src/index.js'
 import { CodecHolder, identityCodec } from '../../src/internal/codec.js'
+import { rootCapabilityId } from '../../src/paths.js'
 import { drain } from '../helpers/bytes.js'
-import { serviceDescriptionFor } from '../helpers/stubClient.js'
+import {
+  serviceDescriptionFor,
+  serviceUrlFor,
+  spaceUrlFor
+} from '../helpers/stubClient.js'
 
 interface RequestArgs {
   url?: string
@@ -145,7 +150,7 @@ function clientWithRouter({
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serverUrl: 'https://was.example/spaces/',
+    serviceUrl: serviceUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     encryption
@@ -201,7 +206,7 @@ describe('codec seam: no provider (plaintext, unchanged)', () => {
   it('add() POSTs to the items path', async () => {
     const { client, calls } = clientWithRouter()
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .add({ hello: 'world' })
     expect(calls[0]?.method).toBe('POST')
@@ -211,7 +216,10 @@ describe('codec seam: no provider (plaintext, unchanged)', () => {
 
   it('put() PUTs JSON to the resource path', async () => {
     const { client, calls } = clientWithRouter()
-    await client.space('s').collection('c').put('r', { hello: 'world' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .put('r', { hello: 'world' })
     expect(calls[0]?.method).toBe('PUT')
     expect(calls[0]?.url).toBe('https://was.example/space/s/c/r')
     expect(calls[0]?.json).toEqual({ hello: 'world' })
@@ -229,7 +237,10 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
     // identity, so the provider's codecFor is never reached and the write stays
     // plaintext.
     const { client, calls } = clientWithRouter({ encryption })
-    await client.space('s').collection('c').put('r', { hello: 'world' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .put('r', { hello: 'world' })
     const write = calls.find(call => call.method === 'PUT')
     expect(write?.json).toEqual({ hello: 'world' }) // plaintext JSON
   })
@@ -246,7 +257,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
     // discovery. add(): codec mints an id, so the write is a PUT to that id,
     // not a POST.
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .add({ secret: 1 })
     expect(log).toContain('encode:mint')
@@ -274,7 +285,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
       readContentType: 'application/jose+json'
     })
     const value = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .get('zDoc')
     expect(log).toContain('decode')
@@ -293,7 +304,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
     // and binds the codec, skipping descriptor discovery (no GET).
     const { client, calls } = clientWithRouter({ encryption })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('zDoc', { encryption: { scheme: 'edv' } })
       .put({ secret: 1 })
@@ -321,7 +332,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
       descriptor: { scheme: 'edv' }
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('r', { encryption: 'plaintext' })
       .put({ hello: 'world' })
@@ -341,7 +352,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
     }
     const { client } = clientWithRouter({ encryption })
     const collection = client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
     await collection.put('a', { n: 1 })
     await collection.put('b', { n: 2 })
@@ -364,7 +375,10 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
     })
     // No override: the Collection Metadata GET reveals the descriptor, which
     // binds the codec; the write is then an encrypted PUT (bytes, not JSON).
-    await client.space('s').collection('c').put('zDoc', { secret: 1 })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .put('zDoc', { secret: 1 })
     const descriptorGet = calls.find(
       call =>
         (call.method ?? 'GET') === 'GET' &&
@@ -390,7 +404,7 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
       descriptor: { scheme: 'edv' }
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: 'plaintext' })
       .put('r', { hello: 'world' })
     const write = calls.find(call => call.method === 'PUT')
@@ -408,7 +422,7 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
     const { client } = clientWithRouter({ encryption })
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c', { encryption: { scheme: 'edv' } })
         .put('zDoc', { secret: 1 })
     ).rejects.toThrow(EncryptionError)
@@ -424,16 +438,16 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
       encryption,
       descriptor: { scheme: 'edv' }
     })
-    await expect(client.space('s').collection('c').get('zDoc')).rejects.toThrow(
-      EncryptionError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').get('zDoc')
+    ).rejects.toThrow(EncryptionError)
   })
 
   it('fails closed when encrypted but no provider is configured at all', async () => {
     const { client } = clientWithRouter() // no encryption provider
     await expect(
       client
-        .space('s')
+        .spaceAt(spaceUrlFor('s'))
         .collection('c', { encryption: { scheme: 'edv' } })
         .put('zDoc', { secret: 1 })
     ).rejects.toThrow(EncryptionError)
@@ -452,7 +466,10 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
     }
     const { client, calls } = clientWithRouter({ encryption, readStatus: 404 })
     await expect(
-      client.space('s').collection('c').put('zDoc', { secret: 1 })
+      client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('c')
+        .put('zDoc', { secret: 1 })
     ).rejects.toThrow(EncryptionError)
     // It must not have fallen back and written the plaintext secret.
     expect(calls.some(call => call.method === 'PUT')).toBe(false)
@@ -470,7 +487,7 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
     // unreadable-descriptor case writes plaintext deliberately rather than
     // throwing.
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: 'plaintext' })
       .put('r', { hello: 'world' })
     const write = calls.find(call => call.method === 'PUT')
@@ -482,6 +499,7 @@ describe('fromCapability forwards a per-handle encryption override', () => {
   const scoped = {
     '@context': 'https://w3id.org/zcap/v1',
     id: 'urn:zcap:scoped',
+    parentCapability: rootCapabilityId(spaceUrlFor('s')),
     invocationTarget: 'https://was.example/space/s/c/r'
   } as unknown as IZcap
   const encryption: EncryptionProvider = {
@@ -505,7 +523,9 @@ describe('fromCapability forwards a per-handle encryption override', () => {
 
   it('answers a request outside the capability target without sending it', async () => {
     const { client, calls } = clientWithRouter({ readData: { ok: true } })
-    const collection = client.space('s').collection('c', { capability: scoped })
+    const collection = client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c', { capability: scoped })
     // A read outside the target is the server's masked 404: `null`.
     expect(await collection.describe()).toBeNull()
     // A write outside the target is the same refusal, typed.
@@ -623,7 +643,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -633,7 +653,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
 
   it('re-resolves the codec after configure() enables encryption', async () => {
     const { client, calls } = flippableClient()
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     // A read while plaintext memoizes the identity codec.
     await collection.get('r')
     // Enabling encryption must drop that cached codec.
@@ -649,7 +669,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
 
   it('the invalidation propagates to a child resource handle', async () => {
     const { client, calls } = flippableClient()
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     const resource = collection.resource('r')
     // The child handle reads while plaintext, caching the identity codec via the
     // parent's shared thunk.
@@ -729,7 +749,7 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serverUrl: 'https://was.example/spaces/',
+      serviceUrl: serviceUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -739,7 +759,7 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
 
   it('retries descriptor discovery after a transient failure (same handle)', async () => {
     const { client, calls } = flakyDescriptorClient()
-    const collection = client.space('s').collection('c')
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
     // First call: the descriptor GET 500s, so the resolution rejects and must
     // throw.
     await expect(collection.put('r', { secret: 1 })).rejects.toThrow()
@@ -765,7 +785,7 @@ describe('codec seam: encrypted metadata round-trips through the codec', () => {
     }
     const { client, calls } = clientWithRouter({ encryption })
     const resource = client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .resource('zDoc')
     await resource.setMeta({ custom: { name: 'x', tags: { a: 'b' } } })
@@ -794,7 +814,7 @@ describe('codec seam: encrypted metadata round-trips through the codec', () => {
       }
     })
     const meta = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .resource('zDoc')
       .meta()
@@ -805,7 +825,7 @@ describe('codec seam: encrypted metadata round-trips through the codec', () => {
   it('setMeta still works on a plaintext (no-provider) collection', async () => {
     const { client, calls } = clientWithRouter()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('r')
       .setMeta({ custom: { name: 'ok' } })
@@ -824,7 +844,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
     }
     const { client, calls } = clientWithRouter({ encryption })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .setMeta({ custom: { name: 'x', tags: { a: 'b' } } })
     const write = calls.find(call => call.method === 'PUT')
@@ -855,7 +875,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
       }
     })
     const meta = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .meta()
     expect(meta?.custom).toEqual({ name: 'decoded' })
@@ -874,7 +894,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
     }
     const { client, calls } = clientWithRouter({ encryption })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .setMeta({ custom: { name: 'x' } })
     const write = calls.find(call => call.method === 'PUT')
@@ -889,7 +909,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
   it('setMeta still works on a plaintext (no-provider) collection', async () => {
     const { client, calls } = clientWithRouter()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'ok' } })
     const write = calls.find(call => call.method === 'PUT')
@@ -934,7 +954,7 @@ describe('conditional writes: plaintext handle options', () => {
   it('put forwards ifMatch as an If-Match header', async () => {
     const { client, calls } = clientWithRouter()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .put('r', { hello: 'world' }, { ifMatch: '"3"' })
     const write = calls.find(call => call.method === 'PUT')
@@ -945,7 +965,7 @@ describe('conditional writes: plaintext handle options', () => {
   it('put forwards ifNoneMatch as If-None-Match: *', async () => {
     const { client, calls } = clientWithRouter()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .put('r', { hello: 'world' }, { ifNoneMatch: true })
     const write = calls.find(call => call.method === 'PUT')
@@ -954,14 +974,17 @@ describe('conditional writes: plaintext handle options', () => {
 
   it('a plaintext put does not pre-read (no conditional codec)', async () => {
     const { client, calls } = clientWithRouter()
-    await client.space('s').collection('c').put('r', { hello: 'world' })
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .put('r', { hello: 'world' })
     expect(calls.some(call => call.method === 'GET')).toBe(false)
   })
 
   it('put returns the new ETag from the write response', async () => {
     const { client } = clientWithRouter({ writeEtag: '"7"' })
     const result = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .put('r', { hello: 'world' })
     expect(result.etag).toBe('"7"')
@@ -970,7 +993,7 @@ describe('conditional writes: plaintext handle options', () => {
   it('delete forwards ifMatch as an If-Match header', async () => {
     const { client, calls } = clientWithRouter()
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .resource('r')
       .delete({ ifMatch: '"4"' })
@@ -983,7 +1006,11 @@ describe('conditional writes: plaintext handle options', () => {
       readData: { contentType: 'application/json', size: 2 },
       readEtag: '"9"'
     })
-    const meta = await client.space('s').collection('c').resource('r').meta()
+    const meta = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r')
+      .meta()
     expect(meta?.etag).toBe('"9"')
   })
 })
@@ -1003,7 +1030,7 @@ describe('conditional writes: conditional codec wiring', () => {
       readEtag: '"5"'
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .put('zDoc', { secret: 1 })
 
@@ -1028,7 +1055,7 @@ describe('conditional writes: conditional codec wiring', () => {
       readStatus: 404
     })
     await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .put('zDoc', { secret: 1 })
     const write = calls.find(call => call.method === 'PUT')
@@ -1126,7 +1153,7 @@ describe('Resource.getStream: a codec without decodeStream', () => {
       readContentType: 'application/jose+json'
     })
     const read = await client
-      .space('s')
+      .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: { scheme: 'edv' } })
       .resource('zDoc')
       .getStream()
@@ -1141,7 +1168,7 @@ describe('Resource.getStream: a codec without decodeStream', () => {
   it('resolves null for a missing resource', async () => {
     const { client } = clientWithRouter({ readStatus: 404 })
     await expect(
-      client.space('s').collection('c').getStream('missing')
+      client.spaceAt(spaceUrlFor('s')).collection('c').getStream('missing')
     ).resolves.toBeNull()
   })
 })

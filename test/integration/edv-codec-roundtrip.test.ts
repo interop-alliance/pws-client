@@ -56,8 +56,8 @@ import {
   ownerRecipient
 } from '../../src/edv/index.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Retypes a stored `custom` value read back off the wire so it can be written
@@ -116,16 +116,16 @@ async function freshClients(): Promise<{
   })
   return {
     encrypted: WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner(),
       encryption
     }),
     plaintext: WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner()
     }),
     keyless: WasClient.fromSigner({
-      serverUrl: serverUrl!,
+      serviceUrl: serviceUrl!,
       signer: keyPair.didKeySigner(),
       encryption: createEdvEncryption({ resolveKeys: async () => null })
     }),
@@ -162,7 +162,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // createCollection is pre-seeded with the pre-install `{ scheme: 'edv' }`
     // override, so discovery -- not that stale override -- must supply the
     // epoch-bearing descriptor.
-    collection = was.space(space.id).collection('vault')
+    collection = was.spaceAt(space.url).collection('vault')
   })
 
   afterAll(async () => {
@@ -189,7 +189,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // it must read the Collection Metadata object, see the `encryption` descriptor,
     // and decrypt with the keystore's keys -- the delegated-consumer discovery
     // path.
-    const rediscovered = was.space(space.id).collection('vault')
+    const rediscovered = was.spaceAt(space.url).collection('vault')
     expect(await rediscovered.get(id)).toEqual({ via: 'descriptor discovery' })
   })
 
@@ -199,7 +199,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // holds no keys, so reading throws EncryptionError rather than leaking the
     // JWE.
     await expect(
-      keyless.space(space.id).collection('vault').get(id)
+      keyless.spaceAt(space.url).collection('vault').get(id)
     ).rejects.toThrow(EncryptionError)
   })
 
@@ -209,7 +209,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // A client with no codec (but the same authorization) reads exactly what the
     // server stored: a JWE envelope, never the cleartext.
     const stored = (await plaintext
-      .space(space.id)
+      .spaceAt(space.url)
       .collection('vault')
       .get(id)) as Record<string, unknown>
     expect(stored.jwe).toBeTruthy()
@@ -309,7 +309,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // authorization, no keys) reading `/meta` sees a `custom` envelope carrying
     // a `jwe`, never the cleartext name.
     const rawMeta = await plaintext
-      .space(space.id)
+      .spaceAt(space.url)
       .collection('vault')
       .resource(id)
       .meta()
@@ -344,7 +344,10 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
 
     // A plaintext client (same authorization, no keys) sees the opaque
     // envelope the server stored, never the cleartext name.
-    const rawMeta = await plaintext.space(space.id).collection('vault').meta()
+    const rawMeta = await plaintext
+      .spaceAt(space.url)
+      .collection('vault')
+      .meta()
     expect((rawMeta?.custom as { jwe?: unknown }).jwe).toBeTruthy()
     expect(JSON.stringify(rawMeta?.custom)).not.toContain(
       'My Secret Collection'
@@ -358,7 +361,10 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     const description = await collection.describe()
     const currentEpoch = description?.encryption?.currentEpoch
     expect(currentEpoch).toBeTruthy()
-    const rawMeta = await plaintext.space(space.id).collection('vault').meta()
+    const rawMeta = await plaintext
+      .spaceAt(space.url)
+      .collection('vault')
+      .meta()
     expect(rawMeta?.epoch).toBe(currentEpoch)
   })
 })
@@ -383,7 +389,7 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
       collection: declared,
       recipients: [ownerRecipient({ keyAgreementKey: kak })]
     })
-    collection = was.space(space.id).collection('vault')
+    collection = was.spaceAt(space.url).collection('vault')
     // A second encrypted collection carrying the SAME epoch roster (the same
     // reader, the same epoch secret), so a cross-collection swap of metadata
     // envelopes is caught by the `was.collection` binding rather than by a key
@@ -397,7 +403,7 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
       name: 'Vault Twin',
       encryption: description!.encryption
     })
-    twin = was.space(space.id).collection('vault-twin')
+    twin = was.spaceAt(space.url).collection('vault-twin')
   })
 
   afterAll(async () => {
@@ -411,7 +417,7 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
   it("refuses a resource's metadata envelope served in the Collection slot", async () => {
     const { id } = await collection.add({ a: 1 })
     await collection.resource(id).setName('Resource Label')
-    const raw = plaintext.space(space.id).collection('vault')
+    const raw = plaintext.spaceAt(space.url).collection('vault')
     const stored = (await raw.resource(id).meta())?.custom
     // The tampering server: the resource's envelope now sits in the
     // Collection's own `/meta` slot, which belongs to no resource.
@@ -424,7 +430,7 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
     // have left a foreign envelope in this slot, and `setName` would read it.
     await collection.setMeta({ custom: { name: 'Collection Label' } })
     const { id } = await collection.add({ b: 2 })
-    const raw = plaintext.space(space.id).collection('vault')
+    const raw = plaintext.spaceAt(space.url).collection('vault')
     const stored = (await raw.meta())?.custom
     await raw.resource(id).setMeta({ custom: asStoredCustom(stored) })
     await expect(collection.resource(id).meta()).rejects.toBeInstanceOf(
@@ -434,10 +440,11 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
 
   it("refuses one Collection's metadata envelope served as another's", async () => {
     await collection.setMeta({ custom: { name: 'Only For Vault' } })
-    const stored = (await plaintext.space(space.id).collection('vault').meta())
-      ?.custom
+    const stored = (
+      await plaintext.spaceAt(space.url).collection('vault').meta()
+    )?.custom
     await plaintext
-      .space(space.id)
+      .spaceAt(space.url)
       .collection('vault-twin')
       .setMeta({ custom: asStoredCustom(stored) })
     // The twin's reader holds the very same epoch key, so the envelope

@@ -469,7 +469,8 @@ export interface EncryptionProvider {
    * Builds the encrypting codec for a collection already known to be encrypted.
    *
    * @param input {object}
-   * @param input.spaceId {string}
+   * @param input.spaceUrl {string}   the Space holding the collection, in
+   *   canonical form
    * @param input.collectionId {string}
    * @param input.scheme {string}   the declared encryption scheme (e.g. `edv`)
    * @param [input.encryption] {CollectionEncryption}   the full encryption
@@ -485,7 +486,7 @@ export interface EncryptionProvider {
    *   provider holds no keys / does not handle `scheme` (core then fails closed)
    */
   codecFor(input: {
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     scheme: string
     encryption?: CollectionEncryption

@@ -100,20 +100,20 @@ export interface EncryptionDescriptorCache {
  *
  * @param options {object}
  * @param options.was {WasClient}   a client whose signer can read the Space
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @returns {EncryptionDescriptorSource}
  */
 export function wasDescriptorSource({
   was,
-  spaceId
+  spaceUrl
 }: {
   was: WasClient
-  spaceId: string
+  spaceUrl: string
 }): EncryptionDescriptorSource {
   return {
     async collectionEncryption({ collectionId }) {
       const description = await was
-        .space(spaceId)
+        .spaceAt(spaceUrl)
         .collection(collectionId)
         .describe()
       return description?.encryption ?? undefined

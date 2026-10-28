@@ -36,6 +36,7 @@ import {
 } from '../../src/edv/recipients.js'
 import { createEdvEncryption, EdvCodec } from '../../src/edv/index.js'
 import { flipFirst } from '../helpers/bytes.js'
+import { spaceUrlFor } from '../helpers/stubClient.js'
 
 /**
  * Generates a self-describing did:key X25519 reader: its `id` is
@@ -477,7 +478,7 @@ describe('codecFor blinding-key resolution', () => {
       })
     })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -496,7 +497,7 @@ describe('codecFor blinding-key resolution', () => {
       })
     })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -516,7 +517,7 @@ describe('codecFor blinding-key resolution', () => {
       })
     })
     const codec = await provider.codecFor({
-      spaceId: 's',
+      spaceUrl: spaceUrlFor('s'),
       collectionId: 'c',
       scheme: 'edv',
       encryption
@@ -540,7 +541,7 @@ describe('codecFor blinding-key resolution', () => {
     })
     await expect(
       provider.codecFor({
-        spaceId: 's',
+        spaceUrl: spaceUrlFor('s'),
         collectionId: 'c',
         scheme: 'edv',
         encryption

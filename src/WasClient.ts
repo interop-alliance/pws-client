@@ -9,19 +9,21 @@
  * (`grant`), capability-rebuilding (`fromCapability`), the signed
  * escape-hatch (`request`), and service discovery (`service`), which every
  * signed request waits on.
+ *
+ * A server is identified by its service description URL, and a Space by its
+ * own absolute URL. The client is built from the service URL (or from a
+ * Spaces Repository URL, whose responses link to the service description),
+ * and it opens a Space handle on a URL it was handed: the `Location` of the
+ * create response, or one the caller holds. Nothing here assembles a Space
+ * URL from a server root, because the spec defines none.
  */
 import type { ZcapClient } from '@interop/ezcap'
 import type { HttpResponse } from '@interop/http-client'
 import type { ServiceDescription } from '@interop/storage-core'
-import {
-  baseUrlOfSpacesUrl,
-  collectionItemsUrl,
-  parseSpaceTarget,
-  spacesUrl
-} from './internal/paths.js'
+import { canonicalContainerUrl, parseSpaceTarget } from './internal/paths.js'
 import type { ClientContext } from './internal/request.js'
 import { send, rawRequest, unsignedRequest } from './internal/request.js'
-import { createdId, parseResource, readJsonData } from './internal/content.js'
+import { parseResource, readJsonData } from './internal/content.js'
 import {
   buildPageWalk,
   collectPages,
@@ -32,15 +34,14 @@ import {
 } from './internal/pagination.js'
 import type { PageWalk } from './internal/pagination.js'
 import { delegateGrant } from './internal/grant.js'
-import { spaceIdOf, submitRevocation } from './internal/revoke.js'
+import { spaceUrlOf, submitRevocation } from './internal/revoke.js'
 import { Memo } from './internal/memo.js'
-import { discoverService, selectServiceVersion } from './internal/service.js'
 import {
-  IncompatibleServerError,
-  NotSupportedError,
-  ValidationError,
-  WasServerError
-} from './errors.js'
+  discoverService,
+  readServiceDescription,
+  selectServiceVersion
+} from './internal/service.js'
+import { NotSupportedError, ValidationError, WasServerError } from './errors.js'
 import { zcapClientForSigner } from './zcapClient.js'
 import type { EncryptionProvider } from './codec.js'
 import { Space } from './Space.js'
@@ -61,32 +62,71 @@ import type {
   SpaceListing
 } from './types.js'
 
+/**
+ * The one way to name the server a client is built for: the URL of its
+ * service description, or the URL of its Spaces Repository (any response from
+ * which links to the service description). Exactly one is given.
+ */
+export type ServerLocator =
+  | { serviceUrl: string; spacesUrl?: undefined }
+  | { spacesUrl: string; serviceUrl?: undefined }
+
+/**
+ * Checks that `value` is an absolute `http(s)` URL and returns it as `URL`
+ * serializes it, or throws.
+ *
+ * @param options {object}
+ * @param options.name {string}    the option's name, for the error
+ * @param options.value {string}
+ * @returns {string}
+ * @throws {ValidationError}
+ */
+function absoluteHttpUrl({
+  name,
+  value
+}: {
+  name: string
+  value: string
+}): string {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch (err) {
+    throw new ValidationError(`${name} "${value}" is not an absolute URL.`, {
+      cause: err
+    })
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new ValidationError(`${name} "${value}" is not an http(s) URL.`)
+  }
+  return parsed.toString()
+}
+
 export class WasClient {
   /**
-   * The server's Spaces Repository URL, in canonical trailing-slash form
-   * (`https://host/spaces/`). Service discovery starts here.
+   * The service description's URL, when the client was built from one. Read
+   * directly by discovery.
    */
-  readonly serverUrl: string
+  readonly serviceUrl?: string
   /**
-   * The server base URL every Space path hangs off, without a trailing slash:
-   * the parent of {@link serverUrl} (`https://host`, or `https://host/was` on
-   * a sub-path mount). Zcap `invocationTarget`s are built beneath it.
+   * The Spaces Repository URL the client was built from, when it was built
+   * from one. Discovery probes it for the `service` link. The URL
+   * `createSpace` and `listSpaces` address is the service description's
+   * `spaces` member, not this value.
    */
-  readonly baseUrl: string
+  readonly spacesUrl?: string
   readonly zcapClient: ZcapClient
   readonly encryption?: EncryptionProvider
 
   /**
    * @param options {object}
-   * @param options.serverUrl {string}    the server's Spaces Repository URL
-   *   (`https://host/spaces/`, or `https://host/was/spaces/` on a sub-path
-   *   mount). The base URL for Space paths and zcap `invocationTarget`s is
-   *   its parent. Service discovery starts from this URL rather than from the
-   *   base, which is often a landing page with no `service` link. The value
-   *   is normalized to canonical form; `baseUrlOfSpacesUrl` in `./paths`
-   *   states what is accepted. The client is built from this URL only: a
-   *   server with no Spaces Repository (the spec leaves the endpoint
-   *   optional) has no URL this constructor accepts and is not supported.
+   * @param [options.serviceUrl] {string}   the URL of the server's service
+   *   description. Discovery reads it with an unsigned `GET`. Exactly one of
+   *   `serviceUrl` and `spacesUrl` is given
+   * @param [options.spacesUrl] {string}   the server's Spaces Repository
+   *   URL, for a caller that holds that rather than the service URL.
+   *   Discovery sends an unsigned `HEAD` to it and follows the `service`
+   *   link every response carries
    * @param options.zcapClient {ZcapClient}   an ezcap client holding the signer
    * @param [options.encryption] {EncryptionProvider}   the keystore that
    *   supplies keys for collections declared encrypted (by their `encryption`
@@ -97,34 +137,41 @@ export class WasClient {
    *   closed rather than silently downgrading to plaintext.
    * @param [options.serviceDescription] {ServiceDescription}   a service
    *   description the caller already holds (from a cache, say). The client
-   *   selects its version from this copy instead of discovering the document
-   *   from `serverUrl`, and still refuses it with `IncompatibleServerError` if
-   *   it names no version this client speaks or advertises a Spaces Repository
-   *   other than `serverUrl`. `service({ refresh: true })` discards it and
-   *   discovers afresh.
-   * @throws {ValidationError}   when `serverUrl` is not a Spaces Repository URL
+   *   selects its version from this copy instead of discovering the document,
+   *   and still refuses it with `IncompatibleServerError` if it names no
+   *   version this client speaks. `service({ refresh: true })` discards it
+   *   and discovers afresh.
+   * @throws {ValidationError}   when neither or both of `serviceUrl` and
+   *   `spacesUrl` are given, or the one given is not an absolute http(s) URL
    */
   constructor({
-    serverUrl,
+    serviceUrl,
+    spacesUrl,
     zcapClient,
     encryption,
     serviceDescription
-  }: {
-    serverUrl: string
+  }: ServerLocator & {
     zcapClient: ZcapClient
     encryption?: EncryptionProvider
     serviceDescription?: ServiceDescription
   }) {
-    const baseUrl = baseUrlOfSpacesUrl(serverUrl)
-    if (baseUrl === null) {
+    if ((serviceUrl === undefined) === (spacesUrl === undefined)) {
       throw new ValidationError(
-        `serverUrl "${serverUrl}" is not a Spaces Repository URL. Pass the ` +
-          "server's `/spaces/` URL as an absolute URL, for example " +
-          '"https://host/spaces/".'
+        'A WasClient is built from exactly one of `serviceUrl` (the service ' +
+          'description URL) and `spacesUrl` (the Spaces Repository URL).'
       )
     }
-    this.serverUrl = spacesUrl({ baseUrl })
-    this.baseUrl = baseUrl
+    if (serviceUrl !== undefined) {
+      this.serviceUrl = absoluteHttpUrl({
+        name: 'serviceUrl',
+        value: serviceUrl
+      })
+    } else {
+      this.spacesUrl = absoluteHttpUrl({
+        name: 'spacesUrl',
+        value: spacesUrl as string
+      })
+    }
     this.zcapClient = zcapClient
     this.encryption = encryption
     this.#serviceDescription = serviceDescription
@@ -140,7 +187,8 @@ export class WasClient {
    * and never needs a JSON-LD document loader to serve the suite's context.
    *
    * @param options {object}
-   * @param options.serverUrl {string}
+   * @param [options.serviceUrl] {string}   see the constructor
+   * @param [options.spacesUrl] {string}    see the constructor
    * @param options.signer {ISigner}
    * @param [options.encryption] {EncryptionProvider}   see the constructor
    * @param [options.serviceDescription] {ServiceDescription}   see the
@@ -148,18 +196,17 @@ export class WasClient {
    * @returns {WasClient}
    */
   static fromSigner({
-    serverUrl,
     signer,
     encryption,
-    serviceDescription
-  }: {
-    serverUrl: string
+    serviceDescription,
+    ...locator
+  }: ServerLocator & {
     signer: ISigner
     encryption?: EncryptionProvider
     serviceDescription?: ServiceDescription
   }): WasClient {
     return new WasClient({
-      serverUrl,
+      ...locator,
       zcapClient: zcapClientForSigner({ signer }),
       encryption,
       serviceDescription
@@ -185,41 +232,22 @@ export class WasClient {
   #serviceDescription?: ServiceDescription
 
   readonly #service = new Memo<ServiceInfo>(async () => {
-    const info =
-      this.#serviceDescription === undefined
-        ? await discoverService({ url: this.serverUrl })
-        : selectServiceVersion(this.#serviceDescription)
-    // Every Space path is built beneath the parent of `serverUrl`, so a server
-    // that advertises its Spaces Repository elsewhere would be addressed at
-    // the wrong mount. Refuse it by name rather than misroute. Both sides are
-    // compared in canonical base-URL form, so an advertised value that differs
-    // only in serialization (host case, default port, trailing slash) passes.
-    if (info.spacesUrl !== undefined) {
-      const advertisedBase = baseUrlOfSpacesUrl(info.spacesUrl)
-      if (advertisedBase !== this.baseUrl) {
-        const why =
-          advertisedBase === null
-            ? `which is not a Spaces Repository URL (an absolute http(s) ` +
-              `URL ending in a "spaces" segment, with no query or fragment).`
-            : `but this client was given "${this.serverUrl}".`
-        throw new IncompatibleServerError(
-          `The server advertises its Spaces Repository at ` +
-            `"${info.spacesUrl}", ${why}`,
-          { requestUrl: this.serverUrl }
-        )
-      }
+    if (this.#serviceDescription !== undefined) {
+      return selectServiceVersion(this.#serviceDescription)
     }
-    return info
+    return this.serviceUrl !== undefined
+      ? readServiceDescription({ serviceUrl: this.serviceUrl })
+      : discoverService({ url: this.spacesUrl as string })
   })
 
   /**
    * Discovers the server's service description and the WAS version this
-   * client speaks with it. Follows the `rel="service"` link on the response to
-   * an unsigned `HEAD` of `serverUrl` (the Spaces Repository URL), then reads
-   * the linked document with an unsigned `GET`. No capability is invoked. The
-   * result is memoized for the life of the client and shared by every handle;
-   * concurrent callers share one discovery, and a failure is not memoized, so
-   * the next call retries.
+   * client speaks with it. A client built from `serviceUrl` reads the document
+   * with an unsigned `GET`; one built from `spacesUrl` first follows the
+   * `rel="service"` link on the response to an unsigned `HEAD` of that URL.
+   * No capability is invoked. The result is memoized for the life of the
+   * client and shared by every handle; concurrent callers share one
+   * discovery, and a failure is not memoized, so the next call retries.
    *
    * Every signed request waits on this discovery, so a caller rarely needs to
    * call it first. It is the way to read the server-wide affordances:
@@ -235,10 +263,9 @@ export class WasClient {
    *   caller about to rely on an affordance the server may have stopped
    *   advertising
    * @returns {Promise<ServiceInfo>}
-   * @throws {IncompatibleServerError}   when the server's responses carry no
-   *   `service` link (it predates v0.5), the document is malformed, it lists
-   *   no version this client speaks, or it advertises a Spaces Repository URL
-   *   other than `serverUrl`
+   * @throws {IncompatibleServerError}   when the probed response carries no
+   *   `service` link (the server predates v0.5), the document is malformed,
+   *   or it lists no version this client speaks
    */
   async service(options: { refresh?: boolean } = {}): Promise<ServiceInfo> {
     if (options.refresh) {
@@ -249,35 +276,34 @@ export class WasClient {
   }
 
   /**
-   * Waits for discovery and refuses a server whose service description has no
-   * Spaces Repository. Discovery has already checked that an advertised
-   * `spaces` URL names `serverUrl`, so callers address `serverUrl` directly.
+   * Waits for discovery and returns the Spaces Repository URL the service
+   * description names, refusing a server whose description has none.
    *
-   * @returns {Promise<void>}
+   * @returns {Promise<string>}
    * @throws {NotSupportedError}   when the server does not implement the
    *   Spaces Repository
    */
-  async #assertSpacesRepository(): Promise<void> {
-    const { spacesUrl, version } = await this.service()
+  async #spacesRepositoryUrl(): Promise<string> {
+    const { spacesUrl, version, description } = await this.service()
     if (spacesUrl === undefined) {
       throw new NotSupportedError(
-        `The server at "${this.baseUrl}" does not implement the Spaces ` +
+        `The server at "${description.url}" does not implement the Spaces ` +
           `Repository: its WAS ${version} service description entry has no ` +
           '`spaces` URL.'
       )
     }
+    return spacesUrl
   }
 
   #cachedContext?: ClientContext
 
   get #context(): ClientContext {
-    // `baseUrl`, `zcapClient` and `encryption` are all constructor-fixed, so
-    // the context is derived once and reused rather than reallocating the
-    // object on every handle access.
+    // `zcapClient` and `encryption` are constructor-fixed, so the context is
+    // derived once and reused rather than reallocating the object on every
+    // handle access.
     if (this.#cachedContext === undefined) {
       const readControllerDid = () => this.controllerDid
       this.#cachedContext = {
-        baseUrl: this.baseUrl,
         zcapClient: this.zcapClient,
         // Read lazily, so building a handle costs nothing and a
         // delegation-only client (a `ZcapClient` with a delegation signer and
@@ -295,9 +321,13 @@ export class WasClient {
   }
 
   /**
-   * Returns a lazy handle to a space by id. No I/O.
+   * Returns a lazy handle to a Space by its absolute URL, as the server
+   * named it (the `Location` of the create response, a listing item's `url`,
+   * a stored pointer, or the URL a self-locating DID resolves to). No I/O.
+   * The URL is canonicalized (see `canonicalSpaceUrl` on the `./paths`
+   * entry), and every Collection and Resource URL derives from it.
    *
-   * @param spaceId {string}
+   * @param spaceUrl {string}
    * @param options {object}
    * @param [options.capability] {IZcap}
    * @param [options.encryption] {EncryptionOverride}   the default encryption
@@ -305,11 +335,12 @@ export class WasClient {
    *   `EncryptionOverride`); `space.collection(id, { encryption })` overrides
    *   it per collection
    * @returns {Space}
+   * @throws {ValidationError}   when `spaceUrl` is not a Space URL
    */
-  space(spaceId: string, options: HandleOptions = {}): Space {
+  spaceAt(spaceUrl: string, options: HandleOptions = {}): Space {
     return new Space({
       context: this.#context,
-      spaceId,
+      spaceUrl,
       capability: options.capability,
       encryption: options.encryption
     })
@@ -319,7 +350,9 @@ export class WasClient {
    * Creates a space (server-generated id unless `id` is given). `name` is
    * optional (both in the spec and on the reference server); `controller` must
    * match the wrapped signer's DID (which is the default). The request goes
-   * to the Spaces Repository URL the service description names.
+   * to the Spaces Repository URL the service description names, and the
+   * returned handle is opened on the Space URL the response's `Location`
+   * names: the server chooses where the Space lives.
    *
    * @param desc {object}
    * @param [desc.id] {string}
@@ -331,6 +364,7 @@ export class WasClient {
    *   immutable after creation
    * @returns {Promise<Space>}
    * @throws {NotSupportedError}   when the server has no Spaces Repository
+   * @throws {WasServerError}   when the create response carries no `Location`
    */
   async createSpace(
     desc: {
@@ -347,13 +381,24 @@ export class WasClient {
       ...(desc.name !== undefined && { name: desc.name }),
       ...(desc.type !== undefined && { type: desc.type })
     }
-    await this.#assertSpacesRepository()
+    const spacesUrl = await this.#spacesRepositoryUrl()
     const response = await send(this.#context, {
-      url: this.serverUrl,
+      url: spacesUrl,
       method: 'POST',
       json: body
     })
-    return this.space(createdId(response))
+    // Only the `Location` is needed here: the Space id is read off the Space
+    // URL by the handle, so the response body's `id` goes unread.
+    const location = response?.headers.get('location')
+    if (!location) {
+      throw new WasServerError(
+        `The Create Space response from "${spacesUrl}" carries no ` +
+          '`Location` header, so the new Space cannot be located.'
+      )
+    }
+    // RFC 9110 permits a relative `Location`; resolve it against the request
+    // URL so the handle is opened on an absolute Space URL.
+    return this.spaceAt(new URL(location, spacesUrl).toString())
   }
 
   /**
@@ -363,7 +408,8 @@ export class WasClient {
    * authorized for, auxiliary spaces included. Each item carries the space's
    * `type` array, the same value as its Space Metadata object's `type`, so a
    * caller can tell an auxiliary space (one whose `type` names
-   * `AuxiliarySpace`) from a user-data one without reading each space.
+   * `AuxiliarySpace`) from a user-data one without reading each space, and
+   * its `url`, the Space URL to open a handle on with {@link spaceAt}.
    * An unauthorized caller is not an error -- the server
    * returns an empty `items` list (the spec's explicit exception to 404
    * masking), so nothing is revealed about which spaces exist.
@@ -377,9 +423,9 @@ export class WasClient {
    * @throws {WasServerError}   when the listing cannot be read in full
    */
   async listSpaces(): Promise<SpaceListing> {
-    await this.#assertSpacesRepository()
+    const spacesUrl = await this.#spacesRepositoryUrl()
     const walk = await signedPageWalk<SpaceListing>(this.#context, {
-      firstUrl: this.serverUrl
+      firstUrl: spacesUrl
     })
     // The first page always carries the listing body (an unauthorized caller
     // still gets an empty `items` list, not an error), so a `null` walk is a
@@ -388,7 +434,7 @@ export class WasClient {
     // `TypeError` from destructuring `null`.
     if (walk === null) {
       throw new WasServerError(
-        `The space listing at "${this.serverUrl}" answered with no JSON body.`
+        `The space listing at "${spacesUrl}" answered with no JSON body.`
       )
     }
     return collectPages(walk)
@@ -429,7 +475,7 @@ export class WasClient {
   async #publicListWalk(collectionUrl: string): Promise<PageWalk | null> {
     return buildPageWalk({
       // The collection listing endpoint is the trailing-slash items URL.
-      firstUrl: collectionItemsUrl(collectionUrl),
+      firstUrl: canonicalContainerUrl(collectionUrl),
       fetchPage: async pageUrl => {
         const pageResponse = await unsignedRequest({
           url: pageUrl,
@@ -508,7 +554,14 @@ export class WasClient {
   /**
    * Rebuilds an access handle from a received capability, returning a handle at
    * the depth implied by the capability's `invocationTarget` (space /
-   * collection / resource), pre-bound with that capability.
+   * collection / resource), pre-bound with that capability. The Space is read
+   * off the capability's delegation chain, which starts at the Space's root
+   * capability (whose id encodes the Space URL), so a capability from any
+   * server locates its own Space with no out-of-band base. The root's target
+   * is taken to be the Space URL: a Space URL has no shape of its own, so a
+   * chain rooted elsewhere (a bare `was.grant()` with no `spaceUrl` roots at
+   * its target) is read as if that target were the Space, and the server
+   * refuses the handle's requests. See `spaceUrlOf` on the `./paths` entry.
    *
    * A resource-scoped capability cannot read the Collection Metadata object, so
    * an encryption-capable client cannot discover whether the collection is
@@ -525,34 +578,29 @@ export class WasClient {
    * @param [options.encryption] {EncryptionOverride}   per-handle encryption
    *   override for the returned handle (see `EncryptionOverride`)
    * @returns {Space | Collection | Resource}
+   * @throws {ValidationError}   when the capability's chain starts at no root
+   *   capability or at one whose target cannot be a Space URL, or its
+   *   `invocationTarget` is not at or beneath that Space, or addresses a
+   *   reserved sub-resource with no navigational handle
    */
   fromCapability(
     zcap: IZcap,
     { encryption }: { encryption?: EncryptionOverride } = {}
   ): Space | Collection | Resource {
     const target = zcap.invocationTarget
-    try {
-      new URL(target)
-    } catch (err) {
-      throw new ValidationError(
-        `invocationTarget "${target}" is not a valid absolute URL.`,
-        { cause: err }
-      )
-    }
-    // `parseSpaceTarget` owns the path grammar: it strips `baseUrl`'s path
-    // first (so a WAS mounted under a sub-path -- `https://host/was/` --
-    // classifies just as a bare-origin deployment does, which `parseSpacePath`
-    // alone cannot) and percent-decodes each segment, since the path builders
-    // re-encode every id. Classifying the full segment list -- rather than
-    // destructuring the first three ids -- keeps a sub-resource target
-    // (`/space/s/policy`, `/space/s/c/r/meta`, ...) from being silently
-    // truncated to the nearest containment handle, whose derived URLs would
-    // mismatch the capability's invocation target.
-    const parsed = parseSpaceTarget({ baseUrl: this.baseUrl, target })
+    const spaceUrl = spaceUrlOf(zcap)
+    // `parseSpaceTarget` owns the grammar beneath a Space: it percent-decodes
+    // each segment (the builders re-encode every id) and classifies the full
+    // segment list, so a sub-resource target (`{s}policy`, `{s}{c}/{r}/meta`,
+    // ...) is refused rather than silently truncated to the nearest
+    // containment handle, whose derived URLs would mismatch the capability's
+    // invocation target.
+    const parsed = parseSpaceTarget({ spaceUrl, target })
     if (parsed === null) {
       throw new ValidationError(
         `Cannot derive a handle from invocationTarget "${target}": it does ` +
-          `not address a resource on "${this.baseUrl}".`
+          `not address anything at or beneath the Space "${spaceUrl}" the ` +
+          'capability is rooted in.'
       )
     }
     if (parsed.kind === 'sub-resource') {
@@ -567,7 +615,7 @@ export class WasClient {
     if (parsed.kind === 'resource') {
       return new Resource({
         context,
-        spaceId: parsed.spaceId,
+        spaceUrl,
         collectionId: parsed.collectionId,
         resourceId: parsed.resourceId,
         capability: zcap,
@@ -577,7 +625,7 @@ export class WasClient {
     if (parsed.kind === 'collection') {
       return new Collection({
         context,
-        spaceId: parsed.spaceId,
+        spaceUrl,
         collectionId: parsed.collectionId,
         capability: zcap,
         encryption
@@ -585,7 +633,7 @@ export class WasClient {
     }
     return new Space({
       context,
-      spaceId: parsed.spaceId,
+      spaceUrl,
       capability: zcap,
       encryption
     })
@@ -593,9 +641,12 @@ export class WasClient {
 
   /**
    * The general delegation primitive. Delegates a capability per `GrantOptions`
-   * and returns the signed zcap to hand off out-of-band. `target` (any URL) and
-   * `capability` (a parent capability to attenuate) make this a superset of the
-   * `space`/`collection` grant sugar.
+   * and returns the signed zcap to hand off out-of-band. `target` (any URL),
+   * `spaceUrl` (the Space to root a revocable grant in) and `capability` (a
+   * parent capability to attenuate) make this a superset of the
+   * `space`/`collection` grant sugar, which fills the first two from the
+   * handle. Without `spaceUrl` or `capability`, the grant is rooted at the
+   * target's own root capability and is not Space-revocable.
    *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}
@@ -605,11 +656,12 @@ export class WasClient {
   }
 
   /**
-   * The general revocation primitive -- the inverse of {@link grant}. Derives
-   * the owning space from the capability's `invocationTarget` (which a
-   * Space-rooted capability always addresses at or beneath) and submits it to
-   * that space's revocation endpoint. Equivalent to
-   * `was.space(id).revoke(zcap)`.
+   * The general revocation primitive -- the inverse of {@link grant}. Reads
+   * the owning Space off the capability's delegation chain (a Space-rooted
+   * chain starts at the Space's root capability) and submits it to that
+   * Space's revocation endpoint. Equivalent to `was.spaceAt(url).revoke(zcap)`.
+   * The chain root's target is taken to be the Space (see `spaceUrlOf` on the
+   * `./paths` entry); the server refuses a chain not rooted exactly in it.
    *
    * Revocation is scoped to one space: there is no cross-space or global
    * revocation. See {@link Space.revoke} for who may call it, what it does and
@@ -617,19 +669,20 @@ export class WasClient {
    *
    * @param zcap {IDelegatedZcap}   the delegated capability to revoke
    * @returns {Promise<void>}
+   * @throws {ValidationError}   when the capability's chain starts at no root
+   *   capability, or at one whose target cannot be a Space URL
    */
   async revoke(zcap: IDelegatedZcap): Promise<void> {
-    const context = this.#context
-    return submitRevocation(context, {
-      spaceId: spaceIdOf(context, zcap),
+    return submitRevocation(this.#context, {
+      spaceUrl: spaceUrlOf(zcap),
       zcap
     })
   }
 
   /**
-   * The signed escape hatch, mirroring ezcap's generic `request()`. Resolves
-   * `path` against `baseUrl`, defaults `action` to `method`, uppercases both
-   * (as {@link grant} does, so `'put'` signs `PUT`), and signs via the wrapped
+   * The signed escape hatch, mirroring ezcap's generic `request()`. Takes an
+   * absolute `url`, defaults `action` to `method`, uppercases both (as
+   * {@link grant} does, so `'put'` signs `PUT`), and signs via the wrapped
    * client. Returns the raw `HttpResponse` and throws raw ky/ezcap
    * errors -- it does not apply the null-on-404 or typed-error conveniences.
    * Like every signed request it waits on {@link service} first, and rejects

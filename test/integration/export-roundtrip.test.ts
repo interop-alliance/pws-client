@@ -17,8 +17,8 @@ import { WasClient } from '../../src/index.js'
 import type { Space } from '../../src/index.js'
 import { drain } from '../helpers/bytes.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Builds a fresh did:key Ed25519 signer and a WAS client over it.
@@ -28,7 +28,7 @@ const describeLive = serverUrl ? describe : describe.skip
 async function freshWasClient(): Promise<WasClient> {
   const keyPair = await Ed25519VerificationKey.generate()
   return WasClient.fromSigner({
-    serverUrl: serverUrl!,
+    serviceUrl: serviceUrl!,
     signer: keyPair.didKeySigner()
   })
 }

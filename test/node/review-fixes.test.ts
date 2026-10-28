@@ -3,9 +3,11 @@
  */
 /**
  * Unit tests for two whole-codebase-review fixes whose natural test homes are
- * off-limits to this change: `fromCapability` on a sub-path-mounted server (it
- * must strip `serverUrl`'s base path via `parseSpaceTarget`, not classify the
- * raw pathname), and the deterministic write-epoch selection in
+ * off-limits to this change: a Space whose URL carries a path prefix (every
+ * URL derived from it, and every handle `fromCapability` rebuilds beneath it,
+ * must keep the prefix, since `parseSpaceTarget` classifies a target relative
+ * to the Space URL rather than its raw pathname), and the deterministic
+ * write-epoch selection in
  * `resolveEpochKeys` (currentEpoch by id lookup, refusing a descriptor that
  * omits it or names an unlisted epoch).
  */
@@ -14,7 +16,6 @@ import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 
 import {
-  WasClient,
   ValidationError,
   WasServerError,
   EncryptionError,
@@ -23,7 +24,7 @@ import {
   NotSupportedError,
   PreconditionFailedError
 } from '../../src/index.js'
-import { spacesUrl } from '../../src/paths.js'
+import { rootCapabilityId } from '../../src/paths.js'
 import type { CollectionEncryption, IZcap } from '../../src/index.js'
 import { Space } from '../../src/Space.js'
 import { Collection } from '../../src/Collection.js'
@@ -38,74 +39,119 @@ import { resolveEpochKeys } from '../../src/edv/epochKeys.js'
 import { DescriptorRefreshPolicy } from '../../src/edv/refresh.js'
 import { compareAndSwap } from '../../src/internal/cas.js'
 import { createdResource } from '../../src/internal/content.js'
+import type { RequestArgs } from '../helpers/stubClient.js'
 import {
   clientWithStub,
   jsonResponse,
-  serviceDescriptionFor
+  spaceUrlFor
 } from '../helpers/stubClient.js'
 
-/**
- * Builds a `WasClient` over a stub `ZcapClient` (no signer, no I/O -- only the
- * `invocationSigner.id` `fromCapability` needs for its context).
- *
- * @param baseUrl {string}   the server base URL (the Spaces Repository URL is
- *   formed beneath it)
- * @returns {WasClient}
- */
-function clientFor(baseUrl: string): WasClient {
-  const zcapClient = {
-    invocationSigner: { id: 'did:example:alice#key-1' }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  return new WasClient({
-    serverUrl: spacesUrl({ baseUrl }),
-    zcapClient,
-    serviceDescription: serviceDescriptionFor(baseUrl)
-  })
-}
+describe('a Space whose URL carries a path prefix', () => {
+  const spaceUrl = 'https://host/was/v1/space/s/'
 
-describe('fromCapability on a sub-path-mounted server', () => {
-  it('derives a resource handle under a base-path prefix', () => {
-    const client = clientFor('https://host/was/')
-    const handle = client.fromCapability({
-      invocationTarget: 'https://host/was/space/s/c/r'
-    } as never)
+  /**
+   * A stubbed client that records every request and answers each with an
+   * empty listing-shaped body.
+   *
+   * @returns {object} { client, urls }
+   */
+  function recordingClient(): {
+    client: ReturnType<typeof clientWithStub>
+    urls: string[]
+  } {
+    const urls: string[] = []
+    const client = clientWithStub((args: RequestArgs) => {
+      urls.push(args.url as string)
+      return jsonResponse({
+        data: { id: 's', url: args.url, totalItems: 0, items: [] }
+      })
+    })
+    return { client, urls }
+  }
+
+  /**
+   * A single-level delegated capability rooted in the prefixed Space.
+   *
+   * @param invocationTarget {string}
+   * @returns {IZcap}
+   */
+  function zcapFor(invocationTarget: string): IZcap {
+    return {
+      id: 'urn:uuid:child',
+      parentCapability: rootCapabilityId(spaceUrl),
+      invocationTarget
+    } as unknown as IZcap
+  }
+
+  it('keeps the prefix in every handle URL', () => {
+    const { client } = recordingClient()
+    const space = client.spaceAt(spaceUrl)
+    expect(space.url).toBe(spaceUrl)
+    expect(space.id).toBe('s')
+    const collection = space.collection('c')
+    expect(collection.spaceUrl).toBe(spaceUrl)
+    expect(collection.url).toBe('https://host/was/v1/space/s/c/')
+    const resource = collection.resource('r')
+    expect(resource.spaceUrl).toBe(spaceUrl)
+    expect(resource.url).toBe('https://host/was/v1/space/s/c/r')
+  })
+
+  it('keeps the prefix in every request URL', async () => {
+    const { client, urls } = recordingClient()
+    const space = client.spaceAt(spaceUrl)
+    await space.describe()
+    await space.collection('c', { encryption: 'plaintext' }).describe()
+    await space
+      .collection('c', { encryption: 'plaintext' })
+      .resource('r')
+      .meta()
+    expect(urls).toEqual([
+      'https://host/was/v1/space/s/meta',
+      'https://host/was/v1/space/s/c/meta',
+      'https://host/was/v1/space/s/c/r/meta'
+    ])
+  })
+
+  it('derives a resource handle beneath the prefix', () => {
+    const { client } = recordingClient()
+    const handle = client.fromCapability(
+      zcapFor('https://host/was/v1/space/s/c/r')
+    )
     expect(handle).toBeInstanceOf(Resource)
     const resource = handle as Resource
+    expect(resource.spaceUrl).toBe(spaceUrl)
     expect(resource.spaceId).toBe('s')
     expect(resource.collectionId).toBe('c')
     expect(resource.id).toBe('r')
+    expect(resource.url).toBe('https://host/was/v1/space/s/c/r')
   })
 
-  it('derives a collection handle under a base-path prefix', () => {
-    const client = clientFor('https://host/was')
-    const handle = client.fromCapability({
-      invocationTarget: 'https://host/was/space/s/c'
-    } as never)
+  it('derives a collection handle beneath the prefix', () => {
+    const { client } = recordingClient()
+    const handle = client.fromCapability(
+      zcapFor('https://host/was/v1/space/s/c')
+    )
     expect(handle).toBeInstanceOf(Collection)
+    expect((handle as Collection).url).toBe('https://host/was/v1/space/s/c/')
   })
 
-  it('derives a space handle under a base-path prefix', () => {
-    const client = clientFor('https://host/was/')
-    const handle = client.fromCapability({
-      invocationTarget: 'https://host/was/space/s'
-    } as never)
+  it('derives a space handle beneath the prefix', () => {
+    const { client } = recordingClient()
+    const handle = client.fromCapability(zcapFor('https://host/was/v1/space/s'))
     expect(handle).toBeInstanceOf(Space)
     expect((handle as Space).id).toBe('s')
+    expect((handle as Space).url).toBe(spaceUrl)
   })
 
-  it('rejects a target on a different base path or origin', () => {
-    const client = clientFor('https://host/was/')
-    // Right origin, wrong base path (no `/was/` prefix).
+  it('rejects a target without the prefix or on another origin', () => {
+    const { client } = recordingClient()
+    // Right origin, no `/was/v1/` prefix.
     expect(() =>
-      client.fromCapability({
-        invocationTarget: 'https://host/space/s'
-      } as never)
+      client.fromCapability(zcapFor('https://host/space/s/c/'))
     ).toThrow(ValidationError)
     // Different origin entirely.
     expect(() =>
-      client.fromCapability({
-        invocationTarget: 'https://other/was/space/s'
-      } as never)
+      client.fromCapability(zcapFor('https://other/was/v1/space/s/c/'))
     ).toThrow(ValidationError)
   })
 })
@@ -412,9 +458,9 @@ describe('changes feed shape guards', () => {
     const client = clientWithStub(() =>
       jsonResponse({ data: { checkpoint: null } })
     )
-    await expect(client.space('s').collection('c').changes()).rejects.toThrow(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').changes()
+    ).rejects.toThrow(WasServerError)
   })
 
   it('refuses a page with a non-object entry in its documents array', async () => {
@@ -423,9 +469,9 @@ describe('changes feed shape guards', () => {
     const client = clientWithStub(() =>
       jsonResponse({ data: { documents: [null], checkpoint: null } })
     )
-    await expect(client.space('s').collection('c').changes()).rejects.toThrow(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').changes()
+    ).rejects.toThrow(WasServerError)
   })
 
   it('refuses an entry with no kind rather than skipping it', async () => {
@@ -439,9 +485,9 @@ describe('changes feed shape guards', () => {
         }
       })
     )
-    await expect(client.space('s').collection('c').documents()).rejects.toThrow(
-      WasServerError
-    )
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).collection('c').documents()
+    ).rejects.toThrow(WasServerError)
   })
 
   it('treats an omitted checkpoint as the end of the walk', async () => {
@@ -456,7 +502,10 @@ describe('changes feed shape guards', () => {
         }
       })
     )
-    const documents = await client.space('s').collection('c').documents()
+    const documents = await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .documents()
     expect(documents?.map(doc => doc.id)).toEqual(['a'])
   })
 })
@@ -490,13 +539,16 @@ describe('Resource conditional writes', () => {
   }
 
   /**
-   * The handle a plain `space().collection().resource()` walk produces.
+   * The handle a plain `spaceAt().collection().resource()` walk produces.
    *
    * @returns {object}
    */
   function walkedResource() {
     const { client, calls } = plaintextClient()
-    return { resource: client.space('s').collection('c').resource('r'), calls }
+    return {
+      resource: client.spaceAt(spaceUrlFor('s')).collection('c').resource('r'),
+      calls
+    }
   }
 
   it('sends a guarded put with no descriptor read of its own', async () => {
@@ -572,7 +624,11 @@ describe('Resource conditional writes', () => {
     // over one this capability simply cannot see.
     const { client } = plaintextClient(false)
     await expect(
-      client.space('s').collection('c').resource('r').setName('New')
+      client
+        .spaceAt(spaceUrlFor('s'))
+        .collection('c')
+        .resource('r')
+        .setName('New')
     ).rejects.toThrow(NotFoundError)
   })
 
@@ -581,6 +637,7 @@ describe('Resource conditional writes', () => {
     const capability = {
       '@context': 'https://w3id.org/zcap/v1',
       id: 'urn:zcap:scoped',
+      parentCapability: rootCapabilityId(spaceUrlFor('s')),
       invocationTarget: 'https://was.example/space/s/c/r'
     } as unknown as IZcap
     const resource = client.fromCapability(capability) as Resource

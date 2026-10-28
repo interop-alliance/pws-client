@@ -54,13 +54,13 @@ export async function makeDidKeyKak(): Promise<{
  * encryption provider supplies that X25519 key.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.serviceUrl {string}   the server's service description URL
  * @returns {Promise<Party>}
  */
 export async function makeParty({
-  serverUrl
+  serviceUrl
 }: {
-  serverUrl: string
+  serviceUrl: string
 }): Promise<Party> {
   const keyPair = await Ed25519VerificationKey.generate()
   const { kak, recipient } = await makeDidKeyKak()
@@ -72,7 +72,7 @@ export async function makeParty({
   })
   const signer = keyPair.didKeySigner()
   return {
-    was: WasClient.fromSigner({ serverUrl, signer, encryption: provider }),
+    was: WasClient.fromSigner({ serviceUrl, signer, encryption: provider }),
     provider,
     signer,
     did: `did:key:${keyPair.fingerprint()}`,

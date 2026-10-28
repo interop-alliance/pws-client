@@ -42,6 +42,7 @@ import {
 } from './describe.js'
 import type { StoredCollectionMetadata } from './describe.js'
 import { readCollectionMetadata } from './meta.js'
+import { collectionUrl } from './paths.js'
 import { readIndexSchema } from './indexSchema.js'
 import { Memo } from './memo.js'
 import { EncryptionError, NotImplementedError } from '../errors.js'
@@ -172,7 +173,7 @@ export class CodecHolder {
  * through unchanged.
  */
 interface CodecTarget {
-  spaceId: string
+  spaceUrl: string
   collectionId: string
   override?: EncryptionOverride
   capability?: IZcap
@@ -185,7 +186,7 @@ interface CodecTarget {
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.collectionId {string}
  * @param [options.override] {EncryptionOverride}   per-handle override
  * @param [options.capability] {IZcap}   the handle's bound capability
@@ -275,7 +276,7 @@ export const identityCodec: ResourceCodec = {
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.collectionId {string}
  * @param [options.override] {EncryptionOverride}   per-handle override; wins
  *   over the descriptor and skips the descriptor read
@@ -287,7 +288,7 @@ export const identityCodec: ResourceCodec = {
  */
 export async function resolveCodec(
   context: ClientContext,
-  { spaceId, collectionId, override, capability }: CodecTarget
+  { spaceUrl, collectionId, override, capability }: CodecTarget
 ): Promise<CodecResolution> {
   // 1. A per-handle override wins and skips the descriptor read.
   if (override !== undefined) {
@@ -300,7 +301,7 @@ export async function resolveCodec(
     // fail-closed, so dropping the descriptor here would break every read and
     // write.
     const { codec } = await buildEncryptingCodec(context, {
-      spaceId,
+      spaceUrl,
       collectionId,
       scheme: override.scheme,
       keys: override.keys,
@@ -309,7 +310,7 @@ export async function resolveCodec(
     // The override skipped the Collection Metadata read, so a searchable
     // collection's persisted index schema is fetched here.
     const snapshot = await loadIndexSchema(context, {
-      spaceId,
+      spaceUrl,
       collectionId,
       capability,
       codec
@@ -331,14 +332,14 @@ export async function resolveCodec(
   // downgrading to plaintext and writing the caller's secret as server-visible
   // plaintext into a possibly-encrypted collection.
   const read = await readCollectionMetadata(context, {
-    spaceId,
+    spaceUrl,
     collectionId,
     capability
   })
   if (read === null) {
     throw unreadableDescriptionError({
       operation:
-        `determine whether collection ${spaceId}/${collectionId} is ` +
+        `determine whether collection ${collectionUrl({ spaceUrl, collectionId })} is ` +
         'encrypted',
       consequence:
         'an encryption-capable client refuses to fall back to plaintext',
@@ -352,7 +353,7 @@ export async function resolveCodec(
   const declared = storedEncryption(read.metadata)
   const { codec } = declared
     ? await buildEncryptingCodec(context, {
-        spaceId,
+        spaceUrl,
         collectionId,
         scheme: declared.scheme,
         encryption: declared
@@ -379,7 +380,7 @@ export async function resolveCodec(
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.collectionId {string}
  * @param [options.descriptor] {CollectionEncryption}   the descriptor the write
  *   declares; absent means plaintext
@@ -388,11 +389,11 @@ export async function resolveCodec(
 export async function codecForDescriptor(
   context: ClientContext,
   {
-    spaceId,
+    spaceUrl,
     collectionId,
     descriptor
   }: {
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     descriptor?: CollectionEncryption
   }
@@ -404,7 +405,7 @@ export async function codecForDescriptor(
     return null
   }
   const codec = await context.encryption.codecFor({
-    spaceId,
+    spaceUrl,
     collectionId,
     scheme: descriptor.scheme,
     encryption: descriptor
@@ -496,7 +497,7 @@ export async function openStoredCustom({
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.collectionId {string}
  * @param options.scheme {string}
  * @param [options.encryption] {CollectionEncryption}   the descriptor, passed
@@ -507,20 +508,20 @@ export async function openStoredCustom({
 async function buildEncryptingCodec(
   context: ClientContext,
   {
-    spaceId,
+    spaceUrl,
     collectionId,
     scheme,
     encryption,
     keys
   }: {
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     scheme: string
     encryption?: CollectionEncryption
     keys?: unknown
   }
 ): Promise<CodecResolution> {
-  const where = `${spaceId}/${collectionId}`
+  const where = collectionUrl({ spaceUrl, collectionId })
   if (!context.encryption) {
     throw new EncryptionError(
       `Collection ${where} is encrypted (scheme "${scheme}") but this client ` +
@@ -529,7 +530,7 @@ async function buildEncryptingCodec(
     )
   }
   const codec = await context.encryption.codecFor({
-    spaceId,
+    spaceUrl,
     collectionId,
     scheme,
     encryption,
@@ -570,7 +571,7 @@ async function buildEncryptingCodec(
  *
  * @param context {ClientContext}
  * @param options {object}
- * @param options.spaceId {string}
+ * @param options.spaceUrl {string}
  * @param options.collectionId {string}
  * @param [options.capability] {IZcap}
  * @param options.codec {ResourceCodec}   the codec to install the schema on
@@ -581,12 +582,12 @@ async function buildEncryptingCodec(
 async function loadIndexSchema(
   context: ClientContext,
   {
-    spaceId,
+    spaceUrl,
     collectionId,
     capability,
     codec
   }: {
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     capability?: IZcap
     codec: ResourceCodec
@@ -598,7 +599,7 @@ async function loadIndexSchema(
   let read
   try {
     read = await readCollectionMetadata(context, {
-      spaceId,
+      spaceUrl,
       collectionId,
       capability
     })

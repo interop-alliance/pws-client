@@ -70,7 +70,6 @@ function contextWithStatuses({
 } {
   const calls: SendInput[] = []
   const context = {
-    baseUrl: 'https://was.example',
     controllerDid: 'did:example:alice',
     service: async () => selectServiceVersion(serviceDescriptionFor()),
     zcapClient: {
@@ -99,7 +98,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
     const { context } = contextWithStatuses({ getStatus: 404, putStatus: 412 })
     await expect(
       upsertResource(context, {
-        path: '/space/s/c/r',
+        url: 'https://was.example/space/s/c/r',
         codec: conditionalCodec,
         id: 'r',
         data: { v: 1 }
@@ -110,7 +109,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('keeps the 412 typed as PreconditionFailedError with its cause', async () => {
     const { context } = contextWithStatuses({ getStatus: 404, putStatus: 412 })
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 }
@@ -126,7 +125,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
     // lost-update conflict and must not be re-labeled.
     const { context } = contextWithStatuses({ putStatus: 412 })
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 2 }
@@ -140,7 +139,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('pre-reads only for a conditional codec and forwards its precondition', async () => {
     const { context, calls } = contextWithStatuses()
     await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 }
@@ -157,7 +156,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
     // pre-read observed, or two racing updates would both land.
     const { context, calls } = contextWithStatuses()
     await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 },
@@ -172,7 +171,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
     // repinned to whatever the codec just read.
     const { context, calls } = contextWithStatuses()
     await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 },
@@ -185,7 +184,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('refuses a caller baseline the pre-read has already moved past', async () => {
     const { context, calls } = contextWithStatuses()
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 },
@@ -201,7 +200,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('refuses a create-if-absent against a document that is already there', async () => {
     const { context, calls } = contextWithStatuses()
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 },
@@ -215,7 +214,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('rejects ifMatch with ifNoneMatch as a caller bug, before the pre-read', async () => {
     const { context, calls } = contextWithStatuses()
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 },
@@ -229,7 +228,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('refuses a caller baseline when the pre-read finds nothing readable', async () => {
     const { context, calls } = contextWithStatuses({ getStatus: 404 })
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: conditionalCodec,
       id: 'r',
       data: { v: 1 },
@@ -249,7 +248,7 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
     } as unknown as ResourceCodec
     const { context, calls } = contextWithStatuses()
     await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: plaintextCodec,
       id: 'r',
       data: { v: 1 },
@@ -274,7 +273,7 @@ describe('upsertResource: chunked plans', () => {
           id: id!,
           async execute(codecContext) {
             const response = await codecContext.request({
-              path: `/space/s/c/${id}`,
+              url: `https://was.example/space/s/c/${id}`,
               method: 'PUT',
               body: new Uint8Array([1, 2, 3]),
               headers: { 'if-match': current!.headers.get('etag')! }
@@ -286,7 +285,7 @@ describe('upsertResource: chunked plans', () => {
     }
     const { context, calls } = contextWithStatuses()
     const result = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: replacePlanCodec,
       id: 'r',
       data: { v: 1 }
@@ -308,7 +307,7 @@ describe('upsertResource: chunked plans', () => {
           id: id!,
           async execute(codecContext) {
             await codecContext.request({
-              path: `/space/s/c/${id}`,
+              url: `https://was.example/space/s/c/${id}`,
               method: 'PUT',
               body: new Uint8Array([1, 2, 3])
             })
@@ -319,7 +318,7 @@ describe('upsertResource: chunked plans', () => {
     }
     const { context } = contextWithStatuses({ putStatus: 412 })
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: replacePlanCodec,
       id: 'r',
       data: { v: 1 }
@@ -342,7 +341,7 @@ describe('upsertResource: chunked plans', () => {
         id: id!,
         async execute(codecContext) {
           const response = await codecContext.request({
-            path: `/space/s/c/${id}`,
+            url: `https://was.example/space/s/c/${id}`,
             method: 'PUT',
             body: new Uint8Array([1, 2, 3]),
             headers: { 'if-none-match': '*' }
@@ -356,7 +355,7 @@ describe('upsertResource: chunked plans', () => {
   it('runs the plan to create the resource when the pre-read finds none', async () => {
     const { context, calls } = contextWithStatuses({ getStatus: 404 })
     const result = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: createPlanCodec,
       id: 'r',
       data: new Uint8Array([1, 2, 3]),
@@ -371,7 +370,7 @@ describe('upsertResource: chunked plans', () => {
     // same 412 as for any by-id create, so it can read the held copy.
     const { context, calls } = contextWithStatuses()
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: createPlanCodec,
       id: 'r',
       data: new Uint8Array([1, 2, 3]),
@@ -384,7 +383,7 @@ describe('upsertResource: chunked plans', () => {
   it('maps a 412 from the plan after an unreadable pre-read to the masked-404 error', async () => {
     const { context } = contextWithStatuses({ getStatus: 404, putStatus: 412 })
     const failure = await upsertResource(context, {
-      path: '/space/s/c/r',
+      url: 'https://was.example/space/s/c/r',
       codec: createPlanCodec,
       id: 'r',
       data: new Uint8Array([1, 2, 3])
@@ -412,7 +411,7 @@ describe('insertResource: a chunked plan runs on the mapped request path', () =>
         id: 'r',
         async execute(codecContext) {
           await codecContext.request({
-            path: '/space/s/c/r',
+            url: 'https://was.example/space/s/c/r',
             method: 'PUT',
             body: new Uint8Array([1, 2, 3])
           })
@@ -428,8 +427,8 @@ describe('insertResource: a chunked plan runs on the mapped request path', () =>
     // errors.
     const { context } = contextWithStatuses({ putStatus: 404 })
     const failure = await insertResource(context, {
-      itemsPath: '/space/s/c/',
-      pathForId: (id: string) => `/space/s/c/${id}`,
+      itemsUrl: 'https://was.example/space/s/c/',
+      urlForId: (id: string) => `https://was.example/space/s/c/${id}`,
       codec: planCodec,
       data: { v: 1 }
     }).catch((err: unknown) => err)
@@ -439,8 +438,8 @@ describe('insertResource: a chunked plan runs on the mapped request path', () =>
   it('carries the HTTP status through, so a status-dispatching driver still works', async () => {
     const { context } = contextWithStatuses({ putStatus: 412 })
     const failure = await insertResource(context, {
-      itemsPath: '/space/s/c/',
-      pathForId: (id: string) => `/space/s/c/${id}`,
+      itemsUrl: 'https://was.example/space/s/c/',
+      urlForId: (id: string) => `https://was.example/space/s/c/${id}`,
       codec: planCodec,
       data: { v: 1 }
     }).catch((err: unknown) => err)

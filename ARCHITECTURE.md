@@ -193,18 +193,19 @@ its export list, so the two entries cannot drift.
 **no network I/O**; requests happen only when a method is called.
 
 All handles share one `ClientContext` by reference (`src/internal/request.ts`):
-`{ baseUrl, zcapClient, controllerDid, encryption?, service }`. `baseUrl` is the
-server root every Space path is built beneath, the parent of the client's
-`serverUrl` (its Spaces Repository URL). `service` is the client's memoized
-service discovery (see Service discovery). `controllerDid` is a lazy getter over
-the wrapped client's invocation signer, so a client that holds only a delegation
-signer can still build handles and `grant()`; it throws only where it is read
-(`createSpace`'s controller default and `rootCapability`'s client-side
-controller). Per-handle state on top of that:
+`{ zcapClient, controllerDid, encryption?, service }`. The context holds no base
+URL. Each handle carries the absolute URL it addresses: `Space.url`, and
+`Collection.url` and `Resource.url` derived beneath the Space URL the handle was
+opened on (`spaceUrl` is also a field of `Collection` and `Resource`). `service`
+is the client's memoized service discovery (see Service discovery).
+`controllerDid` is a lazy getter over the wrapped client's invocation signer, so
+a client that holds only a delegation signer can still build handles and
+`grant()`; it throws only where it is read (`createSpace`'s controller default
+and `rootCapability`'s client-side controller). Per-handle state on top of that:
 
 - A bound `capability` (delegated zcap) flows from parent to child as the
   default (`options.capability ?? this.#capability`). A per-handle `encryption`
-  override flows the same way: `space(id, { encryption })` is the default for
+  override flows the same way: `spaceAt(url, { encryption })` is the default for
   `space.collection(id)`, which is in turn the default for
   `collection.resource(id)`. `createCollection` is the exception -- the handle
   it returns reflects the collection's own `encryption` declaration, not the
@@ -213,26 +214,47 @@ controller). Per-handle state on top of that:
   children a resolver thunk so they share the parent's memoized codec (and its
   `reset()`). A standalone `Resource` resolves its own. Codecs stay per-handle:
   a handle may carry an encryption override.
-- `WasClient.fromCapability(zcap, options)` parses `invocationTarget` back into
-  a handle at the right depth via `parseSpaceTarget`, forwarding
+- `WasClient.fromCapability(zcap, options)` reads the Space off the capability's
+  delegation chain root with `spaceUrlOf`. The root id is `urn:zcap:root:` plus
+  the encoded Space URL, taken from the first entry of the delegation proof's
+  `capabilityChain` (the proof carrying one, wherever it sits in a proof set),
+  else from `parentCapability`, else from the zcap's own `id` when it is a root
+  zcap. The root's target is taken to be the Space URL: a Space URL has no shape
+  of its own, so the client cannot tell a Space root from a Collection root, and
+  only a root whose target cannot be a Space URL at all throws
+  `ValidationError`. The server, which knows its hierarchy, refuses the rest (a
+  revocation whose chain does not root in the Space, a handle's requests beneath
+  a URL that is no Space). It then parses `invocationTarget` back into a handle
+  at the right depth via `parseSpaceTarget({ spaceUrl, target })`, forwarding
   `options.encryption` as the handle's override (a resource-scoped capability
   cannot read the Collection Metadata object, so an encryption-capable client
-  needs the override to resolve a codec at all). A capability from another
-  party, whose server is not known in advance, goes through
-  `parseAbsoluteSpaceTarget` first, which reads the server base URL off the
-  target itself; the client is then built for that server and the handle derived
-  as usual.
+  needs the override to resolve a codec at all). A target outside the Space
+  throws `ValidationError`. A capability from another party needs no server
+  known in advance, since the Space URL comes from the capability itself.
+- `WasClient.spaceAt(spaceUrl, options)` opens a handle on an absolute Space URL
+  after canonicalizing it (`canonicalSpaceUrl`: trailing slash added, host
+  lower-cased). `createSpace` returns `spaceAt` of the create response's
+  `Location`, resolved against the Spaces Repository URL when relative. A
+  response without `Location` throws `WasServerError`. `WasClient.revoke(zcap)`
+  derives the Space from the chain root the same way and posts to the Space's
+  revocation endpoint.
 
 ## Service discovery
 
 `src/internal/service.ts` implements the spec's Service Description section. The
-server-level URL graph is rooted in one document, the service description, found
-by following the `Link: <...>; rel="service"` header on the response to an
-unsigned `HEAD` of `serverUrl`, the Spaces Repository URL. The PWS server itself
-answers that URL. The server root need not be, since a deployment often serves a
-landing page there with no `service` link. The spec reserves no path for the
-document, so the client assumes none. The linked document is read with an
-unsigned `GET` and parsed as storage-core's `ServiceDescription`.
+server-level URL graph is rooted in one document, the service description. A
+client is built from exactly one of two URLs. With `serviceUrl`,
+`readServiceDescription` reads the document with an unsigned `GET`. With
+`spacesUrl`, `discoverService` first sends an unsigned `HEAD` to the Spaces
+Repository URL and follows the `Link: <...>; rel="service"` header on the
+response, then calls `readServiceDescription` on the linked URL. The PWS server
+itself answers the Spaces Repository URL. The server root need not be, since a
+deployment often serves a landing page there with no `service` link. The spec
+reserves no path for the document, so the client assumes none. The document is
+parsed as storage-core's `ServiceDescription`. The advertised `spaces` URL is a
+container, so `selectServiceVersion` supplies its trailing slash when the
+description omits it (`canonicalContainerUrl`): the bare form only
+308-redirects, which a signed request cannot follow.
 
 `selectServiceVersion` applies the spec's client rules. It ignores `specs` keys
 other than `https://w3id.org/pws` (compared as opaque strings) and entries
@@ -263,23 +285,22 @@ Failure classes:
 - `IncompatibleServerError` -- no `service` link on the probe response (a server
   that predates v0.5; the client does not fall back to v0.4), a non-2xx or
   non-JSON document, a document without `url` or `specs`, no understood version,
-  a malformed `spaces` / `features` on the chosen entry, or a `spaces` member
-  whose base URL differs from the client's `baseUrl` (the client would otherwise
-  build every Space path beneath the wrong mount). The comparison is in
-  canonical base-URL form, so host case, a default port, or a trailing slash on
-  the advertised value does not count as a difference. `send()`'s null-on-404
-  read translation applies only to raw transport errors, so a discovery refusal
-  still rejects instead of reading as `null`.
+  or a malformed `spaces` / `features` on the chosen entry. The client does not
+  compare `spaces` against any URL it was given. `send()`'s null-on-404 read
+  translation applies only to raw transport errors, so a discovery refusal still
+  rejects instead of reading as `null`.
 - The mapped transport error -- a network failure, or a 5xx/429 that comes
   without the link. These say nothing about the protocol.
 
 No failure is memoized, so the next request retries discovery.
 
-`createSpace` and `listSpaces` address `info.spacesUrl` (which discovery has
-checked equals `serverUrl`), and throw `NotSupportedError` before any request
-when the chosen entry has no `spaces` member. Space-scoped paths are built from
-`baseUrl`; `spacesUrl({ baseUrl })` and `baseUrlOfSpacesUrl(url)` on the
-`./paths` entry convert between the two forms.
+`createSpace` and `listSpaces` address `info.spacesUrl`, and throw
+`NotSupportedError` before any request when the chosen entry has no `spaces`
+member. A Space URL is received: it comes from the `Location` of the create
+response, a listing item, a linkset, a stored pointer, or a self-locating DID.
+The client never forms one from a server root, and the builders on the `./paths`
+entry each take a Space URL (`collectionUrl({ spaceUrl, collectionId })` and its
+siblings).
 
 ## Lifecycle of an authenticated request
 
@@ -302,7 +323,7 @@ Taking `resource.put(data)` as the canonical path:
    conditional codec too, which pins the write to that baseline rather than to
    its own pre-read -- and one the pre-read already contradicts is refused here
    with `PreconditionFailedError` before the write is sent.
-4. **Path building** (`internal/paths.ts`): percent-encoded ids, reserved-id
+4. **URL building** (`internal/paths.ts`): percent-encoded ids, reserved-id
    guards, and exact trailing-slash discipline.
 5. **Transport** (`internal/request.ts`): the memoized service discovery is
    awaited (see Service discovery), then `zcapClient.request(...)` (ezcap) signs
@@ -378,11 +399,11 @@ the first write is pinned to that document's `ETag`, and a 412 is the ordinary
 lost-update signal. `decode` takes the same context, so a codec whose stored
 form spans several resources can read the remainder. The sync `DocCipher`
 forwards a context when its caller passes one (`collection.codecContext()`), and
-reads chunks through it only when it was built with the collection's `spaceId`,
+reads chunks through it only when it was built with the collection's `spaceUrl`,
 which gives its codec a route to the chunk resources. The EDV doc cipher also
 takes a `chunkSource` in place of a context: a function that serves each chunk
 from bytes the caller already holds, such as an archive's chunk files. It needs
-no `spaceId` and issues no request. A caller that supplies neither fails loudly
+no `spaceUrl` and issues no request. A caller that supplies neither fails loudly
 on a chunked document rather than decoding it to a stub.
 
 A `ReadableStream<Uint8Array>` payload has no single-request form. Its size is
@@ -970,8 +991,8 @@ create.
    (`ifNoneMatch: true`), which states its own absence and therefore takes its
    codec from what it writes rather than from stored state.
 2. **Trailing-slash discipline is a security invariant.** A trailing slash marks
-   a container URL in canonical form (`/space/{s}/`, `/space/{s}/{c}/`, and the
-   advertised Spaces Repository URL); everything else has none, and no two paths
+   a container URL in canonical form (the Space URL, `{spaceUrl}{c}/`, and the
+   advertised Spaces Repository URL); everything else has none, and no two URLs
    differ only by a trailing slash. The zcap `invocationTarget` derives from the
    request URL and must byte-match the server's per-operation `allowedTarget`,
    so the bare (slash-less) form of a container URL is never emitted or followed
@@ -982,10 +1003,12 @@ create.
    the space policy endpoint.
 4. **zcap action equals HTTP method.** Never switch to ezcap's default
    `read`/`write` actions.
-5. **Grants are rooted at the Space** so they are revocable at
-   `/space/:s/zcaps/revocations/:capId`; the root capability there is built in
-   object form because string root-cap ids break on `http://localhost`
-   (`internal/revoke.ts`).
+5. **Grants from a handle are rooted at the Space** so they are revocable at
+   `{spaceUrl}zcaps/revocations/:capId`. A bare `was.grant` with no `capability`
+   and no `spaceUrl` roots at the target's own root capability and is not
+   Space-revocable. `GrantOptions.spaceUrl` roots it at the Space; the root
+   capability there is built in object form because string root-cap ids break on
+   `http://localhost` (`internal/revoke.ts`).
 6. **`@interop/http-client` pre-consumes JSON bodies** into `.data`, which is
    why body handling funnels through `internal/content.ts` helpers and why
    `getText`/`getBytes` are not byte-exact for JSON content types.
@@ -994,7 +1017,10 @@ create.
 8. **No request is signed before service discovery selects a version.** The gate
    lives in `rawRequest`, the one place every signed request passes, and the
    Spaces Repository URL comes only from the service description. Do not add a
-   signed path that bypasses `rawRequest` or a hardcoded server-level path.
+   signed path that bypasses `rawRequest` or a hardcoded server-level path. A
+   Space URL is received and not assembled: no builder takes a server root, and
+   `fromCapability` and `revoke` read the Space off the chain root. Do not add a
+   function that forms a Space URL from a base URL.
 9. **The core entries stay off the encrypted-collection graph.** `.`, `./paths`,
    `./log`, and `./sync` reach neither `src/edv/` (beyond `edv/constants.ts`)
    nor the encrypted-collection packages; `test/node/import-graph.test.ts`
@@ -1005,21 +1031,21 @@ create.
 10. **The transport-free edv entries stay off the transport graph.** Importing
     `./edv/core` or `./edv/cipher` evaluates no transport module and none of the
     HTTP packages. That holds for static edges. `createEdvDocCipher` loads
-    `transportFactory.ts` through `import()` when the caller passes a `spaceId`,
-    so a caller that names a Space does reach the transport, and a bundler that
-    follows dynamic imports (Metro among them) still bundles it. A caller that
-    only decrypts bytes it already holds passes no `spaceId` and evaluates none
-    of it, and reads a chunked envelope through a `chunkSource`, whose only
-    transport is the codec's in-memory chunk reader over bytes the caller holds.
-    `./edv/cipher` additionally evaluates no `@interop/vh-resource-log` or
-    `@interop/did-method-webvh` module, unlike `./edv/core`, which reaches both
-    through `logGovernedDescriptorStore.ts`. `test/node/import-graph.test.ts`
-    enforces both entries' static closures, and pins that gated `import()` as
-    the only dynamic edge out of either. Both are walked over runtime edges
-    only, since a type-only import is erased at build time. A new module under
-    `src/edv/` that needs a server belongs behind `./edv`, in the modules
-    `edv/index.ts` adds on top; one that needs the resource log belongs in
-    `core.ts`'s own export list, not in `cipher.ts`.
+    `transportFactory.ts` through `import()` when the caller passes a
+    `spaceUrl`, so a caller that names a Space does reach the transport, and a
+    bundler that follows dynamic imports (Metro among them) still bundles it. A
+    caller that only decrypts bytes it already holds passes no `spaceUrl` and
+    evaluates none of it, and reads a chunked envelope through a `chunkSource`,
+    whose only transport is the codec's in-memory chunk reader over bytes the
+    caller holds. `./edv/cipher` additionally evaluates no
+    `@interop/vh-resource-log` or `@interop/did-method-webvh` module, unlike
+    `./edv/core`, which reaches both through `logGovernedDescriptorStore.ts`.
+    `test/node/import-graph.test.ts` enforces both entries' static closures, and
+    pins that gated `import()` as the only dynamic edge out of either. Both are
+    walked over runtime edges only, since a type-only import is erased at build
+    time. A new module under `src/edv/` that needs a server belongs behind
+    `./edv`, in the modules `edv/index.ts` adds on top; one that needs the
+    resource log belongs in `core.ts`'s own export list, not in `cipher.ts`.
 11. **A server's `next` link is untrusted.** Following it sends the caller's
     signed invocation, and with no bound capability ezcap synthesizes a root
     zcap for whatever URL it is given. `walkPages` follows a `next` only within
@@ -1065,12 +1091,24 @@ it, and otherwise cover the client-side concepts this file names.
   state: not replicated, not exported. Its runtime state is the separate replica
   status (`replicaStatus`). Avoid: sync peer, subscription, mirror.
 - **`ClientContext`** -- the single
-  `{ baseUrl, zcapClient, controllerDid, encryption?, service }` record every
-  handle shares by reference (`src/internal/request.ts`). See The handle model.
+  `{ zcapClient, controllerDid, encryption?, service }` record every handle
+  shares by reference (`src/internal/request.ts`). It holds no base URL. See The
+  handle model.
+- **Space URL** -- the absolute URL of one Space, in canonical form (trailing
+  slash, lower-case host). It is received from the server (a create response's
+  `Location`, a listing item, a linkset, a stored pointer, or a self-locating
+  DID) and is never assembled from a server root. Every builder and handle takes
+  it as `spaceUrl`. A Space's `id` is the last segment of its URL. Avoid: base
+  URL, server root, space path. See Service discovery.
+- **Service URL** -- the URL of the service description, one of the two
+  constructor inputs (`serviceUrl`), read with an unsigned `GET`. The other
+  input, `spacesUrl`, is the Spaces Repository URL. Avoid: server URL,
+  `serverUrl`, base URL. See Service discovery.
 - **Service description** -- the server-wide JSON document naming the
-  specification versions a server speaks and its server-level URLs, found
-  through the `rel="service"` link on every response. Owned by the PWS spec.
-  Avoid: well-known document, server metadata. See Service discovery.
+  specification versions a server speaks and its server-level URLs, read from
+  the `serviceUrl` or found through the `rel="service"` link on the response to
+  a `HEAD` of the `spacesUrl`. Owned by the PWS spec. Avoid: well-known
+  document, server metadata. See Service discovery.
 - **Service discovery** -- the client's memoized read of the service description
   and its choice of PWS version (`src/internal/service.ts`, `was.service()`),
   awaited before every signed request. Its result is a `ServiceInfo`. See

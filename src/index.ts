@@ -6,11 +6,12 @@
  * navigational handles, the typed error hierarchy, and the shared types.
  */
 export { WasClient } from './WasClient.js'
+export type { ServerLocator } from './WasClient.js'
 export { Space } from './Space.js'
 export { Collection } from './Collection.js'
 export { Resource } from './Resource.js'
 export { zcapClientForSigner } from './zcapClient.js'
-export { discoverService } from './internal/service.js'
+export { discoverService, readServiceDescription } from './internal/service.js'
 
 export { parseSpaceTarget } from './internal/paths.js'
 export { allowsAction } from './internal/grant.js'

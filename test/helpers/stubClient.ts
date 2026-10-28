@@ -10,26 +10,66 @@
 import type { HttpResponse } from '@interop/http-client'
 import type { ServiceDescription } from '../../src/index.js'
 import { WasClient } from '../../src/index.js'
-import { spacesUrl, toUrl } from '../../src/paths.js'
 
 /**
- * A v0.5 service description for a stub server whose base URL is `baseUrl`,
- * with the Spaces Repository at `spaces/` under it. Passing it to the
- * `WasClient` constructor lets a stubbed client skip network discovery.
+ * The stub server's origin. The stub lays its URLs out the way the reference
+ * server does: the service description at `/service`, the Spaces Repository
+ * at `/spaces/`, and a Space at `/space/{id}/`. The layout is a fixture fact
+ * about the stub, the way a server's `Location` headers are facts about that
+ * server; the client never assumes it.
+ */
+export const STUB_ORIGIN = 'https://was.example'
+
+/**
+ * The stub server's service description URL, beneath `origin`.
  *
- * @param [baseUrl] {string}   defaults to `https://was.example`
+ * @param [origin] {string}   defaults to {@link STUB_ORIGIN}
+ * @returns {string}
+ */
+export function serviceUrlFor(origin = STUB_ORIGIN): string {
+  return `${origin}/service`
+}
+
+/**
+ * The stub server's Spaces Repository URL, beneath `origin`.
+ *
+ * @param [origin] {string}   defaults to {@link STUB_ORIGIN}
+ * @returns {string}
+ */
+export function spacesUrlFor(origin = STUB_ORIGIN): string {
+  return `${origin}/spaces/`
+}
+
+/**
+ * The URL the stub server names a Space by, in canonical form: what its
+ * Create Space `Location` would carry.
+ *
+ * @param spaceId {string}
+ * @param [origin] {string}   defaults to {@link STUB_ORIGIN}
+ * @returns {string}
+ */
+export function spaceUrlFor(spaceId: string, origin = STUB_ORIGIN): string {
+  return `${origin}/space/${encodeURIComponent(spaceId)}/`
+}
+
+/**
+ * A v0.5 service description for a stub server at `origin`, with the Spaces
+ * Repository at `spaces/` under it. Passing it to the `WasClient`
+ * constructor lets a stubbed client skip network discovery.
+ *
+ * @param [origin] {string}   defaults to {@link STUB_ORIGIN}
  * @returns {ServiceDescription}
  */
 export function serviceDescriptionFor(
-  baseUrl = 'https://was.example'
+  origin = STUB_ORIGIN
 ): ServiceDescription {
   return {
-    url: toUrl({ baseUrl, path: '/service' }),
+    url: serviceUrlFor(origin),
     specs: {
       'https://w3id.org/pws': [
         {
           version: '0.5',
-          spaces: spacesUrl({ baseUrl }),
+          spaces: spacesUrlFor(origin),
           features: ['listing', 'collection-management', 'space-management']
         }
       ]
@@ -71,7 +111,7 @@ export function clientWithStub(
     request
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   return new WasClient({
-    serverUrl: 'https://was.example/spaces/',
+    serviceUrl: serviceUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })

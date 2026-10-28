@@ -2,36 +2,37 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * URL path builders for the WAS server, encoding the trailing-slash
- * canonicalization once. The convention: a trailing slash marks a container in
- * canonical form (`/space/{s}/`, `/space/{s}/{c}/`), everything else has
- * none, and no two paths differ only by a trailing slash. Path segments are
- * percent-encoded so ids never break out of their slot. The Spaces Repository
- * has no builder: its URL is the `spaces` member of the service description.
+ * URL builders for the hierarchy beneath a Space, encoding the trailing-slash
+ * canonicalization once. Every URL this client requests is derived from a
+ * Space URL the server handed out (the `Location` of the create response, a
+ * listing item, a linkset, or the caller's stored pointer) and from nothing
+ * above it: the spec places no Space beside the Spaces Repository, so no
+ * builder here forms a Space URL, and none takes a server root. The Spaces
+ * Repository URL is the `spaces` member of the service description.
+ *
+ * The convention: a trailing slash marks a container in canonical form (the
+ * Space URL itself, and `{spaceUrl}{collectionId}/`), everything else has
+ * none, and no two URLs differ only by a trailing slash. Path segments are
+ * percent-encoded so ids never break out of their slot.
  *
  * A container's own description is not at its URL: it lives at the reserved
- * `meta` segment (`spaceMeta`, `collectionMeta`), beside the Resource-level
- * `resourceMeta`. The bare (slash-less) form of a container URL only
- * 308-redirects, and a signed invocation covers the target it was signed for,
- * so no builder here emits the bare form -- a redirect would have to be signed
- * again.
+ * `meta` segment (`spaceMetaUrl`, `collectionMetaUrl`), beside the
+ * Resource-level `resourceMetaUrl`. The bare (slash-less) form of a container
+ * URL only 308-redirects, and a signed invocation covers the target it was
+ * signed for, so no builder here emits the bare form -- a redirect would have
+ * to be signed again.
  *
- * The parser is deliberately laxer than the builders. `parseSpacePath` accepts
- * the bare form too, because the targets it classifies are not this client's
- * own URLs: they are the `invocationTarget` strings of delegated capabilities
- * a third party minted, and those name containers in either form. Reading one
- * as the Space or Collection it addresses is what `WasClient.fromCapability`
- * and the revocation route's `spaceIdOf` do; refusing the bare form there would
- * reject valid capabilities over a spelling this client does not control.
+ * The parser is deliberately laxer than the builders. `parseSpaceTarget`
+ * accepts the bare container form too, because the targets it classifies are
+ * not this client's own URLs: they are the `invocationTarget` strings of
+ * delegated capabilities a third party minted, and those name containers in
+ * either form. Reading one as the Collection or Resource it addresses is what
+ * `WasClient.fromCapability` does; refusing the bare form there would reject
+ * valid capabilities over a form this client does not control.
  *
  * The zcap `invocationTarget` is derived from the request URL, so these
  * trailing-slash rules must match the server's per-operation `allowedTarget`
  * exactly or signature verification fails.
- *
- * This module also owns the inverse grammar: `parseSpacePath` classifies a
- * server pathname back into the handle depth it addresses (space / collection /
- * resource / sub-resource), so `WasClient.fromCapability` and the builders stay
- * in lockstep.
  */
 import { ValidationError } from '../errors.js'
 import {
@@ -67,10 +68,10 @@ function encode(segment: string): string {
 
 /**
  * Encodes a collection-id slot, additionally rejecting an id from the Reserved
- * Path Segment Registry: `collectionPath(s, 'policy')` is byte-identical to
- * the space policy path, so a reserved id would silently mis-target a
- * space-level endpoint. Guarding in the builders covers every URL-forming
- * entry point (handle constructors guard too, for the earlier failure).
+ * Path Segment Registry: `collectionUrl` of `policy` is byte-identical to the
+ * space policy URL, so a reserved id would silently mis-target a space-level
+ * endpoint. Guarding in the builders covers every URL-forming entry point
+ * (handle constructors guard too, for the earlier failure).
  *
  * @param collectionId {string}
  * @returns {string}
@@ -82,8 +83,8 @@ function encodeCollectionId(collectionId: string): string {
 
 /**
  * Encodes a resource-id slot, additionally rejecting an id from the Reserved
- * Path Segment Registry: `resourcePath(s, c, 'policy')` is byte-identical to
- * the collection policy path, so a reserved id would silently mis-target a
+ * Path Segment Registry: `resourceUrl` of `policy` is byte-identical to the
+ * collection policy URL, so a reserved id would silently mis-target a
  * collection-level endpoint.
  *
  * @param resourceId {string}
@@ -95,350 +96,13 @@ function encodeResourceId(resourceId: string): string {
 }
 
 /**
- * `/space/:spaceId` -- the slash-less prefix the space-level sub-endpoints hang
- * off. Module-private: the bare form is not a path this client ever requests
- * (the server only 308-redirects it), so it is a prefix here and never a
- * builder's return value. It is still a form the parser below reads, since a
- * third party's capability target may be written that way.
+ * Parses an absolute `http(s)` URL with no query or fragment, or returns
+ * `null`. The one rule for which URLs may name a container here.
  *
- * @param spaceId {string}
- * @returns {string}
+ * @param url {string}
+ * @returns {URL | null}
  */
-function spacePrefix(spaceId: string): string {
-  return `/space/${encode(spaceId)}`
-}
-
-/**
- * `/space/:spaceId/` -- the Space container in canonical form: the target a
- * Space root capability names, the URL whose `GET` lists the Space's
- * Collections, whose `POST` creates one, and whose `DELETE` removes the Space.
- * The Space is an ordinary container, so its members are listed and created at
- * the container itself -- there is no second builder for that.
- *
- * @param spaceId {string}
- * @returns {string}
- */
-export function spacePath(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/`
-}
-
-/**
- * `/space/:spaceId/meta` -- the Space Metadata object: the Space's description
- * (`name`, `controller`, `type`), read with `GET` and replaced with `PUT`.
- *
- * @param spaceId {string}
- * @returns {string}
- */
-export function spaceMeta(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/meta`
-}
-
-/**
- * `/space/:spaceId/export` -- export a space as a tar archive.
- */
-export function spaceExport(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/export`
-}
-
-/**
- * `/space/:spaceId/import` -- import a tar archive into a space.
- */
-export function spaceImport(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/import`
-}
-
-/**
- * `/space/:spaceId/backends` -- the backends available within a space (list, and
- * register a new `external` backend).
- */
-export function spaceBackends(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/backends`
-}
-
-/**
- * `/space/:spaceId/backends/:backendId` -- a single registered `external`
- * backend (replace / deregister by id).
- */
-export function registeredBackend(spaceId: string, backendId: string): string {
-  return `${spaceBackends(spaceId)}/${encode(backendId)}`
-}
-
-/**
- * `/space/:spaceId/quotas` -- the space-level storage quota report.
- */
-export function spaceQuotas(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/quotas`
-}
-
-/**
- * `/space/:spaceId/policy` -- the space-level access-control policy resource.
- */
-export function spacePolicy(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/policy`
-}
-
-/**
- * `/space/:spaceId/linkset` -- the space-level linkset (policy discovery).
- */
-export function spaceLinkset(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/linkset`
-}
-
-/**
- * `/space/:spaceId/replicas` -- the Space's replica registrations: `GET` lists
- * them and `POST` registers one. Controller-only, both forms.
- */
-export function spaceReplicas(spaceId: string): string {
-  return `${spacePrefix(spaceId)}/replicas`
-}
-
-/**
- * `/space/:spaceId/replicas/:replicaId` -- one replica registration (read and
- * delete by id).
- */
-export function replicaRegistration(
-  spaceId: string,
-  replicaId: string
-): string {
-  return `${spaceReplicas(spaceId)}/${encode(replicaId)}`
-}
-
-/**
- * `/space/:spaceId/replicas/:replicaId/status` -- the pull loop's runtime
- * state for one registration.
- */
-export function replicaStatus(spaceId: string, replicaId: string): string {
-  return `${replicaRegistration(spaceId, replicaId)}/status`
-}
-
-/**
- * `/space/:spaceId/zcaps/revocations/:capabilityId` -- submit a revocation of a
- * Space-rooted capability. The capability's `id` (typically a `urn:uuid:`) is
- * percent-encoded into the single final segment. `zcaps` is in the Reserved
- * Path Segment Registry, so no Collection can take that slot.
- */
-export function spaceRevocation(spaceId: string, capabilityId: string): string {
-  return `${spacePrefix(spaceId)}/zcaps/revocations/${encode(capabilityId)}`
-}
-
-/**
- * `/space/:spaceId/:collectionId` -- the slash-less prefix the collection-level
- * sub-endpoints and the Resource ids hang off. Module-private, like
- * {@link spacePrefix}.
- *
- * @param spaceId {string}
- * @param collectionId {string}
- * @returns {string}
- */
-function collectionPrefix(spaceId: string, collectionId: string): string {
-  return `${spacePrefix(spaceId)}/${encodeCollectionId(collectionId)}`
-}
-
-/**
- * `/space/:spaceId/:collectionId/` -- the Collection container in canonical
- * form: the target a "share this collection" capability names, the URL whose
- * `GET` lists its Resources, whose `POST` adds one, and whose `DELETE` removes
- * the Collection.
- *
- * @param spaceId {string}
- * @param collectionId {string}
- * @returns {string}
- */
-export function collectionPath(spaceId: string, collectionId: string): string {
-  return `${collectionPrefix(spaceId, collectionId)}/`
-}
-
-/**
- * `/space/:spaceId/:collectionId/policy` -- the collection-level access-control
- * policy resource.
- */
-export function collectionPolicy(
-  spaceId: string,
-  collectionId: string
-): string {
-  return `${collectionPrefix(spaceId, collectionId)}/policy`
-}
-
-/**
- * `/space/:spaceId/:collectionId/linkset` -- the collection-level linkset
- * (policy discovery).
- */
-export function collectionLinkset(
-  spaceId: string,
-  collectionId: string
-): string {
-  return `${collectionPrefix(spaceId, collectionId)}/linkset`
-}
-
-/**
- * `/space/:spaceId/:collectionId/backend` -- the "Collection Backend Selected"
- * descriptor (the backend this collection is stored on).
- */
-export function collectionBackend(
-  spaceId: string,
-  collectionId: string
-): string {
-  return `${collectionPrefix(spaceId, collectionId)}/backend`
-}
-
-/**
- * `/space/:spaceId/:collectionId/quota` -- the per-collection storage quota
- * report (spec "Quotas").
- */
-export function collectionQuota(spaceId: string, collectionId: string): string {
-  return `${collectionPrefix(spaceId, collectionId)}/quota`
-}
-
-/**
- * `/space/:spaceId/:collectionId/meta` -- the Collection Metadata object: the
- * Collection's configuration (`name`, `backend`, `encryption`, `generator`)
- * together with the server-managed timestamps / `createdBy` and the
- * user-writable `custom` and `epoch`, as one object under one validator.
- */
-export function collectionMeta(spaceId: string, collectionId: string): string {
-  return `${collectionPrefix(spaceId, collectionId)}/meta`
-}
-
-/**
- * `/space/:spaceId/:collectionId/meta/log` -- the Collection's governing
- * history log sub-resource (JSON Lines). Not a Resource of the Collection:
- * absent from listings and the `changes` feed, and versioned by its own ETag.
- */
-export function collectionLog(spaceId: string, collectionId: string): string {
-  return `${collectionMeta(spaceId, collectionId)}/log`
-}
-
-/**
- * `/space/:spaceId/:collectionId/query` -- the collection-level query endpoint,
- * whose body's `profile` selects the query (e.g. `changes`, `blinded-index`).
- */
-export function collectionQuery(spaceId: string, collectionId: string): string {
-  return `${collectionPrefix(spaceId, collectionId)}/query`
-}
-
-/**
- * `/space/:spaceId/:collectionId/:resourceId` -- get / put / delete a resource
- * (no trailing slash).
- */
-export function resourcePath(
-  spaceId: string,
-  collectionId: string,
-  resourceId: string
-): string {
-  return `${collectionPrefix(spaceId, collectionId)}/${encodeResourceId(resourceId)}`
-}
-
-/**
- * `/space/:spaceId/:collectionId/:resourceId/meta` -- the resource metadata
- * object (server-managed properties plus the user-writable `custom` object).
- */
-export function resourceMeta(
-  spaceId: string,
-  collectionId: string,
-  resourceId: string
-): string {
-  return `${resourcePath(spaceId, collectionId, resourceId)}/meta`
-}
-
-/**
- * `/space/:spaceId/:collectionId/:resourceId/policy` -- the resource-level
- * access-control policy resource.
- */
-export function resourcePolicy(
-  spaceId: string,
-  collectionId: string,
-  resourceId: string
-): string {
-  return `${resourcePath(spaceId, collectionId, resourceId)}/policy`
-}
-
-/**
- * `/space/:spaceId/:collectionId/:resourceId/chunks/:chunkIndex` -- a single
- * stored chunk of a chunked Resource. Member
- * form, no trailing slash: get / put / delete one chunk by its ordinal index.
- * The `chunkIndex` is a non-negative integer, emitted verbatim (it is never a
- * reserved or dot segment, so it needs no percent-encoding).
- *
- * @param spaceId {string}
- * @param collectionId {string}
- * @param resourceId {string}
- * @param chunkIndex {number}
- * @returns {string}
- */
-export function resourceChunkPath(
-  spaceId: string,
-  collectionId: string,
-  resourceId: string,
-  chunkIndex: number
-): string {
-  return `${resourcePath(spaceId, collectionId, resourceId)}/chunks/${chunkIndex}`
-}
-
-/**
- * `/space/:spaceId/:collectionId/:resourceId/chunks/` -- the chunk container
- * of a chunked Resource: its stored chunks, listed. Container form, trailing
- * slash (the member form, {@link resourceChunkPath}, has none).
- *
- * @param spaceId {string}
- * @param collectionId {string}
- * @param resourceId {string}
- * @returns {string}
- */
-export function resourceChunksPath(
-  spaceId: string,
-  collectionId: string,
-  resourceId: string
-): string {
-  return `${resourcePath(spaceId, collectionId, resourceId)}/chunks/`
-}
-
-/**
- * The Spaces Repository URL beneath a server base URL: the reserved `spaces`
- * segment at the server root, in canonical trailing-slash form. This is the
- * URL a `WasClient` is constructed with (its `serverUrl`), so a consumer that
- * holds only a Space or Collection URL forms the client's `serverUrl` from the
- * base `parseAbsoluteSpaceTarget` reads off it.
- *
- * @param options {object}
- * @param options.baseUrl {string}   the server base URL
- * @returns {string}
- */
-export function spacesUrl({ baseUrl }: { baseUrl: string }): string {
-  return toUrl({ baseUrl, path: '/spaces/' })
-}
-
-/**
- * Splits an absolute WAS URL into the server base URL and the path segments
- * beneath it. `boundary` picks, from the pathname's segments (split on `/`,
- * leading empty segment dropped), the index of the first segment that is not
- * part of the base, or `-1` when there is none. The base is everything before
- * it, without a trailing slash and in `URL` canonical form (lower-case host,
- * default port dropped), so two serializations of one URL compare equal:
- * `https://host/was/x/...` with the index of `x` yields `https://host/was`,
- * and `https://host/x/...` yields `https://host`.
- *
- * This is the one rule for which base URLs are well formed, shared by
- * `baseUrlOfSpacesUrl` and `parseAbsoluteSpaceTarget` so a base read off a
- * Space URL always survives `spacesUrl` and the `WasClient` constructor.
- * Returns `null` when `url` is not an absolute `http(s)` URL, carries a query
- * or fragment, when `boundary` finds no segment, or when a segment before it
- * is empty (`https://host//was/x`): a doubled slash would leave the base with
- * a trailing slash.
- *
- * @param options {object}
- * @param options.url {string}   an absolute URL
- * @param options.boundary {(segments: string[]) => number}   the index of the
- *   first segment beneath the base, or `-1`
- * @returns {{ baseUrl: string; rest: string[] } | null}   the base URL and
- *   the segments from the boundary on
- */
-function splitAtBase({
-  url,
-  boundary
-}: {
-  url: string
-  boundary: (segments: string[]) => number
-}): { baseUrl: string; rest: string[] } | null {
+function parseContainerUrl(url: string): URL | null {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -452,250 +116,672 @@ function splitAtBase({
   ) {
     return null
   }
-  const segments = parsed.pathname.split('/').slice(1)
-  const index = boundary(segments)
-  if (index === -1) {
-    return null
-  }
-  const basePath = segments.slice(0, index)
-  if (basePath.some(segment => segment === '')) {
-    return null
-  }
-  const baseUrl =
-    basePath.length === 0
-      ? parsed.origin
-      : `${parsed.origin}/${basePath.join('/')}`
-  return { baseUrl, rest: segments.slice(index) }
+  return parsed
 }
 
 /**
- * The server base URL a Spaces Repository URL sits beneath: everything before
- * its final `spaces` segment, without a trailing slash, so
- * `https://host/was/spaces/` yields `https://host/was` and
- * `https://host/spaces/` yields `https://host`. A trailing run of slashes is
- * collapsed first, so `https://host/spaces` and `https://host/spaces//` read
- * the same. The result is in `URL` canonical form (lower-case host, default
- * port dropped), so two serializations of one URL compare equal.
+ * The Space URL in canonical form: an absolute `http(s)` URL, serialized by
+ * `URL` (lower-case host, default port dropped), ending in exactly one
+ * slash. A server names a Space in this form (the `Location` of the create
+ * response, a listing item's `url`), and every URL beneath the Space, and
+ * every zcap `invocationTarget`, is derived from it, so a caller's own
+ * serialization of the same Space must reduce to the same string. A missing
+ * trailing slash is added, since the bare form names the same container; a
+ * run of trailing slashes is collapsed to one.
  *
- * Returns `null` when `url` is not an absolute `http(s)` URL, its last path
- * segment is not `spaces`, it has an empty path segment (`https://host//spaces`),
- * or it carries a query or fragment; the caller chooses the error.
- *
- * @param url {string}   a Spaces Repository URL
- * @returns {string | null}
+ * @param spaceUrl {string}   a Space URL, as the server named it or as the
+ *   caller stored it
+ * @returns {string}
+ * @throws {ValidationError}   when `spaceUrl` is not an absolute `http(s)`
+ *   URL, carries a query or fragment, or has no path segment (an origin is
+ *   not a Space)
  */
-export function baseUrlOfSpacesUrl(url: string): string | null {
-  const split = splitAtBase({
-    url,
-    boundary: segments => {
-      // Trailing empty segments are the collapsed run of slashes.
-      let last = segments.length - 1
-      while (last >= 0 && segments[last] === '') {
-        last -= 1
-      }
-      return segments[last] === 'spaces' ? last : -1
-    }
-  })
-  return split?.baseUrl ?? null
+export function canonicalSpaceUrl(spaceUrl: string): string {
+  const parsed = parseContainerUrl(spaceUrl)
+  if (parsed === null) {
+    throw new ValidationError(
+      `"${spaceUrl}" is not a Space URL: an absolute http(s) URL with no ` +
+        'query or fragment is required.'
+    )
+  }
+  const pathname = parsed.pathname.replace(/\/+$/, '')
+  if (pathname === '' || pathname.split('/').slice(1).includes('')) {
+    throw new ValidationError(
+      `"${spaceUrl}" is not a Space URL: a Space has at least one path ` +
+        'segment beneath its origin, with no empty segment.'
+    )
+  }
+  return `${parsed.origin}${pathname}/`
 }
 
 /**
- * Resolves a path against the server base URL, producing an absolute URL
- * string suitable for zcap `invocationTarget`s.
+ * The Space's id as its URL names it: the last path segment of the Space
+ * URL, percent-decoded. The spec's hierarchy and its did:webvh profile both
+ * place the id there (`.../space/{space_id}/`), and it is the value the Space
+ * Metadata object's `id` carries.
  *
- * The path is joined onto `baseUrl`'s path rather than its origin, so a WAS
- * deployment mounted under a sub-path (e.g. `https://host/was`) keeps that
- * prefix. A bare-origin `baseUrl` behaves as before.
+ * @param spaceUrl {string}   a Space URL
+ * @returns {string}
+ * @throws {ValidationError}   when `spaceUrl` is not a Space URL (see
+ *   {@link canonicalSpaceUrl}) or its last segment is a malformed percent
+ *   escape
+ */
+export function spaceIdOfUrl(spaceUrl: string): string {
+  return spaceIdOfCanonicalUrl(canonicalSpaceUrl(spaceUrl))
+}
+
+/**
+ * {@link spaceIdOfUrl} for a Space URL already in canonical form (a handle's
+ * `url`, the result of {@link canonicalSpaceUrl}), sparing the second parse.
+ *
+ * @param canonical {string}   a canonical Space URL
+ * @returns {string}
+ * @throws {ValidationError}   when the last segment is a malformed percent
+ *   escape
+ */
+export function spaceIdOfCanonicalUrl(canonical: string): string {
+  const segment = canonical.split('/').filter(Boolean).pop() as string
+  try {
+    return decodeURIComponent(segment)
+  } catch (err) {
+    throw new ValidationError(
+      `"${canonical}" is not a Space URL: its last segment is not a ` +
+        'well-formed percent-encoded id.',
+      { cause: err }
+    )
+  }
+}
+
+/**
+ * `{spaceUrl}meta` -- the Space Metadata object: the Space's description
+ * (`name`, `controller`, `type`), read with `GET` and replaced with `PUT`.
+ * The Space container itself (the canonical Space URL) is the target a Space
+ * root capability names, the URL whose `GET` lists the Space's Collections,
+ * whose `POST` creates one, and whose `DELETE` removes the Space; it has no
+ * builder, since the caller holds it.
  *
  * @param options {object}
- * @param options.baseUrl {string}   the server base URL
- * @param options.path {string}        a leading-slash path (e.g. `/space/x`)
+ * @param options.spaceUrl {string}
  * @returns {string}
  */
-export function toUrl({
-  baseUrl,
-  path
-}: {
-  baseUrl: string
-  path: string
-}): string {
-  // A leading-slash `path` is origin-absolute to `new URL`, which would drop
-  // any base-path prefix on `baseUrl`. Ensure the base ends in a slash and
-  // make the path relative so the prefix is preserved.
-  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-  const relative = path.startsWith('/') ? path.slice(1) : path
-  return new URL(relative, base).toString()
+export function spaceMetaUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}meta`
 }
 
 /**
- * Canonicalizes an absolute collection URL to its items/listing endpoint --
- * the trailing-slash form (`/space/:id/:collectionId/`). This module owns the
- * trailing-slash rules, so callers that receive a collection URL from outside
- * (e.g. a public link) normalize it here rather than re-encoding the rule.
+ * `{spaceUrl}export` -- export a space as a tar archive.
  *
- * @param collectionUrl {string}   an absolute collection URL
+ * @param options {object}
+ * @param options.spaceUrl {string}
  * @returns {string}
  */
-export function collectionItemsUrl(collectionUrl: string): string {
-  return collectionUrl.endsWith('/') ? collectionUrl : `${collectionUrl}/`
+export function spaceExportUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}export`
 }
 
 /**
- * The classification of a WAS pathname by the depth it addresses. The three
- * containment kinds map onto navigational handles; `sub-resource` covers every
- * reserved sub-endpoint the builders above produce (`/space/:id/policy`,
- * `/space/:id/:c/backend`, `/space/:id/:c/:r/meta`, ...), which has no handle of
- * its own.
+ * `{spaceUrl}import` -- import a tar archive into a space.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @returns {string}
+ */
+export function spaceImportUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}import`
+}
+
+/**
+ * `{spaceUrl}backends` -- the backends available within a space (list, and
+ * register a new `external` backend).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @returns {string}
+ */
+export function spaceBackendsUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}backends`
+}
+
+/**
+ * `{spaceUrl}backends/{backendId}` -- a single registered `external` backend
+ * (replace / deregister by id).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.backendId {string}
+ * @returns {string}
+ */
+export function registeredBackendUrl({
+  spaceUrl,
+  backendId
+}: {
+  spaceUrl: string
+  backendId: string
+}): string {
+  return `${spaceBackendsUrl({ spaceUrl })}/${encode(backendId)}`
+}
+
+/**
+ * `{spaceUrl}quotas` -- the space-level storage quota report.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @returns {string}
+ */
+export function spaceQuotasUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}quotas`
+}
+
+/**
+ * `{spaceUrl}policy` -- the space-level access-control policy resource.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @returns {string}
+ */
+export function spacePolicyUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}policy`
+}
+
+/**
+ * `{spaceUrl}linkset` -- the space-level linkset (policy discovery).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @returns {string}
+ */
+export function spaceLinksetUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}linkset`
+}
+
+/**
+ * `{spaceUrl}replicas` -- the Space's replica registrations: `GET` lists them
+ * and `POST` registers one. Controller-only, both forms.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @returns {string}
+ */
+export function spaceReplicasUrl({ spaceUrl }: { spaceUrl: string }): string {
+  return `${canonicalSpaceUrl(spaceUrl)}replicas`
+}
+
+/**
+ * `{spaceUrl}replicas/{replicaId}` -- one replica registration (read and
+ * delete by id).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.replicaId {string}
+ * @returns {string}
+ */
+export function replicaRegistrationUrl({
+  spaceUrl,
+  replicaId
+}: {
+  spaceUrl: string
+  replicaId: string
+}): string {
+  return `${spaceReplicasUrl({ spaceUrl })}/${encode(replicaId)}`
+}
+
+/**
+ * `{spaceUrl}replicas/{replicaId}/status` -- the pull loop's runtime state
+ * for one registration.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.replicaId {string}
+ * @returns {string}
+ */
+export function replicaStatusUrl({
+  spaceUrl,
+  replicaId
+}: {
+  spaceUrl: string
+  replicaId: string
+}): string {
+  return `${replicaRegistrationUrl({ spaceUrl, replicaId })}/status`
+}
+
+/**
+ * `{spaceUrl}zcaps/revocations/{capabilityId}` -- submit a revocation of a
+ * Space-rooted capability. The capability's `id` (typically a `urn:uuid:`) is
+ * percent-encoded into the single final segment. `zcaps` is in the Reserved
+ * Path Segment Registry, so no Collection can take that slot.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.capabilityId {string}
+ * @returns {string}
+ */
+export function spaceRevocationUrl({
+  spaceUrl,
+  capabilityId
+}: {
+  spaceUrl: string
+  capabilityId: string
+}): string {
+  return `${canonicalSpaceUrl(spaceUrl)}zcaps/revocations/${encode(capabilityId)}`
+}
+
+/**
+ * `{spaceUrl}{collectionId}` -- the slash-less prefix the collection-level
+ * sub-endpoints and the Resource ids hang off. Module-private: the bare form
+ * is not a URL this client ever requests (the server only 308-redirects it),
+ * so it is a prefix here and never a builder's return value.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+function collectionPrefix({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${canonicalSpaceUrl(spaceUrl)}${encodeCollectionId(collectionId)}`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/` -- the Collection container in canonical form:
+ * the target a "share this collection" capability names, the URL whose `GET`
+ * lists its Resources, whose `POST` adds one, and whose `DELETE` removes the
+ * Collection.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/policy` -- the collection-level access-control
+ * policy resource.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionPolicyUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/policy`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/linkset` -- the collection-level linkset (policy
+ * discovery).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionLinksetUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/linkset`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/backend` -- the "Collection Backend Selected"
+ * descriptor (the backend this collection is stored on).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionBackendUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/backend`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/quota` -- the per-collection storage quota report
+ * (spec "Quotas").
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionQuotaUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/quota`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/meta` -- the Collection Metadata object: the
+ * Collection's configuration (`name`, `backend`, `encryption`, `generator`)
+ * together with the server-managed timestamps / `createdBy` and the
+ * user-writable `custom` and `epoch`, as one object under one validator.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionMetaUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/meta`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/meta/log` -- the Collection's governing history
+ * log sub-resource (JSON Lines). Not a Resource of the Collection: absent from
+ * listings and the `changes` feed, and versioned by its own ETag.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionLogUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionMetaUrl({ spaceUrl, collectionId })}/log`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/query` -- the collection-level query endpoint,
+ * whose body's `profile` selects the query (e.g. `changes`, `blinded-index`).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @returns {string}
+ */
+export function collectionQueryUrl({
+  spaceUrl,
+  collectionId
+}: {
+  spaceUrl: string
+  collectionId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/query`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/{resourceId}` -- get / put / delete a resource
+ * (no trailing slash).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @param options.resourceId {string}
+ * @returns {string}
+ */
+export function resourceUrl({
+  spaceUrl,
+  collectionId,
+  resourceId
+}: {
+  spaceUrl: string
+  collectionId: string
+  resourceId: string
+}): string {
+  return `${collectionPrefix({ spaceUrl, collectionId })}/${encodeResourceId(resourceId)}`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/{resourceId}/meta` -- the resource metadata
+ * object (server-managed properties plus the user-writable `custom` object).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @param options.resourceId {string}
+ * @returns {string}
+ */
+export function resourceMetaUrl({
+  spaceUrl,
+  collectionId,
+  resourceId
+}: {
+  spaceUrl: string
+  collectionId: string
+  resourceId: string
+}): string {
+  return `${resourceUrl({ spaceUrl, collectionId, resourceId })}/meta`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/{resourceId}/policy` -- the resource-level
+ * access-control policy resource.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @param options.resourceId {string}
+ * @returns {string}
+ */
+export function resourcePolicyUrl({
+  spaceUrl,
+  collectionId,
+  resourceId
+}: {
+  spaceUrl: string
+  collectionId: string
+  resourceId: string
+}): string {
+  return `${resourceUrl({ spaceUrl, collectionId, resourceId })}/policy`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/{resourceId}/chunks/{chunkIndex}` -- a single
+ * stored chunk of a chunked Resource. Member form, no trailing slash: get /
+ * put / delete one chunk by its ordinal index. The `chunkIndex` is a
+ * non-negative integer, emitted verbatim (it is never a reserved or dot
+ * segment, so it needs no percent-encoding).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @param options.resourceId {string}
+ * @param options.chunkIndex {number}
+ * @returns {string}
+ */
+export function resourceChunkUrl({
+  spaceUrl,
+  collectionId,
+  resourceId,
+  chunkIndex
+}: {
+  spaceUrl: string
+  collectionId: string
+  resourceId: string
+  chunkIndex: number
+}): string {
+  return `${resourceUrl({ spaceUrl, collectionId, resourceId })}/chunks/${chunkIndex}`
+}
+
+/**
+ * `{spaceUrl}{collectionId}/{resourceId}/chunks/` -- the chunk container of a
+ * chunked Resource: its stored chunks, listed. Container form, trailing slash
+ * (the member form, {@link resourceChunkUrl}, has none).
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}
+ * @param options.collectionId {string}
+ * @param options.resourceId {string}
+ * @returns {string}
+ */
+export function resourceChunksUrl({
+  spaceUrl,
+  collectionId,
+  resourceId
+}: {
+  spaceUrl: string
+  collectionId: string
+  resourceId: string
+}): string {
+  return `${resourceUrl({ spaceUrl, collectionId, resourceId })}/chunks/`
+}
+
+/**
+ * The canonical (trailing-slash) form of a container URL received from
+ * outside and requested as given: the Spaces Repository URL a service
+ * description advertises, a public Collection link. The bare form only
+ * 308-redirects, and a signed invocation does not survive the redirect, so
+ * the slash is added here before the URL is ever requested. This module owns
+ * the trailing-slash rules; callers normalize here rather than re-encoding
+ * the rule.
+ *
+ * @param url {string}   an absolute container URL, in either form
+ * @returns {string}
+ */
+export function canonicalContainerUrl(url: string): string {
+  // The slash marks the end of the path, so it goes before any query or
+  // fragment; the rest of the URL is kept as given.
+  const pathEnd = url.search(/[?#]/)
+  const path = pathEnd === -1 ? url : url.slice(0, pathEnd)
+  if (path.endsWith('/')) {
+    return url
+  }
+  return pathEnd === -1 ? `${url}/` : `${path}/${url.slice(pathEnd)}`
+}
+
+/**
+ * The classification of a URL beneath a Space by the depth it addresses. The
+ * three containment kinds map onto navigational handles; `sub-resource`
+ * covers every reserved sub-endpoint the builders above produce (`policy`,
+ * `{c}/backend`, `{c}/{r}/meta`, ...), which has no handle of its own.
  */
 export type ParsedSpacePath =
-  | { kind: 'space'; spaceId: string }
-  | { kind: 'collection'; spaceId: string; collectionId: string }
-  | {
-      kind: 'resource'
-      spaceId: string
-      collectionId: string
-      resourceId: string
-    }
-  | { kind: 'sub-resource'; spaceId: string; segments: string[] }
+  | { kind: 'space' }
+  | { kind: 'collection'; collectionId: string }
+  | { kind: 'resource'; collectionId: string; resourceId: string }
+  | { kind: 'sub-resource'; segments: string[] }
 
 /**
- * Classifies an absolute `target` URL that is expected to live on this server,
- * relative to `baseUrl`'s base path -- so a WAS mounted under a sub-path (e.g.
- * `https://host/was/`) resolves just as a bare-origin deployment does, which
- * `parseSpacePath` alone cannot do (it would see a leading `was` segment).
+ * Classifies an absolute `target` URL by where it sits beneath `spaceUrl`:
+ * the Space itself, one of its Collections, a Resource, or a reserved
+ * sub-endpoint. The inverse of the builders above, kept next to them so the
+ * grammar is owned in one place: `WasClient.fromCapability` reads a
+ * capability's `invocationTarget` through it, and the builders stay in
+ * lockstep.
  *
- * Returns `null` when `target` is not beneath `baseUrl` (another origin, or
- * another base path), carries a query or fragment, or addresses something
- * outside the `/space` tree (e.g. `/kms`). The caller chooses whether that is
- * an error.
+ * Both URLs are compared in parsed form, so a target serialized by another
+ * party (an upper-case host, a default port) still matches. Segments are
+ * percent-decoded (the builders re-encode them). Empty segments are dropped,
+ * so a container addressed in either form classifies the same: the bare and
+ * the trailing-slash form of a Collection are both the Collection. That is
+ * deliberate: the builders emit only the canonical form, but the targets
+ * parsed here come from capabilities minted elsewhere, and a client that
+ * reads only one form would refuse valid ones.
+ *
+ * Returns `null` when `target` is not beneath `spaceUrl` (another origin, or
+ * another path), carries a query or fragment, or either URL is malformed.
+ * The caller chooses whether that is an error.
  *
  * @param options {object}
- * @param options.baseUrl {string}   the client's server base URL
- * @param options.target {string}      an absolute URL on that server
+ * @param options.spaceUrl {string}   the Space URL
+ * @param options.target {string}     an absolute URL expected beneath it
  * @returns {ParsedSpacePath | null}
  */
 export function parseSpaceTarget({
-  baseUrl,
+  spaceUrl,
   target
 }: {
-  baseUrl: string
+  spaceUrl: string
   target: string
 }): ParsedSpacePath | null {
-  // Compare the parsed forms, not the strings: `baseUrl` is canonical (the
-  // constructor derives it through `URL`) while a target serialized by another
-  // party may write the host in upper case or carry a default port.
-  let url: URL
   let base: URL
   try {
-    url = new URL(target)
-    base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
+    base = new URL(canonicalSpaceUrl(spaceUrl))
   } catch {
     return null
   }
-  if (
-    url.search !== '' ||
-    url.hash !== '' ||
-    url.origin !== base.origin ||
-    !url.pathname.startsWith(base.pathname)
-  ) {
+  const url = parseContainerUrl(target)
+  if (url === null || url.origin !== base.origin) {
     return null
   }
-  return parseSpacePath(`/${url.pathname.slice(base.pathname.length)}`)
-}
-
-/**
- * Classifies an absolute `target` URL whose server is not known in advance:
- * the base URL is read off the target itself, as everything before its first
- * `space` path segment, so a WAS mounted under a sub-path
- * (`https://host/was/space/...`) yields `https://host/was`. For a target on a
- * known server, `parseSpaceTarget` is the stricter check (it refuses a target
- * beneath any other base). This is the one for a capability received from
- * another party, whose `invocationTarget` may name any host.
- *
- * Returns `null` when `target` is not an absolute `http(s)` URL, has no
- * `space` segment, carries a query or fragment, or has an empty segment in
- * the base before it (`https://host//was/space/x`); these are the rules
- * `baseUrlOfSpacesUrl` applies too. Also `null` from the path grammar for a
- * path it cannot classify. The caller chooses whether that is an error.
- *
- * @param target {string}   an absolute WAS URL
- * @returns {{ baseUrl: string; path: ParsedSpacePath } | null}   the server
- *   base URL (no trailing slash) and the parsed target beneath it
- */
-export function parseAbsoluteSpaceTarget(
-  target: string
-): { baseUrl: string; path: ParsedSpacePath } | null {
-  const split = splitAtBase({
-    url: target,
-    boundary: segments => segments.indexOf('space')
-  })
-  if (split === null) {
+  // The bare form of the Space itself (`.../space/s`, no slash) names the
+  // Space too, so the prefix check reads the path without its final slash.
+  const basePath = base.pathname.slice(0, -1)
+  if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) {
     return null
   }
-  const path = parseSpacePath(`/${split.rest.join('/')}`)
-  return path === null ? null : { baseUrl: split.baseUrl, path }
-}
-
-/**
- * Parses a server pathname back into the containment depth it addresses -- the
- * inverse of the builders above, kept next to them so the grammar is owned in
- * one place. Segments are percent-decoded (the builders re-encode them).
- * Returns `null` for a pathname outside the `/space/...` tree; the caller
- * chooses the error. A path that addresses a reserved sub-endpoint rather than
- * a space/collection/resource -- e.g. `/space/s/policy`, `/space/s/c/backend`,
- * or any 5-segment target like `/space/s/c/r/meta` -- is classified
- * `sub-resource`, never silently truncated to the nearest handle.
- *
- * Empty segments are dropped, so a container addressed in either form
- * classifies the same: `/space/s` and `/space/s/` are both the Space, and
- * `/space/s/c` and `/space/s/c/` both the Collection. That is deliberate. The
- * builders emit only the canonical trailing-slash form, but the targets parsed
- * here come from capabilities minted elsewhere, and a client that reads only
- * one spelling would refuse valid ones.
- *
- * @param pathname {string}   a URL pathname (e.g. from `new URL(...).pathname`)
- * @returns {ParsedSpacePath | null}
- */
-export function parseSpacePath(pathname: string): ParsedSpacePath | null {
   let segments: string[]
   try {
-    segments = pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    segments = url.pathname
+      .slice(basePath.length)
+      .split('/')
+      .filter(Boolean)
+      .map(decodeURIComponent)
   } catch {
     // A malformed percent-escape (e.g. `%ff`) makes `decodeURIComponent` throw
-    // a `URIError`: the path is not a well-formed WAS target, so classify it as
+    // a `URIError`: the path is not a well-formed target, so classify it as
     // unparseable (the caller converts `null` to its own typed error).
     return null
   }
-  if (segments[0] !== 'space' || segments[1] === undefined) {
-    return null
-  }
-  const [, spaceId, ...rest] = segments as [string, string, ...string[]]
-  if (rest.length === 0) {
-    return { kind: 'space', spaceId }
+  if (segments.length === 0) {
+    return { kind: 'space' }
   }
   // A reserved segment directly under the space (`policy`, `backends`,
   // `export`, ...) addresses a space-level sub-endpoint, as does anything
-  // nested beneath one (`/space/s/backends/:backendId`).
-  if (isReservedCollectionId(rest[0] as string)) {
-    return { kind: 'sub-resource', spaceId, segments: rest }
+  // nested beneath one (`backends/{backendId}`).
+  if (isReservedCollectionId(segments[0] as string)) {
+    return { kind: 'sub-resource', segments }
   }
-  if (rest.length === 1) {
-    return { kind: 'collection', spaceId, collectionId: rest[0] as string }
+  if (segments.length === 1) {
+    return { kind: 'collection', collectionId: segments[0] as string }
   }
   // A reserved segment under the collection (`policy`, `backend`, `quota`,
   // ...) addresses a collection-level sub-endpoint.
-  if (isReservedResourceId(rest[1] as string)) {
-    return { kind: 'sub-resource', spaceId, segments: rest }
+  if (isReservedResourceId(segments[1] as string)) {
+    return { kind: 'sub-resource', segments }
   }
-  if (rest.length === 2) {
+  if (segments.length === 2) {
     return {
       kind: 'resource',
-      spaceId,
-      collectionId: rest[0] as string,
-      resourceId: rest[1] as string
+      collectionId: segments[0] as string,
+      resourceId: segments[1] as string
     }
   }
-  // Anything deeper (`/space/s/c/r/meta`, `/space/s/c/r/policy`, chunk
-  // sub-segments, ...) is a resource-level sub-endpoint.
-  return { kind: 'sub-resource', spaceId, segments: rest }
+  // Anything deeper (`{c}/{r}/meta`, `{c}/{r}/policy`, chunk sub-segments,
+  // ...) is a resource-level sub-endpoint.
+  return { kind: 'sub-resource', segments }
 }

@@ -60,10 +60,10 @@ import { httpStatus, NotFoundError, NotSupportedError } from '../errors.js'
 import { readJsonData } from '../internal/content.js'
 import { readEtag, writeHeaders } from '../internal/conditional.js'
 import {
-  collectionQuery,
-  resourceChunkPath,
-  resourceChunksPath,
-  resourcePath
+  resourceChunkUrl,
+  resourceChunksUrl,
+  resourceUrl,
+  collectionQueryUrl
 } from '../internal/paths.js'
 import { DEFAULT_CONTENT_TYPE, envelopeBytes } from './constants.js'
 
@@ -167,7 +167,7 @@ function mapTransportError(
 }
 
 export class WasTransport extends Transport {
-  readonly spaceId: string
+  readonly spaceUrl: string
   readonly collectionId: string
   readonly contentType: string
 
@@ -197,7 +197,7 @@ export class WasTransport extends Transport {
   /**
    * @param options {object}
    * @param options.was {WasClient}          a WAS client holding the signer
-   * @param options.spaceId {string}         the vault's Space id
+   * @param options.spaceUrl {string}        the vault's Space URL
    * @param options.collectionId {string}    the vault Collection id
    * @param [options.contentType] {string}   content type for stored envelopes;
    *   defaults to `application/json` (accepted by an unmodified server). Pass
@@ -214,14 +214,14 @@ export class WasTransport extends Transport {
    */
   constructor({
     was,
-    spaceId,
+    spaceUrl,
     collectionId,
     contentType = DEFAULT_CONTENT_TYPE,
     documentHeaders,
     baseline
   }: {
     was: WasRequester
-    spaceId: string
+    spaceUrl: string
     collectionId: string
     contentType?: string
     documentHeaders?: Record<string, string>
@@ -231,7 +231,7 @@ export class WasTransport extends Transport {
     this.#was = was
     this.#documentHeaders = documentHeaders ?? {}
     this.#baseline = baseline
-    this.spaceId = spaceId
+    this.spaceUrl = spaceUrl
     this.collectionId = collectionId
     this.contentType = contentType
   }
@@ -249,20 +249,24 @@ export class WasTransport extends Transport {
   }
 
   /**
-   * The WAS resource path for a document id, delegating to was-client's
-   * internal `resourcePath` builder so the percent-encoding and trailing-slash
+   * The WAS resource URL for a document id, delegating to was-client's
+   * internal `resourceUrl` builder so the percent-encoding and trailing-slash
    * rules stay defined in one place (no trailing slash -- get/put/delete by
    * id).
    *
    * @param id {string}   the EDV document id (= WAS resource id)
    * @returns {string}
    */
-  #resourcePath(id: string): string {
-    return resourcePath(this.spaceId, this.collectionId, id)
+  #resourceUrl(id: string): string {
+    return resourceUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.collectionId,
+      resourceId: id
+    })
   }
 
   /**
-   * Writes an encrypted document to its WAS resource path as
+   * Writes an encrypted document to its WAS resource URL as
    * `application/jose+json` (the envelope serialized to bytes so the stored
    * content type is exact).
    *
@@ -279,7 +283,7 @@ export class WasTransport extends Transport {
   ): Promise<HttpResponse> {
     const body = envelopeBytes(encrypted)
     const response = await this.#was.request({
-      path: this.#resourcePath(id),
+      url: this.#resourceUrl(id),
       method: 'PUT',
       body,
       headers: {
@@ -317,7 +321,7 @@ export class WasTransport extends Transport {
     ifMatch?: string
   }): Promise<void> {
     await this.#was.request({
-      path: this.#resourcePath(id),
+      url: this.#resourceUrl(id),
       method: 'DELETE',
       headers: writeHeaders({ precondition: { ifMatch } })
     })
@@ -433,7 +437,7 @@ export class WasTransport extends Transport {
     let response: HttpResponse
     try {
       response = await this.#was.request({
-        path: this.#resourcePath(id),
+        url: this.#resourceUrl(id),
         method: 'GET'
       })
     } catch (err) {
@@ -478,7 +482,10 @@ export class WasTransport extends Transport {
     let response: HttpResponse
     try {
       response = await this.#was.request({
-        path: collectionQuery(this.spaceId, this.collectionId),
+        url: collectionQueryUrl({
+          spaceUrl: this.spaceUrl,
+          collectionId: this.collectionId
+        }),
         method: 'POST',
         json: { profile: 'blinded-index', ...blindedQuery }
       })
@@ -521,8 +528,13 @@ export class WasTransport extends Transport {
    * @param chunkIndex {number}   the chunk's non-negative ordinal index
    * @returns {string}
    */
-  #chunkPath(docId: string, chunkIndex: number): string {
-    return resourceChunkPath(this.spaceId, this.collectionId, docId, chunkIndex)
+  #chunkUrl(docId: string, chunkIndex: number): string {
+    return resourceChunkUrl({
+      spaceUrl: this.spaceUrl,
+      collectionId: this.collectionId,
+      resourceId: docId,
+      chunkIndex
+    })
   }
 
   /**
@@ -555,7 +567,7 @@ export class WasTransport extends Transport {
     }
     try {
       await this.#was.request({
-        path: this.#chunkPath(docId, chunk.index),
+        url: this.#chunkUrl(docId, chunk.index),
         method: 'PUT',
         body: envelopeBytes(chunk),
         headers: { 'content-type': CHUNK_CONTENT_TYPE }
@@ -599,7 +611,7 @@ export class WasTransport extends Transport {
     let response: HttpResponse
     try {
       response = await this.#was.request({
-        path: this.#chunkPath(docId, chunkIndex),
+        url: this.#chunkUrl(docId, chunkIndex),
         method: 'GET'
       })
     } catch (err) {
@@ -637,7 +649,11 @@ export class WasTransport extends Transport {
    */
   async listChunks({ id }: { id: string }): Promise<ChunkListEntry[]> {
     const response = await this.#was.request({
-      path: resourceChunksPath(this.spaceId, this.collectionId, id),
+      url: resourceChunksUrl({
+        spaceUrl: this.spaceUrl,
+        collectionId: this.collectionId,
+        resourceId: id
+      }),
       method: 'GET'
     })
     const listing = (await readJsonData(response)) as {
@@ -676,7 +692,7 @@ export class WasTransport extends Transport {
     ifMatch?: string
   }): Promise<void> {
     await this.#was.request({
-      path: this.#chunkPath(id, chunkIndex),
+      url: this.#chunkUrl(id, chunkIndex),
       method: 'DELETE',
       headers: writeHeaders({ precondition: { ifMatch } })
     })

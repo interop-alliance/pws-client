@@ -24,8 +24,8 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { WasClient, NotFoundError, ValidationError } from '../../src/index.js'
 import type { IDelegatedZcap, Space } from '../../src/index.js'
 
-const serverUrl = process.env.TEST_SERVER_URL
-const describeLive = serverUrl ? describe : describe.skip
+const serviceUrl = process.env.TEST_SERVER_URL
+const describeLive = serviceUrl ? describe : describe.skip
 
 /**
  * Builds a fresh did:key Ed25519 signer, a WAS client over it, and its DID.
@@ -35,7 +35,7 @@ const describeLive = serverUrl ? describe : describe.skip
 async function freshWasClient(): Promise<{ was: WasClient; did: string }> {
   const keyPair = await Ed25519VerificationKey.generate()
   const was = WasClient.fromSigner({
-    serverUrl: serverUrl!,
+    serviceUrl: serviceUrl!,
     signer: keyPair.didKeySigner()
   })
   return { was, did: was.controllerDid }
@@ -47,7 +47,7 @@ describeLive('space.revoke() (live server)', () => {
   let appDid: string
   let stranger: WasClient
   let space: Space
-  let spaceId: string
+  let spaceUrl: string
 
   beforeAll(async () => {
     ;({ was: alice } = await freshWasClient())
@@ -55,7 +55,7 @@ describeLive('space.revoke() (live server)', () => {
     ;({ was: stranger } = await freshWasClient())
 
     space = await alice.createSpace({ name: 'Revocation Integration' })
-    spaceId = space.id
+    spaceUrl = space.url
     const notes = await space.createCollection({ id: 'notes', name: 'Notes' })
     await notes.put('doc-1', { hello: 'world' })
   })
@@ -76,7 +76,7 @@ describeLive('space.revoke() (live server)', () => {
    */
   async function grantToApp(): Promise<IDelegatedZcap> {
     return alice
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection('notes')
       .grant({
         to: appDid,
@@ -87,12 +87,14 @@ describeLive('space.revoke() (live server)', () => {
 
   it('the controller revokes; the delegee loses read and write', async () => {
     const zcap = await grantToApp()
-    const granted = app.space(spaceId).collection('notes', { capability: zcap })
+    const granted = app
+      .spaceAt(spaceUrl)
+      .collection('notes', { capability: zcap })
 
     // The capability works before the revocation.
     expect(await granted.get('doc-1')).toEqual({ hello: 'world' })
 
-    await alice.space(spaceId).revoke(zcap)
+    await alice.spaceAt(spaceUrl).revoke(zcap)
 
     // ...and is dead after it. WAS masks unauthorized as 404.
     expect(await granted.get('doc-1')).toBeNull()
@@ -101,39 +103,43 @@ describeLive('space.revoke() (live server)', () => {
     )
     // The write did not land.
     expect(
-      await alice.space(spaceId).collection('notes').get('doc-2')
+      await alice.spaceAt(spaceUrl).collection('notes').get('doc-2')
     ).toBeNull()
 
     // The controller's own (root) access is untouched: root zcaps are never
     // revocable, and no revocation applies to a chain of just the root.
-    expect(await alice.space(spaceId).collection('notes').get('doc-1')).toEqual(
-      {
-        hello: 'world'
-      }
-    )
+    expect(
+      await alice.spaceAt(spaceUrl).collection('notes').get('doc-1')
+    ).toEqual({
+      hello: 'world'
+    })
   })
 
   it('a delegee revokes its own capability, holding no separate grant', async () => {
     const zcap = await grantToApp()
-    const granted = app.space(spaceId).collection('notes', { capability: zcap })
+    const granted = app
+      .spaceAt(spaceUrl)
+      .collection('notes', { capability: zcap })
     expect(await granted.get('doc-1')).toEqual({ hello: 'world' })
 
     // The app is not the space controller. It qualifies purely as a controller
     // in the to-be-revoked capability's chain -- the dual-root rule -- and the
     // client invokes the revocation URL's own root capability, which is what
     // makes one code path serve both callers.
-    await app.space(spaceId).revoke(zcap)
+    await app.spaceAt(spaceUrl).revoke(zcap)
 
     expect(await granted.get('doc-1')).toBeNull()
   })
 
   it('was.revoke() derives the space from the capability', async () => {
     const zcap = await grantToApp()
-    const granted = app.space(spaceId).collection('notes', { capability: zcap })
+    const granted = app
+      .spaceAt(spaceUrl)
+      .collection('notes', { capability: zcap })
     expect(await granted.get('doc-1')).toEqual({ hello: 'world' })
 
-    // No space id supplied: it comes from the capability's invocationTarget,
-    // which here is the collection URL beneath the space.
+    // No Space supplied: it comes from the root of the capability's chain,
+    // which names the Space.
     await alice.revoke(zcap)
 
     expect(await granted.get('doc-1')).toBeNull()
@@ -141,23 +147,23 @@ describeLive('space.revoke() (live server)', () => {
 
   it('revocation withdraws the capability, not a policy grant', async () => {
     const notices = await alice
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .createCollection({ id: 'public-notices', name: 'Notices' })
     await notices.put('notice-1', { open: true })
     await notices.setPublic()
 
     const zcap = await alice
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection('public-notices')
       .grant({
         to: appDid,
         actions: ['GET', 'PUT'],
         expires: new Date(Date.now() + 60 * 60 * 1000)
       })
-    await alice.space(spaceId).revoke(zcap)
+    await alice.spaceAt(spaceUrl).revoke(zcap)
 
     const granted = app
-      .space(spaceId)
+      .spaceAt(spaceUrl)
       .collection('public-notices', { capability: zcap })
 
     // Access-control policies are permissive: revoking withdraws only what the
@@ -176,24 +182,26 @@ describeLive('space.revoke() (live server)', () => {
 
     // The stranger is neither the space controller nor in the capability's
     // chain, so the server masks the refusal as a 404.
-    await expect(stranger.space(spaceId).revoke(zcap)).rejects.toThrow(
+    await expect(stranger.spaceAt(spaceUrl).revoke(zcap)).rejects.toThrow(
       NotFoundError
     )
 
     // Nothing was stored: the capability still works.
-    const granted = app.space(spaceId).collection('notes', { capability: zcap })
+    const granted = app
+      .spaceAt(spaceUrl)
+      .collection('notes', { capability: zcap })
     expect(await granted.get('doc-1')).toEqual({ hello: 'world' })
   })
 
   it('resubmitting a stored revocation is a ValidationError, not a no-op', async () => {
     const zcap = await grantToApp()
-    await alice.space(spaceId).revoke(zcap)
+    await alice.spaceAt(spaceUrl).revoke(zcap)
 
     // `revoke()` is deliberately not idempotent: the chain verifies but now
     // contains a revoked link, which the server reports as a 400. (A tampered
     // or foreign-rooted capability fails verification instead and is masked as
     // the 404 below.)
-    await expect(alice.space(spaceId).revoke(zcap)).rejects.toThrow(
+    await expect(alice.spaceAt(spaceUrl).revoke(zcap)).rejects.toThrow(
       ValidationError
     )
   })
@@ -202,7 +210,7 @@ describeLive('space.revoke() (live server)', () => {
     const otherSpace = await alice.createSpace({ name: 'Other Space' })
     await otherSpace.createCollection({ id: 'notes', name: 'Notes' })
     const foreign = await alice
-      .space(otherSpace.id)
+      .spaceAt(otherSpace.url)
       .collection('notes')
       .grant({
         to: appDid,
@@ -215,7 +223,7 @@ describeLive('space.revoke() (live server)', () => {
       // chain that does not verify against this space's root leaves the
       // revocation URL with no controller, so the server masks the denial as
       // not-found instead of disclosing whether the space exists.
-      await expect(alice.space(spaceId).revoke(foreign)).rejects.toThrow(
+      await expect(alice.spaceAt(spaceUrl).revoke(foreign)).rejects.toThrow(
         NotFoundError
       )
 
