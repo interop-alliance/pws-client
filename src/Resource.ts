@@ -11,8 +11,7 @@ import {
   canonicalSpaceUrl,
   resourceUrl,
   resourcePolicyUrl,
-  resourceMetaUrl,
-  spaceIdOfCanonicalUrl
+  resourceMetaUrl
 } from './internal/paths.js'
 import { assertNotReserved } from './internal/reserved.js'
 import type { ClientContext } from './internal/request.js'
@@ -68,10 +67,6 @@ export class Resource {
    * The URL of the Space this Resource lives in, in canonical form.
    */
   readonly spaceUrl: string
-  /**
-   * The id of that Space: the last path segment of {@link spaceUrl}.
-   */
-  readonly spaceId: string
   readonly collectionId: string
   readonly id: string
   /**
@@ -144,7 +139,6 @@ export class Resource {
     assertNotReserved({ id: resourceId, kind: 'resource' })
     this.#context = context
     this.spaceUrl = canonicalSpaceUrl(spaceUrl)
-    this.spaceId = spaceIdOfCanonicalUrl(this.spaceUrl)
     this.collectionId = collectionId
     this.id = resourceId
     // Every URL this handle addresses is derived once: `spaceUrl` is

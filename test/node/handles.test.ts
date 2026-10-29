@@ -18,6 +18,7 @@ import {
   Resource,
   ValidationError,
   AuthRequiredError,
+  NotSupportedError,
   WasServerError
 } from '../../src/index.js'
 import type { IDID, IZcap } from '../../src/index.js'
@@ -28,7 +29,7 @@ import {
   clientWithStub,
   jsonResponse,
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -44,7 +45,7 @@ function stubClient(signerId = 'did:example:alice#key-1'): WasClient {
     invocationSigner: { id: signerId }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   return new WasClient({
-    serviceUrl: serviceUrlFor(),
+    baseServerUrl: baseServerUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })
@@ -61,7 +62,6 @@ describe('lazy handles', () => {
 
     const resource = collection.resource('whatever')
     expect(resource).toBeInstanceOf(Resource)
-    expect(resource.spaceId).toBe('does-not-exist')
     expect(resource.collectionId).toBe('nope')
     expect(resource.id).toBe('whatever')
   })
@@ -73,13 +73,11 @@ describe('lazy handles', () => {
 
     const collection = space.collection('c')
     expect(collection.spaceUrl).toBe('https://was.example/space/s/')
-    expect(collection.spaceId).toBe('s')
     expect(collection.id).toBe('c')
     expect(collection.url).toBe('https://was.example/space/s/c/')
 
     const resource = collection.resource('r')
     expect(resource.spaceUrl).toBe('https://was.example/space/s/')
-    expect(resource.spaceId).toBe('s')
     expect(resource.collectionId).toBe('c')
     expect(resource.id).toBe('r')
     expect(resource.url).toBe('https://was.example/space/s/c/r')
@@ -90,7 +88,6 @@ describe('lazy handles', () => {
     expect(space.id).toBe('a b')
     const collection = space.collection('c/d')
     expect(collection.url).toBe('https://was.example/space/a%20b/c%2Fd/')
-    expect(collection.spaceId).toBe('a b')
     const resource = collection.resource('r#1')
     expect(resource.url).toBe('https://was.example/space/a%20b/c%2Fd/r%231')
   })
@@ -120,13 +117,16 @@ describe('lazy handles', () => {
         invocationTarget: 'https://was.example/space/%ff/c/'
       } as unknown as IZcap)
     ).toThrow(ValidationError)
+    // Every handle beneath such a Space refuses it too, not only the Space
+    // handle that decodes the id.
+    expect(() =>
+      client.collectionAt('https://was.example/space/%ff/c/')
+    ).toThrow(ValidationError)
   })
 
   it('spaceAt rejects a URL that is not a Space URL', () => {
     const client = stubClient()
     for (const spaceUrl of [
-      'https://was.example',
-      'https://was.example/',
       'https://was.example/space/s/?q=1',
       'ftp://was.example/space/s/',
       '/space/s/',
@@ -147,7 +147,7 @@ describe('lazy handles', () => {
       invocationSigner: {}
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
@@ -195,7 +195,6 @@ describe('fromCapability', () => {
       zcapFor('https://was.example/space/s/c')
     )
     expect(handle).toBeInstanceOf(Collection)
-    expect((handle as Collection).spaceId).toBe('s')
     expect((handle as Collection).id).toBe('c')
     expect((handle as Collection).spaceUrl).toBe(spaceUrl)
     expect((handle as Collection).url).toBe('https://was.example/space/s/c/')
@@ -206,7 +205,6 @@ describe('fromCapability', () => {
       zcapFor('https://was.example/space/s/c/r')
     )
     expect(handle).toBeInstanceOf(Resource)
-    expect((handle as Resource).spaceId).toBe('s')
     expect((handle as Resource).collectionId).toBe('c')
     expect((handle as Resource).id).toBe('r')
     expect((handle as Resource).spaceUrl).toBe(spaceUrl)
@@ -298,7 +296,6 @@ describe('fromCapability', () => {
       )
     )
     expect(handle).toBeInstanceOf(Collection)
-    expect((handle as Collection).spaceId).toBe('a b')
     expect((handle as Collection).id).toBe('c/d')
     expect((handle as Collection).url).toBe(
       'https://was.example/space/a%20b/c%2Fd/'
@@ -407,7 +404,7 @@ describe('spaceAt() encryption default', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['encryption']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       zcapClient,
       encryption,
       serviceDescription: serviceDescriptionFor()
@@ -463,7 +460,7 @@ describe('createCollection', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       zcapClient,
       serviceDescription: serviceDescriptionFor()
     })
@@ -491,7 +488,7 @@ describe('createCollection', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['encryption']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       zcapClient,
       encryption,
       serviceDescription: serviceDescriptionFor()
@@ -585,5 +582,136 @@ describe('was.request', () => {
     })
     expect(lastRequest()?.url).toBe('https://was.example/space/s/c/r')
     expect(lastRequest()?.method).toBe('GET')
+  })
+})
+
+describe('was.space and was.collectionAt', () => {
+  const ALICE = 'https://alice.example/'
+
+  it('was.space(id) opens the Space the layout names, with no I/O', () => {
+    const client = stubClient()
+    expect(client.space('s').url).toBe(spaceUrlFor('s'))
+    expect(client.space('s').url).toBe(client.spaceAt(spaceUrlFor('s')).url)
+    expect(client.space('a b').url).toBe(spaceUrlFor('a b'))
+  })
+
+  it('was.space(id, options) passes the capability through', async () => {
+    const { client, lastRequest } = clientWithRequestSpy()
+    const capability = { id: 'urn:zcap:delete-only' } as never
+    await client.space('s', { capability }).deleteWithOutcome()
+    expect(lastRequest()?.url).toBe(spaceUrlFor('s'))
+    expect(lastRequest()?.capability).toBe(capability)
+  })
+
+  it('collectionAt opens a Collection under a base-layout Space', () => {
+    const client = stubClient()
+    const url = `${spaceUrlFor('s')}posts/`
+    const collection = client.collectionAt(url)
+    expect(collection).toBeInstanceOf(Collection)
+    expect(collection.id).toBe('posts')
+    expect(collection.spaceUrl).toBe(spaceUrlFor('s'))
+    expect(collection.url).toBe(
+      client.spaceAt(spaceUrlFor('s')).collection('posts').url
+    )
+  })
+
+  it('collectionAt opens a Collection at an origin-root Space', () => {
+    const client = stubClient()
+    const collection = client.collectionAt('https://alice.example/posts/')
+    expect(collection.spaceUrl).toBe(ALICE)
+    expect(collection.id).toBe('posts')
+    const viaSpace = client.spaceAt(ALICE).collection('posts')
+    expect(collection.url).toBe(viaSpace.url)
+    expect(collection.spaceUrl).toBe(viaSpace.spaceUrl)
+  })
+
+  it('collectionAt refuses a reserved last segment and a URL with no segment', () => {
+    const client = stubClient()
+    expect(() => client.collectionAt(`${spaceUrlFor('s')}policy/`)).toThrow(
+      ValidationError
+    )
+    expect(() => client.collectionAt(ALICE)).toThrow(ValidationError)
+    expect(() => client.collectionAt(`${ALICE}service/`)).toThrow(
+      ValidationError
+    )
+  })
+
+  it('collectionAt refuses a URL whose last segment is not in canonical form', () => {
+    const client = stubClient()
+    // The handle re-encodes the decoded id, so `%21` would come back as `!`
+    // and lower-case hex as upper-case: a different URL from the one given.
+    for (const url of [
+      `${spaceUrlFor('s')}%21/`,
+      `${spaceUrlFor('s')}a%2fb/`
+    ]) {
+      expect(() => client.collectionAt(url)).toThrow(/canonical form/)
+    }
+    expect(client.collectionAt(`${spaceUrlFor('s')}a%2Fb/`).id).toBe('a/b')
+  })
+})
+
+describe('a client fixed on a Space (forSpace)', () => {
+  const ALICE = 'https://alice.example/'
+
+  /**
+   * A `forSpace` client whose stub `ZcapClient` echoes `delegate(...)` args
+   * back as the delegated zcap, parented on the capability it was given.
+   *
+   * @returns {WasClient}
+   */
+  function fixedClient(): WasClient {
+    const zcapClient = {
+      invocationSigner: { id: 'did:example:alice#key-1' },
+      async delegate(args: Record<string, unknown>) {
+        return {
+          ...args,
+          id: 'urn:uuid:delegated',
+          parentCapability: args.capability,
+          allowedAction: args.allowedActions
+        }
+      }
+    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
+    return WasClient.forSpace({ spaceUrl: ALICE, zcapClient })
+  }
+
+  it('opens the origin-root Space, which has no id', () => {
+    const client = fixedClient()
+    const space = client.spaceAt(ALICE)
+    expect(space.url).toBe(ALICE)
+    expect(space.id).toBeUndefined()
+    expect(space.collection('posts').url).toBe('https://alice.example/posts/')
+    expect(client.spaceAt(client.spaceUrl!).url).toBe(ALICE)
+  })
+
+  it('roots capabilities at the origin for the Space and a Collection', () => {
+    expect(rootCapabilityId(ALICE)).toBe(
+      `urn:zcap:root:${encodeURIComponent(ALICE)}`
+    )
+    const posts = fixedClient().spaceAt(ALICE).collection('posts')
+    expect(rootCapabilityId(posts.url)).toBe(
+      `urn:zcap:root:${encodeURIComponent('https://alice.example/posts/')}`
+    )
+  })
+
+  it('round-trips a grant through fromCapability at the origin', async () => {
+    const client = fixedClient()
+    const zcap = await client
+      .spaceAt(ALICE)
+      .collection('posts')
+      .grant({ to: 'did:example:bob', actions: ['GET'] })
+    expect(zcap.parentCapability).toBe(rootCapabilityId(ALICE))
+    expect(zcap.invocationTarget).toBe('https://alice.example/posts/')
+    const handle = client.fromCapability(zcap)
+    expect(handle).toBeInstanceOf(Collection)
+    expect((handle as Collection).url).toBe('https://alice.example/posts/')
+    expect((handle as Collection).spaceUrl).toBe(ALICE)
+    expect((handle as Collection).id).toBe('posts')
+  })
+
+  it('throws NotSupportedError from the id-addressed operations', async () => {
+    const client = fixedClient()
+    expect(() => client.space('s')).toThrow(NotSupportedError)
+    await expect(client.createSpace()).rejects.toThrow(NotSupportedError)
+    await expect(client.listSpaces()).rejects.toThrow(NotSupportedError)
   })
 })

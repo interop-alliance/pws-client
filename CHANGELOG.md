@@ -1,5 +1,58 @@
 # @interop/was-client Changelog
 
+## 0.100.1 - TBD
+
+### Changed
+
+- Breaking: `new WasClient(...)` and `WasClient.fromSigner(...)` take
+  `baseServerUrl`, an absolute http(s) URL with no query or fragment. A missing
+  trailing slash is supplied. `serviceUrl` and `spacesUrl` are removed, and so
+  are `was.serviceUrl` and `was.spacesUrl`. `was.baseServerUrl` exposes the
+  base.
+- `was.space(spaceId)` returns, synchronously, for `{base}space/{spaceId}/`.
+  `was.spaceAt(url)` is unchanged and does not check a received Space URL
+  against the base.
+- Breaking: the service description is read with an unsigned `GET` of
+  `{base}service`. Its `url` must equal `{base}service` and its `spaces` member,
+  when present, `{base}spaces/`. Otherwise `IncompatibleServerError` names both
+  values. A supplied `serviceDescription` is checked the same way.
+- `createSpace()` posts to `{base}spaces/` and still opens the handle on the
+  `Location` of the response.
+- New
+  `WasClient.forSpace({ spaceUrl, zcapClient | signer, encryption?, serviceDescription? })`
+  opens a server that is a single fixed Space with no id and no base server URL.
+  The client exposes `was.spaceUrl` and finds the service description with
+  `HEAD` and `Link: rel="service"`. `space(id)`, `createSpace()` and
+  `listSpaces()` throw `NotSupportedError`.
+- New `was.collectionAt(collectionUrl)` opens a Collection by URL. The parent is
+  the Space URL and the last segment is the id. A URL whose last segment is not
+  in canonical percent-encoded form is refused with `ValidationError`.
+- A Space URL whose last segment is a malformed percent escape is refused by
+  every handle beneath it, not only by `spaceAt`.
+- An origin-root Space URL is valid. `Space.id` is `string | undefined`, and is
+  `undefined` at an origin root.
+- Breaking: `Collection.spaceId` and `Resource.spaceId` are removed. Use
+  `spaceUrl`.
+- At an origin-root Space the Collection ids `service`, `spaces` and `space` are
+  reserved (`ORIGIN_ROOT_RESERVED_COLLECTION_IDS` from `@interop/storage-core`
+  0.42.0). `fromCapability` refuses a target at such a segment as a
+  sub-resource.
+- `SpaceMetadata.id` is optional (`@interop/storage-core` 0.42.0): a single
+  fixed Space is served without an id, so `configure()` and `describe()` no
+  longer claim one.
+- New `@interop/was-client/paths` exports: `canonicalBaseServerUrl`,
+  `serviceDescriptionUrl`, `spacesRepositoryUrl`, `spaceUrlById`,
+  `baseServerUrlOf` (the inverse of the three, rejecting any other URL) and
+  `splitCollectionUrl`.
+- Breaking: the `ServerLocator` type export is removed.
+
+### Fixed
+
+- `@interop/zcap` is a runtime dependency. The built package imports
+  `isValidTarget` from it, but it was declared only under `devDependencies`, so
+  a consumer resolved whichever `@interop/zcap` its package manager hoisted and
+  an older one (11.3.x) failed with a missing-export error at build or import.
+
 ## 0.100.0 - 2026-10-28
 
 ### Changed

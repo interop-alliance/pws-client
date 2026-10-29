@@ -4,13 +4,11 @@
 /**
  * Service discovery: reads the server's service description without a
  * capability invocation and selects the WAS specification version this client
- * speaks. A client built from the service URL reads the document directly
- * (`readServiceDescription`). One built from a Spaces Repository URL first
- * follows the `Link: <...>; rel="service"` header the server's responses
- * carry (`discoverService`), probing a URL the WAS server itself answers
- * rather than a server root, which a deployment often serves as something
- * else. The spec reserves no path for the document, so nothing here assumes
- * one. The client speaks only v0.5, so a server whose responses carry no
+ * speaks. A client built from a base server URL reads the document directly
+ * at `{base}service` (`readServiceDescription`). One opened on a single fixed
+ * Space, which has no base, follows the `Link: <...>; rel="service"` header
+ * the server's responses carry (`discoverService`), probing the Space URL
+ * itself. The client speaks only v0.5, so a server whose responses carry no
  * `service` link (one that predates v0.5) is refused rather than spoken to in
  * the v0.4 layout.
  */
@@ -298,10 +296,12 @@ export async function readServiceDescription({
 }
 
 /**
- * Discovers the service description from a URL the server answers and
+ * Discovers the service description from any URL the server answers and
  * selects the version to speak: an unsigned `HEAD` of `url` for its `service`
  * link (the response status does not matter), then
- * {@link readServiceDescription} of the linked document.
+ * {@link readServiceDescription} of the linked document. The route for a
+ * client that holds no base server URL, such as one opened on a single fixed
+ * Space.
  *
  * A network failure, and a rate limit or temporary outage (429, 502, 503,
  * 504) that comes without the link, reject with the mapped transport error,
@@ -309,7 +309,7 @@ export async function readServiceDescription({
  *
  * @param options {object}
  * @param options.url {string}   any URL the WAS server answers, typically a
- *   Spaces Repository URL
+ *   Space URL
  * @returns {Promise<ServiceInfo>}
  * @throws {IncompatibleServerError}   when the response carries no `service`
  *   link, the linked document cannot be read or parsed, or version selection

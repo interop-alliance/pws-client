@@ -48,16 +48,16 @@ through cheap, lazy navigational handles modeled on a document store's DX
 (`add`/`get`/`put`/`list`/`delete`) rather than `insertOne`/`findOne` (PWS has
 no query-by-filter yet).
 
-| Document db driver                  | PWS client                                  |
-| ----------------------------------- | ------------------------------------------- |
-| `new Client(url)`                   | `new WasClient({ serviceUrl, zcapClient })` |
-| `client.db('app')`                  | `was.spaceAt(spaceUrl)`                     |
-| `db.collection('users')`            | `space.collection(collectionId)`            |
-| `collection.insertOne(doc)`         | `collection.add(doc)`                       |
-| `collection.findOne({ _id })`       | `collection.get(resourceId)`                |
-| `collection.replaceOne({ _id }, d)` | `collection.put(resourceId, data)`          |
-| `collection.find().toArray()`       | `collection.list()`                         |
-| `collection.deleteOne({ _id })`     | `collection.resource(resourceId).delete()`  |
+| Document db driver                  | PWS client                                     |
+| ----------------------------------- | ---------------------------------------------- |
+| `new Client(url)`                   | `new WasClient({ baseServerUrl, zcapClient })` |
+| `client.db('app')`                  | `was.spaceAt(spaceUrl)`                        |
+| `db.collection('users')`            | `space.collection(collectionId)`               |
+| `collection.insertOne(doc)`         | `collection.add(doc)`                          |
+| `collection.findOne({ _id })`       | `collection.get(resourceId)`                   |
+| `collection.replaceOne({ _id }, d)` | `collection.put(resourceId, data)`             |
+| `collection.find().toArray()`       | `collection.list()`                            |
+| `collection.deleteOne({ _id })`     | `collection.resource(resourceId).delete()`     |
 
 See also:
 
@@ -110,7 +110,7 @@ const zcapClient = new ZcapClient({
 
 // 3. Wrap it.
 const was = new WasClient({
-  serviceUrl: 'https://was.example/service',
+  baseServerUrl: 'https://was.example/',
   zcapClient
 })
 ```
@@ -130,7 +130,7 @@ keyPair.controller = `did:key:${keyPair.fingerprint()}`
 keyPair.id = `${keyPair.controller}#${keyPair.fingerprint()}`
 
 const was = WasClient.fromSigner({
-  serviceUrl: 'https://was.example/service',
+  baseServerUrl: 'https://was.example/',
   signer: keyPair.signer()
 })
 ```
@@ -139,20 +139,56 @@ The `seed` is where a passphrase-, stored-secret-, or KMS-derived key plugs in:
 deriving the same 32-byte seed yields the same DID, and therefore access to the
 same spaces.
 
-A client is built from exactly one of two URLs. `serviceUrl` is the URL of the
-server's service description, read with an unsigned `GET`. `spacesUrl` is the
-Spaces Repository URL (`https://host/spaces/`), which the client probes with an
-unsigned `HEAD` for the `Link: <...>; rel="service"` header. Giving both or
-neither, or a URL that is not absolute `http(s)`, is refused with
-`ValidationError`. The one given is exposed as `was.serviceUrl` or
-`was.spacesUrl` (the latter with its trailing slash supplied), and the other is
-`undefined`.
+A client is built from the server's base server URL. The spec's Server Layout
+places the server-level endpoints under it: `{base}service` is the service
+description, `{base}spaces/` is the Spaces Repository, and
+`{base}space/{space_id}/` is a Space. The base must be an absolute `http(s)` URL
+with no query or fragment. A missing trailing slash is supplied. Anything else
+is refused with `ValidationError`. The result is exposed as `was.baseServerUrl`.
 
-A Space URL is received. It is not assembled from a server root. It arrives as
-the `Location` of a create response, a listing item's `url`, a linkset entry, a
-stored pointer, or a self-locating DID. The client holds no base URL, and no
-function in the `./paths` entry takes one. `was.spaceAt(spaceUrl)` opens a
-handle on a Space URL you hold.
+`was.space(spaceId)` opens a handle on `{base}space/{spaceId}/`, with no I/O.
+`was.spaceAt(spaceUrl)` opens a handle on a Space URL you hold, such as the
+`Location` of a create response, a listing item's `url`, a linkset entry, a
+stored pointer, a capability's target, or a self-locating DID. A received Space
+URL is used as given. It is never checked against the base, because a grant or a
+DID may name a Space on another server.
+
+The `./paths` entry exports the matching builders: `canonicalBaseServerUrl`,
+`serviceDescriptionUrl({ baseServerUrl })`,
+`spacesRepositoryUrl({ baseServerUrl })` and
+`spaceUrlById({ baseServerUrl, spaceId })`. `baseServerUrlOf(url)` is their
+inverse. It accepts the service, Spaces Repository or Space URL and rejects
+anything else. `splitCollectionUrl(url)` splits a Collection URL into its Space
+URL and id.
+
+#### Single fixed Space
+
+Some servers are one Space with no id and no base server URL, such as a personal
+site whose Collections are `https://alice.example/posts/` and
+`https://alice.example/images/`. Open one with `WasClient.forSpace()` and reach
+a Collection directly with `collectionAt()`:
+
+```ts
+const was = WasClient.forSpace({
+  spaceUrl: 'https://alice.example/',
+  signer: keyPair.didKeySigner()
+})
+
+const posts = was.collectionAt('https://alice.example/posts/')
+const post = await posts.get('hello')
+```
+
+`forSpace` takes
+`{ spaceUrl, zcapClient | signer, encryption?, serviceDescription? }`. The
+client exposes `was.spaceUrl`, and `was.baseServerUrl` is `undefined`. It finds
+the service description with an unsigned `HEAD` of the Space URL and the
+`Link: <...>; rel="service"` header. `space(id)`, `createSpace()` and
+`listSpaces()` throw `NotSupportedError`.
+
+`collectionAt(collectionUrl)` works on any client. The parent of the URL is the
+Space URL and the last segment is the Collection id. A Space URL may be an
+origin root, in which case `Space.id` is `undefined`. At an origin-root Space
+the Collection ids `service`, `spaces` and `space` are reserved.
 
 #### Deriving a client from a secret or seed (`./identity`)
 
@@ -167,7 +203,7 @@ import { WasClient } from '@interop/was-client'
 const agents = await agentsFromSecret({ secret: 'the account secret' })
 
 const was = WasClient.fromSigner({
-  serviceUrl: 'https://was.example/service',
+  baseServerUrl: 'https://was.example/',
   signer: agents.keyAgent.getSigner()
 })
 ```
@@ -208,17 +244,19 @@ own pace produces.
 ### Service discovery
 
 Before its first signed request, the client reads the server's service
-description. A client built from `serviceUrl` reads that document with an
-unsigned `GET`. A client built from `spacesUrl` first sends an unsigned `HEAD`
-to it and follows the `Link: <...>; rel="service"` header on the response,
-whatever its status, then reads the linked document with an unsigned `GET`. The
-PWS server itself answers the Spaces Repository URL. The server root is often a
-landing page served by something else, with no `service` link. The spec fixes no
-path for the document, so the client assumes none.
+description. A client built from `baseServerUrl` reads `{base}service` with an
+unsigned `GET`. A client built by `forSpace` first sends an unsigned `HEAD` to
+the Space URL and follows the `Link: <...>; rel="service"` header on the
+response, whatever its status, then reads the linked document with an unsigned
+`GET`. The spec fixes no path for the document on a fixed-Space server, so that
+client assumes none.
 
-The client does not compare the document's `spaces` member against any URL it
-was given. `createSpace()` and `listSpaces()` address the `spaces` URL the
-document names.
+A client with a base checks that the document describes that base. Its `url`
+must equal `{base}service`, and its `spaces` member, when present, must equal
+`{base}spaces/`. Otherwise every signed request rejects with
+`IncompatibleServerError` naming both values. The check also applies to a
+caller-supplied `serviceDescription`. A client built by `forSpace` has no base
+and is not checked. `createSpace()` and `listSpaces()` address `{base}spaces/`.
 
 From the document the client selects the PWS specification version it speaks.
 This client speaks only v0.5. It ignores `specs` keys other than
@@ -294,13 +332,12 @@ server requires a `name`; `controller` defaults to the client's own DID, and the
 server generates the id unless you pass one. `createSpace()` reads the
 `Location` header of the response and returns a handle on that Space URL. A
 response without `Location` throws `WasServerError`. `createSpace()` and
-`listSpaces()` address the Spaces Repository URL the service description names
-(see [Service discovery](#service-discovery)). Against a server whose
-description has no `spaces` URL, they throw `NotSupportedError` without sending
-anything.
+`listSpaces()` address the Spaces Repository, `{base}spaces/` (see
+[Service discovery](#service-discovery)). Against a server whose description has
+no `spaces` URL, they throw `NotSupportedError` without sending anything.
 
 ```ts
-const space = await was.createSpace({ name: 'Home' }) // POST {spacesUrl}
+const space = await was.createSpace({ name: 'Home' }) // POST {base}spaces/
 // A typed Space, e.g. an auxiliary one; `type` defaults to ['Space'].
 const aux = await was.createSpace({
   name: 'Clients',
@@ -309,6 +346,7 @@ const aux = await was.createSpace({
 
 // Lazy handle to an existing space by its URL -- no I/O until a verb runs.
 const same = was.spaceAt(space.url)
+const byId = was.space('abc') // {base}space/abc/, no I/O
 
 // Read the Space Metadata object (null if missing or not visible to you).
 const desc = await space.describe() // { id, type: ['Space'], name, controller } | null
@@ -1063,7 +1101,7 @@ const encryption = createEdvEncryption({
     return { keyAgreementKey, keyResolver }
   }
 })
-const was = WasClient.fromSigner({ serviceUrl, signer, encryption })
+const was = WasClient.fromSigner({ baseServerUrl, signer, encryption })
 
 // Declare the collection encrypted (writes the descriptor). The returned handle is
 // pre-seeded, so the first write encrypts with no extra round-trip.

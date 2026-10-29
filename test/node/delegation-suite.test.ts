@@ -191,7 +191,7 @@ describe('fromSigner delegation proofs', () => {
     const alice = await signingKey()
     const rootId = serveSpaceRoot(alice.did)
     const was = WasClient.fromSigner({
-      serviceUrl: `${SERVER_URL}/service`,
+      baseServerUrl: `${SERVER_URL}/`,
       signer: alice.signer
     })
 
@@ -217,7 +217,7 @@ describe('fromSigner delegation proofs', () => {
     const bob = await signingKey()
     const rootId = serveSpaceRoot(alice.did)
     const parent = await WasClient.fromSigner({
-      serviceUrl: `${SERVER_URL}/service`,
+      baseServerUrl: `${SERVER_URL}/`,
       signer: alice.signer
     }).grant({
       to: bob.did,
@@ -227,7 +227,7 @@ describe('fromSigner delegation proofs', () => {
     })
 
     const child = await WasClient.fromSigner({
-      serviceUrl: `${SERVER_URL}/service`,
+      baseServerUrl: `${SERVER_URL}/`,
       signer: bob.signer
     }).grant({
       to: 'did:example:carol',
@@ -255,7 +255,7 @@ describe('fromSigner delegation proofs', () => {
     })) as IDelegatedZcap
 
     const child = await WasClient.fromSigner({
-      serviceUrl: `${SERVER_URL}/service`,
+      baseServerUrl: `${SERVER_URL}/`,
       signer: bob.signer
     }).grant({
       to: 'did:example:carol',
@@ -274,7 +274,7 @@ describe('fromSigner delegation proofs', () => {
     const alice = await signingKey()
     const bob = await signingKey()
     const parent = await WasClient.fromSigner({
-      serviceUrl: `${SERVER_URL}/service`,
+      baseServerUrl: `${SERVER_URL}/`,
       signer: alice.signer
     }).grant({
       to: bob.did,

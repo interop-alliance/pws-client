@@ -32,7 +32,7 @@ import { resolveCodec, identityCodec } from '../../src/internal/codec.js'
 import type { ClientContext } from '../../src/internal/request.js'
 import {
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -200,7 +200,7 @@ describe('rotate-then-write on the same handle', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -351,7 +351,7 @@ describe('createCollection pre-seed consults the provider', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption

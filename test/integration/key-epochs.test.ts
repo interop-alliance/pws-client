@@ -47,8 +47,8 @@ import {
 import { makeParty } from '../helpers/party.js'
 import type { Party } from '../helpers/party.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 describeLive('multi-recipient key epochs (live server)', () => {
   let owner: Party
@@ -145,12 +145,12 @@ describeLive('multi-recipient key epochs (live server)', () => {
   }
 
   beforeAll(async () => {
-    owner = await makeParty({ serviceUrl: serviceUrl! })
-    readerA = await makeParty({ serviceUrl: serviceUrl! })
-    readerB = await makeParty({ serviceUrl: serviceUrl! })
-    readerC = await makeParty({ serviceUrl: serviceUrl! })
+    owner = await makeParty({ baseServerUrl: baseServerUrl! })
+    readerA = await makeParty({ baseServerUrl: baseServerUrl! })
+    readerB = await makeParty({ baseServerUrl: baseServerUrl! })
+    readerC = await makeParty({ baseServerUrl: baseServerUrl! })
     ownerPlain = WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: owner.signer
     })
 
@@ -259,7 +259,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
     // axis -- the server simply will not serve the bytes anymore (WAS masks
     // unauthorized as 404, surfaced as null by get()).
     const plaintextB = WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: readerB.signer
     })
     const asBRevoked = plaintextB
@@ -298,8 +298,8 @@ describeLive('multi-recipient key epochs (live server)', () => {
   })
 
   it('two concurrent addRecipient calls both land (the CAS prevents a clobber)', async () => {
-    const newA = await makeParty({ serviceUrl: serviceUrl! })
-    const newB = await makeParty({ serviceUrl: serviceUrl! })
+    const newA = await makeParty({ baseServerUrl: baseServerUrl! })
+    const newB = await makeParty({ baseServerUrl: baseServerUrl! })
     // Two racing adds from two independent handles over the same collection.
     await Promise.all([
       addRecipient({

@@ -17,6 +17,14 @@ import { ValidationError } from '../../src/index.js'
 import type { IDelegatedZcap, IZcap } from '../../src/index.js'
 import type { IRootZcap } from '../../src/paths.js'
 import {
+  baseServerUrlOf,
+  canonicalBaseServerUrl,
+  serviceDescriptionUrl,
+  spaceUrlById,
+  spacesRepositoryUrl,
+  splitCollectionUrl
+} from '../../src/paths.js'
+import {
   canonicalSpaceUrl,
   spaceIdOfUrl,
   spaceMetaUrl,
@@ -258,8 +266,6 @@ describe('URL builders', () => {
       'ftp://was.example/space/home/',
       'https://was.example/space/home/?q=1',
       'https://was.example/space/home/#f',
-      'https://was.example',
-      'https://was.example/',
       'https://was.example/space//home/'
     ]) {
       expect(() => spaceMetaUrl({ spaceUrl })).toThrow(ValidationError)
@@ -352,9 +358,6 @@ describe('canonicalSpaceUrl', () => {
       'file:///space/home/',
       'https://was.example/space/home/?q=1',
       'https://was.example/space/home/#top',
-      'https://was.example',
-      'https://was.example/',
-      'https://was.example//',
       'https://was.example//space/home/',
       'https://was.example/space//home/'
     ]) {
@@ -522,7 +525,7 @@ describe('parseSpaceTarget', () => {
   it('returns null when the Space URL is not one', () => {
     expect(
       parseSpaceTarget({
-        spaceUrl: 'https://was.example/',
+        spaceUrl: 'not a url',
         target: 'https://was.example/space/home/'
       })
     ).toBeNull()
@@ -683,7 +686,6 @@ describe('spaceUrlOf', () => {
 
   it('throws ValidationError when the root names a non-Space URL', () => {
     for (const target of [
-      'https://was.example/',
       'https://was.example/space/home/?q=1',
       'did:example:alice'
     ]) {
@@ -693,7 +695,7 @@ describe('spaceUrlOf', () => {
     }
     expect(() =>
       spaceUrlOf(
-        delegated({ parentCapability: rootCapabilityId('https://x/') })
+        delegated({ parentCapability: rootCapabilityId('did:example:x') })
       )
     ).toThrow(/not a Space URL/)
   })
@@ -705,6 +707,8 @@ describe('the ./paths subpath barrel', () => {
 
     expect(Object.keys(barrel).sort()).toEqual(
       [
+        'baseServerUrlOf',
+        'canonicalBaseServerUrl',
         'canonicalSpaceUrl',
         'collectionLogUrl',
         'collectionMetaUrl',
@@ -718,9 +722,13 @@ describe('the ./paths subpath barrel', () => {
         'rootCapability',
         'rootCapabilityId',
         'rootCapabilityTarget',
+        'serviceDescriptionUrl',
         'spaceIdOfUrl',
         'spaceMetaUrl',
-        'spaceUrlOf'
+        'spaceUrlById',
+        'spaceUrlOf',
+        'spacesRepositoryUrl',
+        'splitCollectionUrl'
       ].sort()
     )
     // Same functions as the internal modules, not re-implementations.
@@ -751,5 +759,140 @@ describe('the ./paths subpath barrel', () => {
       invocationTarget: target,
       controller: 'did:key:zAlice'
     })
+  })
+})
+
+describe('the server layout under a base server URL', () => {
+  const bases = ['https://h/', 'https://h/pws/']
+
+  it('canonicalBaseServerUrl supplies the trailing slash and normalizes', () => {
+    expect(canonicalBaseServerUrl('https://h/pws')).toBe('https://h/pws/')
+    expect(canonicalBaseServerUrl('https://H:443')).toBe('https://h/')
+    for (const url of ['nope', 'ftp://h/', 'https://h/?q=1', 'https://h/#f']) {
+      expect(() => canonicalBaseServerUrl(url)).toThrow(ValidationError)
+    }
+  })
+
+  it('builds the service description and Spaces Repository URLs', () => {
+    expect(serviceDescriptionUrl({ baseServerUrl: 'https://h/pws/' })).toBe(
+      'https://h/pws/service'
+    )
+    expect(spacesRepositoryUrl({ baseServerUrl: 'https://h/' })).toBe(
+      'https://h/spaces/'
+    )
+  })
+
+  it('spaceUrlById works under an origin-root and a sub-path base', () => {
+    expect(spaceUrlById({ baseServerUrl: 'https://h/', spaceId: 's' })).toBe(
+      'https://h/space/s/'
+    )
+    expect(
+      spaceUrlById({ baseServerUrl: 'https://h/pws/', spaceId: 's' })
+    ).toBe('https://h/pws/space/s/')
+  })
+
+  it('spaceUrlById percent-encodes the id and rejects empty and dot ids', () => {
+    expect(spaceUrlById({ baseServerUrl: 'https://h/', spaceId: 'a b' })).toBe(
+      'https://h/space/a%20b/'
+    )
+    for (const spaceId of ['', '.', '..']) {
+      expect(() =>
+        spaceUrlById({ baseServerUrl: 'https://h/', spaceId })
+      ).toThrow(ValidationError)
+    }
+  })
+
+  it('baseServerUrlOf round-trips with each builder, for both bases', () => {
+    for (const baseServerUrl of bases) {
+      expect(baseServerUrlOf(serviceDescriptionUrl({ baseServerUrl }))).toBe(
+        baseServerUrl
+      )
+      expect(baseServerUrlOf(spacesRepositoryUrl({ baseServerUrl }))).toBe(
+        baseServerUrl
+      )
+      expect(
+        baseServerUrlOf(spaceUrlById({ baseServerUrl, spaceId: 's' }))
+      ).toBe(baseServerUrl)
+    }
+  })
+
+  it('baseServerUrlOf accepts the slashless Spaces and Space forms', () => {
+    expect(baseServerUrlOf('https://h/pws/spaces')).toBe('https://h/pws/')
+    expect(baseServerUrlOf('https://h/pws/space/s')).toBe('https://h/pws/')
+  })
+
+  it('baseServerUrlOf reads a Space whose id is spaces or service as a Space', () => {
+    expect(baseServerUrlOf('https://h/pws/space/spaces/')).toBe(
+      'https://h/pws/'
+    )
+    expect(baseServerUrlOf('https://h/pws/space/service')).toBe(
+      'https://h/pws/'
+    )
+  })
+
+  it('baseServerUrlOf rejects Collection, Resource, origin-root and query URLs', () => {
+    for (const url of [
+      'https://h/pws/space/s/posts/',
+      'https://h/pws/space/s/posts/r1',
+      'https://h/',
+      'https://h/pws/spaces/?q=1'
+    ]) {
+      expect(() => baseServerUrlOf(url)).toThrow(ValidationError)
+    }
+  })
+
+  it('splitCollectionUrl splits the Space URL from the Collection id', () => {
+    expect(splitCollectionUrl('https://h/pws/space/s/posts/')).toEqual({
+      spaceUrl: 'https://h/pws/space/s/',
+      collectionId: 'posts'
+    })
+    expect(splitCollectionUrl('https://alice.example/posts/')).toEqual({
+      spaceUrl: 'https://alice.example/',
+      collectionId: 'posts'
+    })
+    expect(splitCollectionUrl('https://h/pws/space/s/posts')).toEqual({
+      spaceUrl: 'https://h/pws/space/s/',
+      collectionId: 'posts'
+    })
+    expect(splitCollectionUrl('https://h/space/s/a%20b/').collectionId).toBe(
+      'a b'
+    )
+    expect(() => splitCollectionUrl('https://alice.example/')).toThrow(
+      ValidationError
+    )
+  })
+
+  it('canonicalSpaceUrl accepts an origin root, which has no id', () => {
+    expect(canonicalSpaceUrl('https://alice.example')).toBe(
+      'https://alice.example/'
+    )
+    expect(() => spaceIdOfUrl('https://alice.example/')).toThrow(
+      ValidationError
+    )
+  })
+
+  it('reserves service, spaces and space as Collection ids at an origin root only', () => {
+    for (const collectionId of ['service', 'spaces', 'space']) {
+      expect(() =>
+        collectionUrl({ spaceUrl: 'https://alice.example/', collectionId })
+      ).toThrow(ValidationError)
+      expect(
+        collectionUrl({ spaceUrl: 'https://h/space/s/', collectionId })
+      ).toBe(`https://h/space/s/${collectionId}/`)
+      // The inverse grammar agrees: at an origin root the segment is a
+      // sub-resource, elsewhere a Collection.
+      expect(
+        parseSpaceTarget({
+          spaceUrl: 'https://alice.example/',
+          target: `https://alice.example/${collectionId}`
+        })
+      ).toEqual({ kind: 'sub-resource', segments: [collectionId] })
+      expect(
+        parseSpaceTarget({
+          spaceUrl: 'https://h/space/s/',
+          target: `https://h/space/s/${collectionId}/`
+        })
+      ).toEqual({ kind: 'collection', collectionId })
+    }
   })
 })

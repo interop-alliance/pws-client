@@ -28,8 +28,8 @@ import { initRecipients } from '../../src/edv/index.js'
 import { makeParty } from '../helpers/party.js'
 import type { Party } from '../helpers/party.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 describeLive('fromCapability with an encryption override (live server)', () => {
   let owner: Party
@@ -57,8 +57,8 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   }
 
   beforeAll(async () => {
-    owner = await makeParty({ serviceUrl: serviceUrl! })
-    reader = await makeParty({ serviceUrl: serviceUrl! })
+    owner = await makeParty({ baseServerUrl: baseServerUrl! })
+    reader = await makeParty({ baseServerUrl: baseServerUrl! })
     space = await owner.was.createSpace({
       name: 'Capability Handle Encryption'
     })

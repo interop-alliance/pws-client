@@ -29,7 +29,7 @@ import type { RequestArgs } from '../helpers/stubClient.js'
 import {
   jsonResponse,
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -57,7 +57,7 @@ function clientWith(
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serviceUrl: serviceUrlFor(),
+    baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     ...(encryption !== undefined && { encryption })

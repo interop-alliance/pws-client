@@ -20,7 +20,7 @@ import { createEdvEncryption, ownerRecipient } from '../../src/edv/index.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
 import {
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from './stubClient.js'
 import type { RequestArgs } from './stubClient.js'
@@ -203,7 +203,7 @@ export function memoryServer(): {
     idDerivation?: 'random' | 'content'
   }): WasClient =>
     new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient: {
         invocationSigner: { id: 'did:example:alice#key-1' },

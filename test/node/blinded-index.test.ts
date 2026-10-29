@@ -40,7 +40,7 @@ import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
 import { mintHmacKey } from '../../src/edv/hmacKey.js'
 import {
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -332,7 +332,7 @@ function serverFor({
   const provider = createEdvEncryption({ resolveKeys: async () => keys })
   let decodes = 0
   const client = new WasClient({
-    serviceUrl: serviceUrlFor(),
+    baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     // Count every metadata decrypt without disturbing the real codec: the

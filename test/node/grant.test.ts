@@ -15,7 +15,7 @@ import { rootCapabilityId } from '../../src/paths.js'
 import {
   clientWithRequestSpy,
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -48,7 +48,7 @@ function clientWithDelegateSpy(): {
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serviceUrl: serviceUrlFor(),
+    baseServerUrl: baseServerUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })
@@ -302,7 +302,7 @@ describe('grant rooting (revocability)', () => {
         to: 'did:example:bob',
         actions: ['GET'],
         target: 'https://was.example/space/s/c/',
-        spaceUrl: 'https://was.example/'
+        spaceUrl: 'https://was.example/space/s/?q=1'
       })
     ).rejects.toBeInstanceOf(ValidationError)
   })
@@ -379,7 +379,7 @@ describe('was.grant input validation', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })

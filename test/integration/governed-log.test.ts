@@ -36,8 +36,8 @@ import type {
 import { collectionLogUrl } from '../../src/paths.js'
 import { resourceLogStore } from '../../src/log/index.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 const RESOURCE_LOG_METHOD = 'resource-log:0.1'
 
@@ -107,7 +107,7 @@ describeLive('governing history log (live server)', () => {
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
     owner = WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     })
     space = await owner.createSpace({ name: 'Governed Log Integration' })

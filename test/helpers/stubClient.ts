@@ -12,13 +12,21 @@ import type { ServiceDescription } from '../../src/index.js'
 import { WasClient } from '../../src/index.js'
 
 /**
- * The stub server's origin. The stub lays its URLs out the way the reference
- * server does: the service description at `/service`, the Spaces Repository
- * at `/spaces/`, and a Space at `/space/{id}/`. The layout is a fixture fact
- * about the stub, the way a server's `Location` headers are facts about that
- * server; the client never assumes it.
+ * The stub server's origin. The stub lays its URLs out the way the spec does
+ * beneath the base server URL: the service description at `/service`, the
+ * Spaces Repository at `/spaces/`, and a Space at `/space/{id}/`.
  */
 export const STUB_ORIGIN = 'https://was.example'
+
+/**
+ * The stub server's base server URL (origin plus a trailing slash).
+ *
+ * @param [origin] {string}   defaults to {@link STUB_ORIGIN}
+ * @returns {string}
+ */
+export function baseServerUrlFor(origin = STUB_ORIGIN): string {
+  return `${origin}/`
+}
 
 /**
  * The stub server's service description URL, beneath `origin`.
@@ -111,7 +119,7 @@ export function clientWithStub(
     request
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   return new WasClient({
-    serviceUrl: serviceUrlFor(),
+    baseServerUrl: baseServerUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
   })

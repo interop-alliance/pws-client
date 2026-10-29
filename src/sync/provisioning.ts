@@ -250,7 +250,7 @@ export async function ensureSpaceAndCollection({
 
   if (spaceDescription === undefined) {
     await ensureSpace({ was, spaceUrl, controllerDid, spaceName, capability })
-  } else if (spaceDescription.id !== space.id) {
+  } else if (space.id !== undefined && spaceDescription.id !== space.id) {
     // Supplying a description skips the Space half entirely, so a caller
     // holding descriptions for several Spaces that passes the wrong one
     // provisions a collection into a Space this call never ensured. Caught

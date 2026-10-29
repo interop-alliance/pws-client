@@ -20,8 +20,8 @@ import { isResourceChange } from '@interop/storage-core'
 import { NotFoundError, WasClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
  * Builds a fresh did:key Ed25519 signer, a WAS client over it, and its DID.
@@ -31,7 +31,7 @@ const describeLive = serviceUrl ? describe : describe.skip
 async function freshWasClient(): Promise<{ was: WasClient; did: string }> {
   const keyPair = await Ed25519VerificationKey.generate()
   const was = WasClient.fromSigner({
-    serviceUrl: serviceUrl!,
+    baseServerUrl: baseServerUrl!,
     signer: keyPair.didKeySigner()
   })
   return { was, did: was.controllerDid }

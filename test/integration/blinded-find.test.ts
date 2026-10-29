@@ -38,8 +38,8 @@ import {
 } from '../../src/edv/index.js'
 import { createWasSyncPort } from '../../src/sync/index.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
  * Builds an encryption-capable client plus a plaintext one over the same
@@ -77,12 +77,12 @@ async function freshClients(): Promise<{
   })
   return {
     encrypted: WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner(),
       encryption
     }),
     plaintext: WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     }),
     kak: kak as IKeyAgreementKey,

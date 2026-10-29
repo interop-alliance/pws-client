@@ -90,11 +90,11 @@ import type {
  * omitted member; `controller` is always sent.
  *
  * @param fields {object}
- * @param fields.id {string}
+ * @param [fields.id] {string}   absent for a fixed Space with no id
  * @param [fields.name] {string}
  * @param fields.controller {string}
  * @param [fields.type] {string[]}
- * @returns {{ id: string; name?: string; controller: string; type?: string[] }}
+ * @returns {{ id?: string; name?: string; controller: string; type?: string[] }}
  */
 function spaceMetadataBody({
   id,
@@ -102,13 +102,13 @@ function spaceMetadataBody({
   controller,
   type
 }: {
-  id: string
+  id: string | undefined
   name?: string
   controller: string
   type?: string[]
 }) {
   return {
-    id,
+    ...(id !== undefined && { id }),
     ...(name !== undefined && { name }),
     controller,
     ...(type !== undefined && { type })
@@ -197,9 +197,10 @@ export class Space {
   readonly url: string
   /**
    * The Space's id: the last path segment of {@link url}, the value the Space
-   * Metadata object's `id` carries.
+   * Metadata object's `id` carries. `undefined` for a single fixed Space
+   * served from an origin root, which has no id.
    */
-  readonly id: string
+  readonly id: string | undefined
 
   readonly #context: ClientContext
   readonly #capability?: IZcap
@@ -413,7 +414,7 @@ export class Space {
           !(desc.name !== undefined && desc.controller !== undefined)
         ) {
           throw unreadableDescriptionError({
-            operation: `configure space "${this.id}"`,
+            operation: `configure space "${this.id ?? this.url}"`,
             consequence:
               'merging forward could silently change the controller or drop ' +
               'the existing name',

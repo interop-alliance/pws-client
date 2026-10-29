@@ -56,8 +56,8 @@ import {
   ownerRecipient
 } from '../../src/edv/index.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
  * Retypes a stored `custom` value read back off the wire so it can be written
@@ -116,16 +116,16 @@ async function freshClients(): Promise<{
   })
   return {
     encrypted: WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner(),
       encryption
     }),
     plaintext: WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     }),
     keyless: WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner(),
       encryption: createEdvEncryption({ resolveKeys: async () => null })
     }),

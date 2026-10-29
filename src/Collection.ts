@@ -17,7 +17,6 @@
  */
 import {
   canonicalSpaceUrl,
-  spaceIdOfCanonicalUrl,
   collectionUrl,
   collectionPolicyUrl,
   collectionLinksetUrl,
@@ -234,10 +233,6 @@ export class Collection {
    * The URL of the Space this Collection lives in, in canonical form.
    */
   readonly spaceUrl: string
-  /**
-   * The id of that Space: the last path segment of {@link spaceUrl}.
-   */
-  readonly spaceId: string
   readonly id: string
   /**
    * The Collection container in canonical (trailing-slash) form: the URL whose
@@ -293,7 +288,6 @@ export class Collection {
     assertNotReserved({ id: collectionId, kind: 'collection' })
     this.#context = context
     this.spaceUrl = canonicalSpaceUrl(spaceUrl)
-    this.spaceId = spaceIdOfCanonicalUrl(this.spaceUrl)
     this.url = collectionUrl({ spaceUrl: this.spaceUrl, collectionId })
     this.id = collectionId
     // Every URL this handle addresses is derived once: `spaceUrl` is

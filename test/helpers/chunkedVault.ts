@@ -27,17 +27,17 @@ import {
  * first epoch is wrapped to.
  *
  * @param options {object}
- * @param options.serviceUrl {string}   the server's service description URL
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.maxBlobBytes {number}   the routing threshold
  * @param options.chunkSize {number}      the size of each encrypted chunk
  * @returns {Promise<{ was: WasClient; kak: IKeyAgreementKey }>}
  */
 export async function chunkedClient({
-  serviceUrl,
+  baseServerUrl,
   maxBlobBytes,
   chunkSize
 }: {
-  serviceUrl: string
+  baseServerUrl: string
   maxBlobBytes: number
   chunkSize: number
 }): Promise<{ was: WasClient; kak: IKeyAgreementKey }> {
@@ -65,7 +65,7 @@ export async function chunkedClient({
   })
   return {
     was: WasClient.fromSigner({
-      serviceUrl,
+      baseServerUrl,
       signer: keyPair.didKeySigner(),
       encryption
     }),

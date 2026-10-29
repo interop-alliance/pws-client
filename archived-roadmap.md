@@ -4442,3 +4442,129 @@ an epoch the descriptor does not list and `KeyUnwrapError` for an epoch that
 wraps to no key this reader holds; this third bucket was never considered.
 
 discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-141: [H] [blocks 1] [after WASS-60] Build the client from a base server URL and open a fixed Space from its own URL
+
+- status: done (2026-10-29)
+- priority: high
+- labels: discovery, paths, breaking, api
+- discovered-from: WCL-140 (2026-10-29)
+- decision: decisions/0003-server-layout-is-fixed-under-a-base-server-url.md
+- blocked-by: WASS-60 (the Server Discovery section; drafted 2026-10-29 on the
+  spec branch; this item implements that draft)
+- blocks: WCL-140
+- touches:
+  - was-client: SHIPPED (2026-10-29, unreleased): `src/WasClient.ts`,
+    `src/internal/paths.ts`, `src/paths.ts`, `src/internal/service.ts`,
+    `src/index.ts`, `src/Space.ts`, `src/Collection.ts`, `src/Resource.ts`,
+    `src/sync/provisioning.ts`, README.md, ARCHITECTURE.md, CHANGELOG.md
+    (AGENTS.md needed no change), `test/helpers/*`, the node, integration and
+    browser suites
+  - every consumer: tracked by WCL-140, which carries the cross-repo entries
+- acceptance:
+  - [x] Names settled (2026-10-29): the constructor option is `baseServerUrl`
+        (matching the spec's "base server URL") and the fixed-Space entry point
+        is the static `WasClient.forSpace({ spaceUrl, ... })`
+  - [x] `new WasClient` and `WasClient.fromSigner` take `{ baseServerUrl }` plus
+        the optional cached `serviceDescription`; the `serviceUrl` and
+        `spacesUrl` arms, the `was.serviceUrl` and `was.spacesUrl` fields, and
+        the "exactly one of" check are removed. The value must be an absolute
+        http(s) URL with no query or fragment (`ValidationError` otherwise); a
+        missing trailing slash is supplied, not rejected (settled 2026-10-29).
+        The normalized value is exposed read-only as `was.baseServerUrl`
+  - [x] `src/internal/paths.ts` gains the three server-level builders from a
+        base (`serviceDescriptionUrl({ baseServerUrl })`,
+        `spacesRepositoryUrl({ baseServerUrl })`,
+        `spaceUrlById({ baseServerUrl, spaceId })`; named so they do not shadow
+        the `spaceUrl` parameters used throughout) and one inverse,
+        `baseServerUrlOf(url)`, which accepts a service URL, a Spaces Repository
+        URL or a Space URL, strips the segments the layout adds, and throws
+        `ValidationError` for a URL in none of the three forms; `src/paths.ts`
+        re-exports the builders, the inverse, `canonicalBaseServerUrl` and
+        `splitCollectionUrl`. `spaceIdOfUrl` still refuses an origin root;
+        `canonicalSpaceUrl` now accepts one
+  - [x] `was.space(id)` returns a `Space` handle on `{base}space/{id}/`
+        synchronously, validating `id` as a Space id; `spaceAt(url)` stays and
+        is not checked against the base; `createSpace` still builds its handle
+        from `Location` (relative values resolve against `{base}spaces/`) and
+        `listSpaces` addresses `{base}spaces/`, a value taken from the base
+        rather than from the description (every signed request waits on
+        discovery anyway, which is where the Repository's presence is checked)
+  - [x] The service description is read with an unsigned `GET` of
+        `{base}service`; `discoverService` (HEAD plus `service` link) is kept
+        only for the fixed-Space entry point. `was.service()` checks the
+        document's `url` against `{base}service` and, when `spaces` is present,
+        against `{base}spaces/`, and throws `IncompatibleServerError` naming
+        both values on a mismatch. `ServiceInfo.spacesUrl` stays as the
+        description's value; `#spacesRepositoryUrl` keeps its
+        `NotSupportedError` for a server without the Repository
+  - [x] `WasClient.forSpace` takes a Space URL and the same `zcapClient` /
+        `signer` / `encryption` / `serviceDescription` options, discovers the
+        description through the `service` link on a HEAD of the Space URL, and
+        returns a client whose `space(id)`, `createSpace` and `listSpaces` throw
+        `NotSupportedError` (no base) and whose `spaceAt`, `fromCapability`,
+        `grant`, `revoke`, `publicRead` and the public list methods work
+        unchanged. It has no collection-management option; the feature token
+        decides. The handle it yields is the same `Space` type
+  - [x] An origin-root Space URL (`https://alice.example/`) is a valid Space
+        URL: `canonicalSpaceUrl` accepts it, and so do `spaceAt`, `forSpace`,
+        `spaceUrlOf` and the `Space` / `Collection` / `Resource` constructors.
+        The "at least one path segment" rule moves to the one caller that needs
+        an id (`spaceIdOfUrl`), and `Collection.spaceId` and `Resource.spaceId`,
+        which nothing in `src` consumes, are removed rather than made optional
+        (consumers are tracked by WCL-140). `test/node/paths.test.ts` and
+        `test/node/handles.test.ts` cover the origin-root Space end to end: a
+        Collection URL of `https://alice.example/posts/`, its root capability
+        id, and a grant and `fromCapability` round trip rooted at the origin
+  - [x] `was.collectionAt(collectionUrl, options)` opens a `Collection` handle
+        on an absolute Collection URL, mirroring `spaceAt`: the parent container
+        is the Space URL and the last segment is the Collection id, so the
+        handle's `url` and `spaceUrl` are byte-identical to what
+        `spaceAt(parent).collection(id)` would produce. The same `HandleOptions`
+        apply (`capability`, `encryption`); a URL with no segment beneath its
+        origin, or whose last segment is a reserved Collection id, is a
+        `ValidationError`. Covered in `test/node/handles.test.ts` under both a
+        `{base}space/{id}/` Space and an origin-root Space, and documented
+        beside `spaceAt` in README.md
+  - [x] `test/node/service.test.ts` covers: base validation (each rejected
+        shape), the `url` and `spaces` consistency checks (match, mismatch,
+        `spaces` absent), `space(id)` URL formation under an origin-root base
+        and a sub-path base, and `baseServerUrlOf` round-tripping with each of
+        the three builders and rejecting a URL in none of the three forms.
+        `test/node/handles.test.ts` covers the fixed-Space client's
+        `NotSupportedError` surface. The integration suite builds its clients
+        from the base the testing counterpart returns, and
+        `test/integration/service-description.test.ts` asserts the description
+        agrees with the base. `test/integration/globalSetup.ts` derives the base
+        from `startTestServer` until WAS-234 returns it directly
+  - [x] README.md (Constructing a client, Service discovery, the migration table
+        row for `new Client(url)`), ARCHITECTURE.md (Service discovery, the
+        request lifecycle paragraph that says the client holds no base, and the
+        Glossary entries for service URL, Spaces URL and the new base server
+        URL) and AGENTS.md describe the base layout and the fixed-Space entry
+        point, and no doc says a Space URL cannot be constructed
+  - [x] CHANGELOG.md gains a breaking entry under a new minor version describing
+        the constructor change, `space(id)` returning, the removed fields, the
+        consistency check, and the fixed-Space entry point; `pnpm lint`,
+        `pnpm test:node`, `pnpm test:integration` and `pnpm test:browser` pass
+
+This is the client half of decision 0003, which supersedes the 0.100.0 shape
+(the client was built from a service URL or a Spaces URL, assembled no Space
+URL, and had no `space(id)`). The spec's new Server Discovery section fixes the
+three server-level endpoints as `{base}service`, `{base}spaces/` and
+`{base}space/{space_id}/` under one base server URL, and defines a single fixed
+Space with no base whose service description is found only through the `service`
+link. The client therefore has two ways in, and `collectionAt` opens a
+Collection directly by URL for the fixed-Space case, where a consumer typically
+holds the Collection URLs and nothing else. From a base it constructs everything
+above a Space itself and uses the service description only as a consistency
+check and a feature list. From a Space URL it discovers the description and
+offers every Space-scoped operation, with the id-addressed operations refused as
+unsupported. What 0.100.0 got right stays: a handle's URL is byte-identical to
+what the server advertised, `createSpace` trusts `Location`, every URL beneath a
+Space derives from the Space URL, and a received Space URL (grant, DID,
+`Location`) is never rewritten to fit the base. The passphrase login in
+wallet-core, the case that forced the reversal, becomes `space(derivedId)`
+followed by `PUT .../meta` with if-none-match, with no listing and no stored
+base. The option name `baseServerUrl`, the trailing-slash normalization and the
+`WasClient.forSpace` name were settled with the maintainer on 2026-10-29.

@@ -17,13 +17,13 @@ test('WasClient builds lazy handles in the browser', async ({ page }) => {
     const { WasClient } = (await import('/src/index.ts')) as {
       WasClient: typeof WasClientClass
     }
-    // The constructor only stores serviceUrl + zcapClient; a minimal stub is
+    // The constructor only stores baseServerUrl + zcapClient; a minimal stub is
     // enough to exercise synchronous, network-free handle construction.
     const stubZcapClient = {
       invocationSigner: { id: 'did:example:1#key-1' }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const was = new WasClient({
-      serviceUrl: 'https://was.example/service',
+      baseServerUrl: 'https://was.example/',
       zcapClient: stubZcapClient
     })
     const resource = was
@@ -31,14 +31,14 @@ test('WasClient builds lazy handles in the browser', async ({ page }) => {
       .collection('c')
       .resource('r')
     return {
-      spaceId: resource.spaceId,
+      spaceUrl: resource.spaceUrl,
       collectionId: resource.collectionId,
       resourceId: resource.id,
       controllerDid: was.controllerDid
     }
   })
   expect(result).toEqual({
-    spaceId: 's',
+    spaceUrl: 'https://was.example/space/s/',
     collectionId: 'c',
     resourceId: 'r',
     controllerDid: 'did:example:1'

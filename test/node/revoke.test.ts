@@ -249,7 +249,7 @@ describe('was.revoke (space derived from the delegation chain)', () => {
 
   it('rejects a root capability that names no Space URL', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    for (const target of ['https://was.example/', 'did:example:alice']) {
+    for (const target of ['did:example:alice']) {
       await expect(
         client.revoke(delegatedZcap({ rootId: rootCapabilityId(target) }))
       ).rejects.toThrow(ValidationError)

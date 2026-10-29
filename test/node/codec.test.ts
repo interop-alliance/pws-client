@@ -34,7 +34,7 @@ import { rootCapabilityId } from '../../src/paths.js'
 import { drain } from '../helpers/bytes.js'
 import {
   serviceDescriptionFor,
-  serviceUrlFor,
+  baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -150,7 +150,7 @@ function clientWithRouter({
     }
   } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
   const client = new WasClient({
-    serviceUrl: serviceUrlFor(),
+    baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
     encryption
@@ -643,7 +643,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption
@@ -749,7 +749,7 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
       }
     } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
     const client = new WasClient({
-      serviceUrl: serviceUrlFor(),
+      baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
       encryption

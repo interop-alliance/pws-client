@@ -4,15 +4,16 @@
 /**
  * Vitest global setup for the live-server integration tier. When
  * `TEST_SERVER_URL` is unset it boots the reference server in-process on an
- * OS-assigned port over a temporary filesystem backend, publishes the URL of
- * its service description (the `serviceUrl` a `WasClient` takes) through
+ * OS-assigned port over a temporary filesystem backend, publishes its base
+ * server URL (the `baseServerUrl` a `WasClient` takes) through
  * `TEST_SERVER_URL` for the suites, and tears the server down (which removes
  * the temp dir) after the run. When `TEST_SERVER_URL` is already set, it
  * leaves it alone, so the tier can still be pointed at an external server;
- * set it to that server's service description URL.
+ * set it to that server's base server URL.
  */
 import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
 import { discoverService } from '../../src/index.js'
+import { baseServerUrlOf } from '../../src/paths.js'
 
 export default async function setup(): Promise<() => Promise<void>> {
   if (process.env.TEST_SERVER_URL) {
@@ -30,7 +31,7 @@ export default async function setup(): Promise<() => Promise<void>> {
     await fastify.close()
     throw err
   }
-  process.env.TEST_SERVER_URL = description.url
+  process.env.TEST_SERVER_URL = baseServerUrlOf(description.url)
   return async () => {
     await fastify.close()
   }

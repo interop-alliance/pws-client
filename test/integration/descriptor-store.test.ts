@@ -33,8 +33,8 @@ import type { EncryptionDescriptorStore } from '../../src/edv/index.js'
 import { resolveEpochKeys } from '../../src/edv/epochKeys.js'
 import { makeDidKeyKak as makeReader } from '../helpers/party.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 describeLive('resource-hosted descriptor store (live server)', () => {
   let owner: WasClient
@@ -51,7 +51,7 @@ describeLive('resource-hosted descriptor store (live server)', () => {
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
     owner = WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     })
 

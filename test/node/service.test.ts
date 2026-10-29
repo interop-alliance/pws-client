@@ -4,10 +4,11 @@
 /**
  * Unit tests for service discovery: the `rel="service"` Link header parser,
  * version selection against fixture service descriptions, the two ways to
- * name a server (`serviceUrl`, `spacesUrl`), and `WasClient.service()` with
- * the gate every signed request passes through. A
- * stubbed global `fetch` serves the discovery requests and a stub `ZcapClient`
- * records signed ones, so no server is involved.
+ * open a client (`baseServerUrl`, `WasClient.forSpace`), the consistency
+ * check of a description against the base, and `WasClient.service()` with
+ * the gate every signed request passes through. A stubbed global `fetch`
+ * serves the discovery requests and a stub `ZcapClient` records signed ones,
+ * so no server is involved.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
@@ -32,7 +33,9 @@ import type { RequestArgs } from '../helpers/stubClient.js'
 import { jsonResponse } from '../helpers/stubClient.js'
 
 const SPACES_URL = 'https://host.example/was/spaces/'
+const BASE_URL = 'https://host.example/was/'
 const SERVICE_URL = 'https://host.example/was/service'
+const ALICE_URL = 'https://alice.example/'
 
 /**
  * A service description in the shape of the spec's example: a v0.5 and a v0.4
@@ -300,27 +303,14 @@ function stubDiscovery({
 }
 
 /**
- * Builds a `WasClient` over a stub `ZcapClient` that records signed requests
- * and answers each with `data`. The client is built from the service URL
- * unless `spacesUrl` is given.
+ * A stub `ZcapClient` that records signed requests and answers each with
+ * `data`.
  *
- * @param [options] {object}
- * @param [options.data] {unknown}   the signed response body
- * @param [options.serviceDescription] {ServiceDescription}
- * @param [options.spacesUrl] {string}   build from this Spaces Repository URL
- *   instead of {@link SERVICE_URL}
- * @returns {{ was: WasClient, signed: RequestArgs[] }}
+ * @param [data] {unknown}   the signed response body
+ * @returns {{ zcapClient: ZcapClientType, signed: RequestArgs[] }}
  */
-function client({
-  data = { id: 'new-space' },
-  serviceDescription,
-  spacesUrl
-}: {
-  data?: unknown
-  serviceDescription?: ServiceDescription
-  spacesUrl?: string
-} = {}): {
-  was: WasClient
+function stubZcapClient(data: unknown = { id: 'new-space' }): {
+  zcapClient: ZcapClientType
   signed: RequestArgs[]
 } {
   const signed: RequestArgs[] = []
@@ -334,16 +324,79 @@ function client({
         headers: { location: 'https://host.example/was/space/new-space/' }
       })
     }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  const was =
-    spacesUrl === undefined
-      ? new WasClient({
-          serviceUrl: SERVICE_URL,
-          zcapClient,
-          serviceDescription
-        })
-      : new WasClient({ spacesUrl, zcapClient, serviceDescription })
+  } as unknown as ZcapClientType
+  return { zcapClient, signed }
+}
+
+type ZcapClientType = ConstructorParameters<typeof WasClient>[0]['zcapClient']
+
+/**
+ * Builds a `WasClient` over a stub `ZcapClient`, from {@link BASE_URL}.
+ *
+ * @param [options] {object}
+ * @param [options.data] {unknown}   the signed response body
+ * @param [options.serviceDescription] {ServiceDescription}
+ * @returns {{ was: WasClient, signed: RequestArgs[] }}
+ */
+function client({
+  data,
+  serviceDescription
+}: {
+  data?: unknown
+  serviceDescription?: ServiceDescription
+} = {}): {
+  was: WasClient
+  signed: RequestArgs[]
+} {
+  const { zcapClient, signed } = stubZcapClient(data)
+  const was = new WasClient({
+    baseServerUrl: BASE_URL,
+    zcapClient,
+    serviceDescription
+  })
   return { was, signed }
+}
+
+/**
+ * Builds a `WasClient` fixed on the Space at `spaceUrl`.
+ *
+ * @param [options] {object}
+ * @param [options.spaceUrl] {string}   defaults to {@link ALICE_URL}
+ * @param [options.serviceDescription] {ServiceDescription}
+ * @returns {{ was: WasClient, signed: RequestArgs[] }}
+ */
+function spaceClient({
+  spaceUrl = ALICE_URL,
+  serviceDescription
+}: {
+  spaceUrl?: string
+  serviceDescription?: ServiceDescription
+} = {}): { was: WasClient; signed: RequestArgs[] } {
+  const { zcapClient, signed } = stubZcapClient()
+  const was = WasClient.forSpace({ spaceUrl, zcapClient, serviceDescription })
+  return { was, signed }
+}
+
+/**
+ * The fixture description with its `url` and `spaces` members replaced.
+ *
+ * @param [options] {object}
+ * @param [options.url] {string}
+ * @param [options.spaces] {string | null}   `null` omits the member
+ * @returns {ServiceDescription}
+ */
+function descriptionWith({
+  url = SERVICE_URL,
+  spaces = SPACES_URL
+}: { url?: string; spaces?: string | null } = {}): ServiceDescription {
+  return {
+    url,
+    specs: {
+      [PWS_SPEC_ID]: [
+        spaces === null ? { version: '0.5' } : { version: '0.5', spaces }
+      ]
+    }
+  }
 }
 
 afterEach(() => {
@@ -366,8 +419,8 @@ describe('readServiceDescription', () => {
   })
 })
 
-describe('WasClient.service() from a service URL', () => {
-  it('GETs the service URL unsigned, with no HEAD probe', async () => {
+describe('WasClient.service() from a base server URL', () => {
+  it('GETs {base}service unsigned, with no HEAD probe', async () => {
     const calls = stubDiscovery()
     const { was, signed } = client()
     const info = await was.service()
@@ -427,92 +480,64 @@ describe('WasClient.service() from a service URL', () => {
   })
 })
 
-describe('WasClient.service() from a Spaces Repository URL', () => {
-  it('HEADs spacesUrl, follows the service link, and reads it unsigned', async () => {
+describe('the description is checked against the base', () => {
+  it('passes a description that agrees with the base', async () => {
+    stubDiscovery()
+    expect((await client().was.service()).version).toBe('0.5')
     const calls = stubDiscovery()
-    const { was, signed } = client({ spacesUrl: SPACES_URL })
-    const info = await was.service()
-    expect(info.version).toBe('0.5')
-    expect(info.spacesUrl).toBe(SPACES_URL)
-    expect(calls.map(call => `${call.method} ${call.url}`)).toEqual([
-      `HEAD ${SPACES_URL}`,
-      `GET ${SERVICE_URL}`
-    ])
-    const headerNames = calls.flatMap(call =>
-      Object.keys(call.headers).map(name => name.toLowerCase())
+    const { was } = client({ serviceDescription: descriptionWith() })
+    expect((await was.service()).version).toBe('0.5')
+    expect(calls).toEqual([])
+  })
+
+  it('refuses a description whose url differs, naming both URLs', async () => {
+    const other = descriptionWith({ url: 'https://other.example/service' })
+    const failure = client({ serviceDescription: other }).was.service()
+    await expect(failure).rejects.toThrow(IncompatibleServerError)
+    await expect(failure).rejects.toThrow('https://other.example/service')
+    await expect(failure).rejects.toThrow(SERVICE_URL)
+  })
+
+  it('refuses a description fetched from the base that names another url', async () => {
+    stubDiscovery({
+      body: JSON.stringify(descriptionWith({ url: 'https://other.example/s' }))
+    })
+    await expect(client().was.service()).rejects.toThrow(
+      IncompatibleServerError
     )
-    expect(headerNames).not.toContain('authorization')
-    expect(headerNames).not.toContain('capability-invocation')
+  })
+
+  it('refuses a description whose spaces differs, naming both URLs', async () => {
+    const other = descriptionWith({
+      spaces: 'https://host.example/else/spaces/'
+    })
+    const failure = client({ serviceDescription: other }).was.service()
+    await expect(failure).rejects.toThrow(IncompatibleServerError)
+    await expect(failure).rejects.toThrow('https://host.example/else/spaces/')
+    await expect(failure).rejects.toThrow(SPACES_URL)
+  })
+
+  it('accepts a spaces URL advertised without its trailing slash', async () => {
+    const slashless = descriptionWith({
+      spaces: 'https://host.example/was/spaces'
+    })
+    const { was } = client({ serviceDescription: slashless })
+    expect((await was.service()).spacesUrl).toBe(SPACES_URL)
+  })
+
+  it('passes a description with no spaces, then refuses createSpace and listSpaces', async () => {
+    const { was, signed } = client({
+      serviceDescription: descriptionWith({ spaces: null })
+    })
+    expect((await was.service()).spacesUrl).toBeUndefined()
+    await expect(was.createSpace()).rejects.toThrow(NotSupportedError)
+    await expect(was.listSpaces()).rejects.toThrow(
+      `The server at "${SERVICE_URL}" does not implement the Spaces Repository`
+    )
     expect(signed).toEqual([])
   })
 
-  it('reads the link from a 308 or any other probe status', async () => {
-    stubDiscovery({ probeStatus: 308 })
-    expect(
-      (await client({ spacesUrl: SPACES_URL }).was.service()).version
-    ).toBe('0.5')
-  })
-
-  it('memoizes the probe and the read together', async () => {
-    const calls = stubDiscovery()
-    const { was } = client({ spacesUrl: SPACES_URL })
-    await Promise.all([was.service(), was.service()])
-    await was.spaceAt('https://host.example/was/space/s/').describe()
-    expect(calls).toHaveLength(2)
-    await was.service({ refresh: true })
-    expect(calls).toHaveLength(4)
-  })
-
-  it('refuses a server whose response has no service link (pre-0.5)', async () => {
-    stubDiscovery({ link: null })
-    const { was } = client({ spacesUrl: SPACES_URL })
-    await expect(was.service()).rejects.toThrow(IncompatibleServerError)
-  })
-
-  it('refuses a service link whose target answers 404', async () => {
-    stubDiscovery({ serviceStatus: 404, body: '' })
-    await expect(
-      client({ spacesUrl: SPACES_URL }).was.service()
-    ).rejects.toThrow(IncompatibleServerError)
-  })
-
-  it('reports a server fault without the link as transient, and retries', async () => {
-    stubDiscovery({ probeStatus: 503, link: null })
-    const { was } = client({ spacesUrl: SPACES_URL })
-    const failure = was.service()
-    await expect(failure).rejects.toThrow(WasServerError)
-    await expect(failure).rejects.not.toThrow(IncompatibleServerError)
-    stubDiscovery()
-    expect((await was.service()).version).toBe('0.5')
-  })
-
-  it.each([501, 505, 507])(
-    'refuses a %i probe without the link as incompatible, with no status',
-    async probeStatus => {
-      stubDiscovery({ probeStatus, link: null })
-      const failure = client({ spacesUrl: SPACES_URL }).was.service()
-      await expect(failure).rejects.toThrow(IncompatibleServerError)
-      await expect(failure).rejects.toMatchObject({ status: undefined })
-    }
-  )
-})
-
-describe('WasClient.service() with a supplied description', () => {
-  it('selects from a constructor-supplied description without fetching', async () => {
-    for (const spacesUrl of [undefined, SPACES_URL]) {
-      const calls = stubDiscovery()
-      const { was } = client({
-        serviceDescription: exampleDescription(),
-        spacesUrl
-      })
-      expect((await was.service()).version).toBe('0.5')
-      expect(calls).toEqual([])
-      await was.service({ refresh: true })
-      expect(calls).toHaveLength(spacesUrl === undefined ? 1 : 2)
-    }
-  })
-
-  it('refuses a constructor-supplied description with no understood version', async () => {
+  it('refuses a cached description with no understood version', async () => {
     const calls = stubDiscovery()
     const { was } = client({
       serviceDescription: {
@@ -524,152 +549,185 @@ describe('WasClient.service() with a supplied description', () => {
     expect(calls).toEqual([])
   })
 
-  it('refuses a constructor-supplied description of another server', async () => {
-    // The server is identified by its service URL, so a cached description
-    // whose `url` is some other service URL is a cache keyed wrongly, not
-    // the server this client was built for. A client built from `spacesUrl`
-    // names no service URL to compare against, and accepts the copy.
-    const calls = stubDiscovery()
-    const other = {
-      url: 'https://other.example/was/service',
-      specs: {
-        [PWS_SPEC_ID]: [
-          { version: '0.5', spaces: 'https://other.example/was/spaces/' }
-        ]
-      }
-    }
-    await expect(
-      client({ serviceDescription: other }).was.service()
-    ).rejects.toThrow(IncompatibleServerError)
-    expect(
-      (
-        await client({
-          serviceDescription: other,
-          spacesUrl: SPACES_URL
-        }).was.service()
-      ).version
-    ).toBe('0.5')
-    expect(calls).toEqual([])
-  })
-
-  it('accepts a constructor-supplied description whose url serializes to serviceUrl', async () => {
+  it('accepts a cached description whose url serializes to {base}service', async () => {
     const { was } = client({
-      serviceDescription: {
-        url: 'https://HOST.example:443/was/service',
-        specs: { [PWS_SPEC_ID]: [{ version: '0.5' }] }
-      }
+      serviceDescription: descriptionWith({
+        url: 'https://HOST.example:443/was/service'
+      })
     })
     expect((await was.service()).version).toBe('0.5')
   })
+})
 
-  it('accepts a description whose spaces differs from spacesUrl, and creates Spaces there', async () => {
-    // The client checks the description's `spaces` against nothing: the
-    // server names its own Spaces Repository, and `createSpace` posts to it,
-    // whatever URL the client was built from. Only the container's trailing
-    // slash is supplied when it is missing, since the bare form would
-    // 308-redirect a signed request.
-    for (const [spaces, expected] of [
-      ['https://repo.example/tenants/', 'https://repo.example/tenants/'],
-      [
-        'https://host.example/other/spaces/',
-        'https://host.example/other/spaces/'
-      ],
-      [
-        'https://host.example/was/spaces/?tenant=a',
-        'https://host.example/was/spaces/?tenant=a'
-      ],
-      [
-        'https://host.example/was/spaces?tenant=a',
-        'https://host.example/was/spaces/?tenant=a'
-      ],
-      [
-        'https://HOST.example:443/was/spaces',
-        'https://HOST.example:443/was/spaces/'
-      ]
-    ]) {
-      const { was, signed } = client({
-        spacesUrl: SPACES_URL,
-        serviceDescription: {
-          url: SERVICE_URL,
-          specs: { [PWS_SPEC_ID]: [{ version: '0.5', spaces }] }
-        }
+describe('WasClient.forSpace()', () => {
+  it('HEADs the Space URL, follows the service link, and GETs it unsigned', async () => {
+    const calls = stubDiscovery()
+    const { was, signed } = spaceClient()
+    const info = await was.service()
+    expect(info.version).toBe('0.5')
+    expect(calls.map(call => `${call.method} ${call.url}`)).toEqual([
+      `HEAD ${ALICE_URL}`,
+      `GET ${SERVICE_URL}`
+    ])
+    const headerNames = calls.flatMap(call =>
+      Object.keys(call.headers).map(name => name.toLowerCase())
+    )
+    expect(headerNames).not.toContain('authorization')
+    expect(signed).toEqual([])
+  })
+
+  it('does not check the description against any base', async () => {
+    const calls = stubDiscovery({
+      body: JSON.stringify(
+        descriptionWith({
+          url: 'https://elsewhere.example/service',
+          spaces: 'https://elsewhere.example/spaces/'
+        })
+      )
+    })
+    const info = await spaceClient().was.service()
+    expect(info.version).toBe('0.5')
+    expect(calls).toHaveLength(2)
+    const cached = spaceClient({
+      serviceDescription: descriptionWith({
+        url: 'https://elsewhere.example/s'
       })
-      expect((await was.service()).spacesUrl).toBe(expected)
-      await was.createSpace({ name: 'Home' })
-      expect(signed[0]?.url).toBe(expected)
-      expect(signed[0]?.method).toBe('POST')
+    })
+    expect((await cached.was.service()).version).toBe('0.5')
+  })
+
+  it('exposes spaceUrl and no baseServerUrl', () => {
+    const { was } = spaceClient({ spaceUrl: 'https://ALICE.example:443' })
+    expect(was.spaceUrl).toBe(ALICE_URL)
+    expect(was.baseServerUrl).toBeUndefined()
+  })
+
+  it('opens the fixed Space and its Collections at the origin', () => {
+    const { was } = spaceClient()
+    expect(was.spaceAt(was.spaceUrl!).collection('posts').url).toBe(
+      'https://alice.example/posts/'
+    )
+  })
+
+  it('throws NotSupportedError from space(id), createSpace() and listSpaces()', async () => {
+    const { was, signed } = spaceClient()
+    expect(() => was.space('s')).toThrow(NotSupportedError)
+    await expect(was.createSpace()).rejects.toThrow(NotSupportedError)
+    await expect(was.listSpaces()).rejects.toThrow(NotSupportedError)
+    expect(signed).toEqual([])
+  })
+
+  it('refuses both a zcapClient and a signer, or neither', () => {
+    const { zcapClient } = stubZcapClient()
+    expect(() =>
+      WasClient.forSpace({
+        spaceUrl: ALICE_URL,
+        zcapClient,
+        signer: {} as never
+      } as unknown as Parameters<typeof WasClient.forSpace>[0])
+    ).toThrow(ValidationError)
+    expect(() =>
+      WasClient.forSpace({ spaceUrl: ALICE_URL } as unknown as Parameters<
+        typeof WasClient.forSpace
+      >[0])
+    ).toThrow(ValidationError)
+  })
+
+  it('refuses a spaceUrl that is not an http(s) URL', () => {
+    const { zcapClient } = stubZcapClient()
+    for (const spaceUrl of ['ftp://alice.example/', 'not a url', '/space/s/']) {
+      expect(() => WasClient.forSpace({ spaceUrl, zcapClient })).toThrow(
+        ValidationError
+      )
     }
   })
 })
 
-describe('WasClient construction', () => {
-  const zcapClient = client().was.zcapClient
-
-  it('exposes serviceUrl or spacesUrl, whichever it was built from', () => {
-    const fromService = new WasClient({ serviceUrl: SERVICE_URL, zcapClient })
-    expect(fromService.serviceUrl).toBe(SERVICE_URL)
-    expect(fromService.spacesUrl).toBe(undefined)
-    const fromSpaces = new WasClient({ spacesUrl: SPACES_URL, zcapClient })
-    expect(fromSpaces.spacesUrl).toBe(SPACES_URL)
-    expect(fromSpaces.serviceUrl).toBe(undefined)
+describe('WasClient.service() on a client fixed on a Space (forSpace)', () => {
+  it('reads the link from a 308 or any other probe status', async () => {
+    stubDiscovery({ probeStatus: 308 })
+    expect((await spaceClient().was.service()).version).toBe('0.5')
   })
 
-  it('serializes the URL it was given as URL does', () => {
-    expect(
-      new WasClient({
-        serviceUrl: 'https://HOST.example:443/was/service',
-        zcapClient
-      }).serviceUrl
-    ).toBe(SERVICE_URL)
+  it('memoizes the probe and the read together', async () => {
+    const calls = stubDiscovery()
+    const { was } = spaceClient()
+    await Promise.all([was.service(), was.service()])
+    expect(calls).toHaveLength(2)
+    await was.service({ refresh: true })
+    expect(calls).toHaveLength(4)
   })
 
-  it('stores spacesUrl in canonical container form', () => {
-    for (const spacesUrl of [
-      'https://host.example/was/spaces',
-      'https://HOST.example:443/was/spaces/'
-    ]) {
-      expect(new WasClient({ spacesUrl, zcapClient }).spacesUrl).toBe(
-        SPACES_URL
-      )
+  it('refuses a server whose response has no service link (pre-0.5)', async () => {
+    stubDiscovery({ link: null })
+    await expect(spaceClient().was.service()).rejects.toThrow(
+      IncompatibleServerError
+    )
+  })
+
+  it('refuses a service link whose target answers 404', async () => {
+    stubDiscovery({ serviceStatus: 404, body: '' })
+    await expect(spaceClient().was.service()).rejects.toThrow(
+      IncompatibleServerError
+    )
+  })
+
+  it('reports a server fault without the link as transient, and retries', async () => {
+    stubDiscovery({ probeStatus: 503, link: null })
+    const { was } = spaceClient()
+    const failure = was.service()
+    await expect(failure).rejects.toThrow(WasServerError)
+    await expect(failure).rejects.not.toThrow(IncompatibleServerError)
+    stubDiscovery()
+    expect((await was.service()).version).toBe('0.5')
+  })
+
+  it.each([501, 505, 507])(
+    'refuses a %i probe without the link as incompatible, with no status',
+    async probeStatus => {
+      stubDiscovery({ probeStatus, link: null })
+      const failure = spaceClient().was.service()
+      await expect(failure).rejects.toThrow(IncompatibleServerError)
+      await expect(failure).rejects.toMatchObject({ status: undefined })
     }
+  )
+})
+
+describe('WasClient construction', () => {
+  const { zcapClient } = stubZcapClient()
+
+  it('exposes baseServerUrl in canonical form', () => {
     expect(
-      new WasClient({
-        spacesUrl: 'https://host.example/was/spaces?tenant=a',
-        zcapClient
-      }).spacesUrl
-    ).toBe('https://host.example/was/spaces/?tenant=a')
+      new WasClient({ baseServerUrl: BASE_URL, zcapClient })
+    ).toMatchObject({ baseServerUrl: BASE_URL })
+    expect(
+      new WasClient({ baseServerUrl: 'https://h/pws', zcapClient })
+        .baseServerUrl
+    ).toBe('https://h/pws/')
+    expect(
+      new WasClient({ baseServerUrl: 'https://HOST.example:443', zcapClient })
+        .baseServerUrl
+    ).toBe('https://host.example/')
+    expect(
+      new WasClient({ baseServerUrl: BASE_URL, zcapClient }).spaceUrl
+    ).toBeUndefined()
   })
 
-  it('refuses both a serviceUrl and a spacesUrl, or neither', () => {
-    expect(
-      () =>
-        new WasClient({
-          serviceUrl: SERVICE_URL,
-          spacesUrl: SPACES_URL,
-          zcapClient
-        } as unknown as ConstructorParameters<typeof WasClient>[0])
-    ).toThrow(ValidationError)
-    expect(
-      () =>
-        new WasClient({ zcapClient } as unknown as ConstructorParameters<
-          typeof WasClient
-        >[0])
-    ).toThrow(ValidationError)
-  })
-
-  it('refuses a URL that is not an absolute http(s) URL', () => {
-    for (const url of [
-      'file:///service',
-      'ftp://host.example/service',
-      '/service',
-      'not a url'
+  it('refuses a base that is not an absolute http(s) URL without query or fragment', () => {
+    for (const baseServerUrl of [
+      'not a url',
+      '/pws/',
+      'ftp://h/pws/',
+      'file:///pws/',
+      'https://h/pws/?q=1',
+      'https://h/pws/#frag'
     ]) {
-      expect(() => new WasClient({ serviceUrl: url, zcapClient })).toThrow(
+      expect(() => new WasClient({ baseServerUrl, zcapClient })).toThrow(
         ValidationError
       )
-      expect(() => new WasClient({ spacesUrl: url, zcapClient })).toThrow(
-        ValidationError
-      )
+      expect(() =>
+        WasClient.fromSigner({ baseServerUrl, signer: {} as never })
+      ).toThrow(ValidationError)
     }
   })
 })
@@ -702,13 +760,8 @@ describe('the discovery gate on signed requests', () => {
 })
 
 describe('the Spaces Repository URL', () => {
-  it('createSpace and listSpaces address the Spaces Repository URL', async () => {
-    const description: ServiceDescription = {
-      url: SERVICE_URL,
-      specs: {
-        [PWS_SPEC_ID]: [{ version: '0.5', spaces: SPACES_URL }]
-      }
-    }
+  it('createSpace and listSpaces address {base}spaces/', async () => {
+    const description = descriptionWith()
     const { was, signed } = client({ serviceDescription: description })
     const space = await was.createSpace({ name: 'Home' })
     expect(signed[0]?.url).toBe(SPACES_URL)
@@ -734,19 +787,5 @@ describe('the Spaces Repository URL', () => {
     await listing.was.listSpaces()
     expect(listing.signed[0]?.url).toBe(SPACES_URL)
     expect(listing.signed[0]?.method).toBe('GET')
-  })
-
-  it('refuses createSpace and listSpaces when the server has no Spaces Repository', async () => {
-    const { was, signed } = client({
-      serviceDescription: {
-        url: SERVICE_URL,
-        specs: { [PWS_SPEC_ID]: [{ version: '0.5' }] }
-      }
-    })
-    await expect(was.createSpace()).rejects.toThrow(NotSupportedError)
-    await expect(was.listSpaces()).rejects.toThrow(
-      `The server at "${SERVICE_URL}" does not implement the Spaces Repository`
-    )
-    expect(signed).toEqual([])
   })
 })

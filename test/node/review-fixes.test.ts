@@ -120,7 +120,6 @@ describe('a Space whose URL carries a path prefix', () => {
     expect(handle).toBeInstanceOf(Resource)
     const resource = handle as Resource
     expect(resource.spaceUrl).toBe(spaceUrl)
-    expect(resource.spaceId).toBe('s')
     expect(resource.collectionId).toBe('c')
     expect(resource.id).toBe('r')
     expect(resource.url).toBe('https://host/was/v1/space/s/c/r')

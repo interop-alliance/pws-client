@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 141
+nextAvailableId: 143
 
 <!-- roadmap-order:index:start -->
 
@@ -81,8 +81,10 @@ Ready:
 
 Waiting on another repo:
 
-- WCL-140 [H] Construct from a service URL; open Spaces by their own URL instead
-  of assembling one from a root (after WASS-60)
+- WCL-140 [H] Construct from a base server URL under a fixed server layout; open
+  a fixed Space by its own URL (after WASS-60)
+- WCL-142 [M] Remove the late in-place `encryption` declaration from
+  provisioning (after WAS-194)
 
 **Features**
 
@@ -1082,71 +1084,75 @@ without this upstream fix.
 Conformance gaps against the spec, and wire-contract changes the client adopts
 once the spec or the server has settled them.
 
-### WCL-140: [H] [after WASS-60] Construct from a service URL; open Spaces by their own URL instead of assembling one from a root
+### WCL-140: [H] [after WASS-60] Construct from a base server URL under a fixed server layout; open a fixed Space by its own URL
 
 - status: in-progress
 - priority: high
 - labels: discovery, paths, breaking, cross-repo, api
-- decision: decisions/0002-server-identity-is-the-service-url.md (accepted
-  2026-10-28)
-- blocked-by: WASS-60 (the spec text this contract implements; drafted and in
-  review 2026-10-28)
+- decision: decisions/0003-server-layout-is-fixed-under-a-base-server-url.md
+  (accepted 2026-10-29; supersedes 0002, whose shape shipped in 0.100.0)
+- blocked-by: WASS-60 (the spec text; drafted for 0002 on 2026-10-28, redrafted
+  to the 0003 layout on the spec's `clarify-url-derivation` branch 2026-10-29)
 - touches:
-  - was-client: SHIPPED (2026-10-28, unreleased 0.100.0): `src/WasClient.ts`
-    (`serviceUrl` / `spacesUrl` constructor arms, `spaceAt`, `createSpace` from
-    `Location`, `baseUrl` and `space(spaceId)` removed), `src/paths.ts` and
-    `src/internal/paths.ts` (`*Url` builders beneath a Space URL,
-    `canonicalSpaceUrl`, `spaceIdOfUrl`, `parseSpaceTarget({ spaceUrl })`),
-    `src/internal/service.ts` (`readServiceDescription`),
-    `src/internal/grant.ts` (`GrantOptions.spaceUrl`) and
-    `src/internal/revoke.ts` (`spaceUrlOf` reads the Space off the chain root),
-    the EDV and sync seams (`spaceId` to `spaceUrl`), ARCHITECTURE.md,
-    AGENTS.md, README.md, CHANGELOG.md; `test/integration/globalSetup.ts`
-    discovers the service URL itself until WAS-234 ships
-  - wallet-core: WC-307 (filed 2026-10-28: the DID template and its inverse, the
-    pointer shape, every base-URL parameter)
-  - wallet-request: WR-4 (filed 2026-10-28 as a draft; `WalletOnboardingQuery`)
-  - freewallet: FW-694 (filed 2026-10-28); was-react: WR-98 (filed 2026-10-28);
-    dcw: DCW-104
-  - was-teaching-server: WAS-234 (filed 2026-10-28: `startTestServer` returns
-    the service URL; the in-repo counterpart tests)
-  - portable-web-spaces-spec: WASS-60 (drafted, in review 2026-10-28)
+  - was-client: the 0002 shape SHIPPED in 0.100.0 (2026-10-28):
+    `src/WasClient.ts` (`serviceUrl` / `spacesUrl` arms, `spaceAt`,
+    `createSpace` from `Location`), `src/paths.ts` and `src/internal/paths.ts`
+    (`*Url` builders beneath a Space URL), `src/internal/service.ts`,
+    `src/internal/grant.ts` (`GrantOptions.spaceUrl`), `src/internal/revoke.ts`
+    (`spaceUrlOf`), the EDV and sync seams, docs. The 0003 shape is the
+    remaining work here: `src/WasClient.ts` (`baseServerUrl` arm, `space(id)`,
+    the fixed-Space entry point, the description consistency check),
+    `src/paths.ts` (server-level builders from a base server URL),
+    `src/internal/service.ts` (direct read from `{base}service`; HEAD discovery
+    kept for the fixed-Space entry point), ARCHITECTURE.md, AGENTS.md,
+    README.md, CHANGELOG.md; `test/integration/globalSetup.ts`
+  - wallet-core: WC-307 (re-scoped 2026-10-29 to 0003: the DID inverse also
+    yields the base server URL, the unlock Space returns to
+    `PUT {base}space/{derivedId}/meta`, `serviceUrl` parameters become
+    `baseServerUrl`)
+  - wallet-request: WR-4 (filed 2026-10-28 as a draft; `WalletOnboardingQuery`
+    carries `did` plus an optional `baseServerUrl`)
+  - freewallet: FW-694 (filed 2026-10-28; re-scope to 0003); was-react: WR-98
+    (re-scoped 2026-10-29: grants-only stores use `forSpace`, configured
+    sessions use `baseServerUrl`, parked behind WC-307 and WS-30); was-sync:
+    WS-30 (filed 2026-10-29: the controller port takes `spaceUrl`); dcw: DCW-104
+    (`profile_sync` stores `baseServerUrl`)
+  - storage-core: `ORIGIN_ROOT_RESERVED_COLLECTION_IDS` and optional
+    `SpaceMetadata.id` landed locally 2026-10-29 (0.42.0, unpublished;
+    was-client consumes it via `link:` until it is on npm)
+  - was-teaching-server: WAS-234 (re-scoped 2026-10-29: `startTestServer`
+    returns the base server URL; the server confirms the fixed layout and
+    reserves `service`, `spaces` and `space` at a root-mounted Space)
+  - portable-web-spaces-spec: WASS-60 (drafted 2026-10-28 for 0002; reverse per
+    0003: Reading This Document, Service Description and Spaces Repositories
+    state the fixed layout under a base server URL, the reserved segments gain
+    the three names, and the did:webvh text notes that the DID yields the base
+    server URL)
 - acceptance:
-  - [x] `new WasClient` and `fromSigner` take `{ serviceUrl }` or
-        `{ spacesUrl }` (names settled 2026-10-28), plus the optional cached
-        `serviceDescription`. A service URL is fetched directly; a Spaces URL is
-        probed with HEAD for its `service` link. Any other input is a
-        `ValidationError`
-  - [x] `createSpace` returns a Space handle built from the response's
+  - [x] 0.100.0: `createSpace` returns a Space handle built from the response's
         `Location`; `spaceAt(url)` opens a handle on an absolute Space URL the
-        caller holds; `space(spaceId)` is removed
-  - [x] `baseUrl`, `spacesUrl({ baseUrl })`, `baseUrlOfSpacesUrl`, and the
-        sub-path handling in `toUrl` are removed; nothing in the package builds
-        a URL from a root. Root capability ids derive from the Space URL as they
-        do today
-  - [x] Discovery does not compare the description's `spaces` member to the
-        Spaces URL the client was built on (settled 2026-10-28: a mismatch fails
-        on its own; `createSpace` and `listSpaces` address the description's
-        `spaces`)
-  - [ ] The testing counterpart returns the server's service URL (WAS-234), and
-        was-react's and dcw's counterpart tests stay green on the release
-  - [x] Decision 0002 is `accepted` with its two wallet-side open conventions
-        filled in (the pointer is `{ did, spaceUrl? }`; the onboarding query
-        carries `did` plus an optional `serviceUrl`), and every `touches:` entry
-        is annotated
+        caller holds; root capability ids and every URL beneath a Space derive
+        from the Space URL; `spaceUrlOf` reads the Space off a capability's
+        chain root. These carry forward unchanged under 0003
+  - [x] The client implementation (WCL-141) landed 2026-10-29 (unreleased)
+  - [ ] The testing counterpart returns the server's base server URL (WAS-234),
+        and was-react's and dcw's counterpart tests stay green on the release
+  - [ ] Every `touches:` entry is annotated with the item re-scoped to 0003
 
-Since 0.99 the constructor takes the Spaces Repository URL and derives a
-`baseUrl` from it by stripping the final `spaces` segment, and every Space,
-collection, resource, and `did.jsonl` URL, and every zcap `invocationTarget`, is
-assembled beneath that base. Every consumer holds a base URL and appends
-`/spaces/` on the way in. The spec permits neither derivation: the service
-description is the root of the URL graph, a server may be mounted under any
-path, and the Spaces Repository is optional. The client never needs to assemble
-a Space URL. It receives one from `Location` when it creates the Space, and
-otherwise the caller holds one, from a stored pointer or from resolving the
-Space's did:webvh (wallet-core owns that resolution, as the inverse of the
-template that mints the DID). discovered-from: the dcw /simplify pass of
-2026-10-27 and the spec reading that followed.
+Since 0.99 the constructor took the Spaces Repository URL and derived a base by
+stripping the final `spaces` segment. Decision 0002 (0.100.0) read the spec's
+silence above a Space as a prohibition: the client was built from a service URL
+or a Spaces URL, assembled no Space URL, and `space(spaceId)` was removed. The
+first wallet-core port found a consumer that rule cannot serve: a passphrase
+login holds a derived Space id and nothing that resolves to its URL, and the
+spec-conformant ways out (a List Spaces round trip on every login, or a Space
+URL template on the service description) cost more than the convention every
+consumer had already assumed. Decision 0003 fixes that convention in the spec
+instead: `{base}service`, `{base}spaces/` and `{base}space/{space_id}/` are
+peers under one base server URL, the client is built from it, and a server that
+is a single fixed Space with no id is opened from its own URL through a separate
+entry point. discovered-from: the dcw /simplify pass of 2026-10-27, the spec
+reading that followed, and the wallet-core port of 2026-10-29.
 
 ### WCL-131: [M] The Resource `/meta` validator's relation to content writes is unstated in the spec
 
@@ -1226,6 +1232,52 @@ Filed 2026-09-16 from WASS-44. The client already constructs exactly what the
 profile describes (an Ed25519 `did:key` capability invocation with the `Digest`
 header); this item only makes it check that the server says it accepts that, in
 the place the spec now says to look.
+
+### WCL-142: [M] [after WAS-194] Remove the late in-place `encryption` declaration from provisioning
+
+- status: todo
+- priority: medium
+- labels: provisioning, encryption, spec, breaking
+- discovered-from: WASS-49 (portable-web-spaces-spec, 2026-10-29); spec decision
+  0012
+- blocked-by: WAS-194
+- touches:
+  - was-client: `src/sync/provisioning.ts` -- the `'edv'` branch that runs when
+    the Collection exists without a descriptor (the compare-and-swap write of
+    `EDV_DESCRIPTOR` onto the read-back description), the module header's "late
+    in-place declaration" paragraph, and `EDV_DESCRIPTOR`'s comment ("or not yet
+    encrypted"); `test/integration/provisioning.test.ts`
+  - was-react: `src/dev/provisionDevGrants.ts` calls `ensureSpaceAndCollection`;
+    unaffected unless a dev Space holds a pre-descriptor Collection
+  - dcw: `app/lib/sync/smokeTest.ts` relies on the `'edv'` default, which
+    creates the Collection with the descriptor; re-checked once the branch is
+    gone
+  - was-teaching-server: WAS-194 is the server half and ships the refusal
+- acceptance:
+  - [ ] `ensureSpaceAndCollection` with `encryption: 'edv'` over an existing
+        Collection that lacks a descriptor leaves it untouched and reports the
+        Collection as not encrypted, or throws a typed error naming the
+        new-Collection-and-copy path; the maintainer picks which
+  - [ ] The branch, its comment, and the header paragraph are gone, and a test
+        pins the chosen behavior against a server that refuses the late write
+        with `encryption-immutable` (409)
+  - [ ] ARCHITECTURE.md and CHANGELOG.md updated
+
+The core spec makes `encryption` creation-only (WASS-49, decision 0012): it is
+declared by the write that creates the Collection, and a write that adds it to
+an existing Collection is refused with `encryption-immutable`. The reason is
+replication. A late first declaration on one server and a concurrent full
+replacement without it on another both pass their own transition check, and
+last-writer-wins converges on a Collection whose descriptor is silently gone.
+This module's `'edv'` mode still carries the late write as a fallback for a
+Collection provisioned before the descriptor existed. No wallet caller reaches
+it: the App Connect flow creates its Collections encrypted from birth, and
+was-react dropped `markCollectionEncrypted` in 0.28.0. Once WAS-194 lands the
+server answers the write with a 409 that `rethrow` surfaces as a
+`ConflictError`, so the branch becomes a guaranteed failure rather than a
+fallback. A Collection that exists without a descriptor never becomes encrypted
+in place; the path is a new Collection and a copy, which the migration code
+already takes for a key rotation it cannot express as an epoch.
 
 ### WCL-32: [L] Provisioning creates cannot be made race-safe (no create-if-absent precondition)
 

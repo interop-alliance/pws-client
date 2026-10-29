@@ -41,6 +41,12 @@
  * function with no I/O and no client state.
  */
 export {
+  canonicalBaseServerUrl,
+  serviceDescriptionUrl,
+  spacesRepositoryUrl,
+  spaceUrlById,
+  baseServerUrlOf,
+  splitCollectionUrl,
   canonicalSpaceUrl,
   spaceIdOfUrl,
   spaceMetaUrl,

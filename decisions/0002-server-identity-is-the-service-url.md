@@ -1,8 +1,8 @@
 # 0002: A server is identified by its service URL, and a Space by its own URL
 
-- Status: accepted (2026-10-28; the was-client conventions are implemented in
-  was-client 0.100.0, and the wallet-side conventions below were settled by the
-  maintainer the same day)
+- Status: superseded by 0003 (2026-10-29). Accepted 2026-10-28; the was-client
+  conventions shipped in was-client 0.100.0, and the wallet-side conventions
+  below were settled by the maintainer the same day.
 - Date: 2026-10-27 (amended 2026-10-28)
 - Driving work: the cleanup of the dcw connections-directory change, which found
   every consumer appending `/spaces/` to a stored server base URL, and the spec
@@ -139,3 +139,12 @@ description, or a Spaces Repository URL (from which a HEAD request yields the
 3. did:webvh changes how path segments are encoded in the method-specific id.
    The inverse in wallet-core follows the method, so this is a wallet-core
    change, not a return to a stored base.
+
+## Changelog
+
+- 2026-10-29: superseded by 0003. The first wallet-core port found a consumer
+  that holds a Space id with no URL and no DID (the passphrase unlock Space),
+  which this record assumed did not exist. 0003 reverses rule 1 and the "no
+  Space URL template" stance: the server-level endpoints are peers under a base
+  server URL, and the client constructs Space URLs from it again. Rule 2's
+  Space-URL identity and rule 3's did:webvh inverse carry forward unchanged.

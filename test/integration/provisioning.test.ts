@@ -18,10 +18,9 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { WasClient } from '../../src/index.js'
 import { ensureSpace, ensureSpaceAndCollection } from '../../src/sync/index.js'
 import { EDV_SCHEME_VERSION } from '../../src/edv/constants.js'
-import { spaceUrlFor } from '../helpers/stubClient.js'
 
-const serviceUrl = process.env.TEST_SERVER_URL
-const describeLive = serviceUrl ? describe : describe.skip
+const baseServerUrl = process.env.TEST_SERVER_URL
+const describeLive = baseServerUrl ? describe : describe.skip
 
 describeLive('sync provisioning (live server)', () => {
   let was: WasClient
@@ -31,13 +30,11 @@ describeLive('sync provisioning (live server)', () => {
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
     was = WasClient.fromSigner({
-      serviceUrl: serviceUrl!,
+      baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     })
     spaceId = crypto.randomUUID()
-    // The reference server lays Spaces out at `/space/{id}/` under its origin:
-    // a fact about this server, not a rule the client applies to any server.
-    spaceUrl = spaceUrlFor(spaceId, new URL(serviceUrl!).origin)
+    spaceUrl = was.space(spaceId).url
   })
 
   it('ensureSpace creates the Space and returns the served description with its id', async () => {
@@ -101,7 +98,7 @@ describeLive('sync provisioning (live server)', () => {
 
   it('ensureSpaceAndCollection without a description provisions both halves itself', async () => {
     const otherSpaceId = crypto.randomUUID()
-    const otherSpaceUrl = spaceUrlFor(otherSpaceId, new URL(serviceUrl!).origin)
+    const otherSpaceUrl = was.space(otherSpaceId).url
     const first = await ensureSpaceAndCollection({
       was,
       spaceUrl: otherSpaceUrl,

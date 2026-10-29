@@ -194,14 +194,15 @@ its export list, so the two entries cannot drift.
 
 All handles share one `ClientContext` by reference (`src/internal/request.ts`):
 `{ zcapClient, controllerDid, encryption?, service }`. The context holds no base
-URL. Each handle carries the absolute URL it addresses: `Space.url`, and
-`Collection.url` and `Resource.url` derived beneath the Space URL the handle was
-opened on (`spaceUrl` is also a field of `Collection` and `Resource`). `service`
-is the client's memoized service discovery (see Service discovery).
-`controllerDid` is a lazy getter over the wrapped client's invocation signer, so
-a client that holds only a delegation signer can still build handles and
-`grant()`; it throws only where it is read (`createSpace`'s controller default
-and `rootCapability`'s client-side controller). Per-handle state on top of that:
+server URL. The client does, as `baseServerUrl`. Each handle carries the
+absolute URL it addresses: `Space.url`, and `Collection.url` and `Resource.url`
+derived beneath the Space URL the handle was opened on (`spaceUrl` is also a
+field of `Collection` and `Resource`). `service` is the client's memoized
+service discovery (see Service discovery). `controllerDid` is a lazy getter over
+the wrapped client's invocation signer, so a client that holds only a delegation
+signer can still build handles and `grant()`; it throws only where it is read
+(`createSpace`'s controller default and `rootCapability`'s client-side
+controller). Per-handle state on top of that:
 
 - A bound `capability` (delegated zcap) flows from parent to child as the
   default (`options.capability ?? this.#capability`). A per-handle `encryption`
@@ -236,24 +237,28 @@ and `rootCapability`'s client-side controller). Per-handle state on top of that:
   Space URL comes from the capability itself.
 - `WasClient.spaceAt(spaceUrl, options)` opens a handle on an absolute Space URL
   after canonicalizing it (`canonicalSpaceUrl`: trailing slash added, host
-  lower-cased). `createSpace` returns `spaceAt` of the create response's
-  `Location`, resolved against the Spaces Repository URL when relative. A
-  response without `Location` throws `WasServerError`. `WasClient.revoke(zcap)`
-  derives the Space from the chain root the same way and posts to the Space's
-  revocation endpoint.
+  lower-cased). A received Space URL is never checked against the base.
+  `WasClient.space(spaceId, options)` is the synchronous by-id route to
+  `spaceAt` of `{base}space/{spaceId}/`. `WasClient.collectionAt(url, options)`
+  opens a Collection by URL, splitting it into its parent (the Space URL) and
+  its last segment (the id) with `splitCollectionUrl`. A Space URL may be an
+  origin root, so `Space.id` is `undefined` there. `createSpace` returns
+  `spaceAt` of the create response's `Location`, resolved against the Spaces
+  Repository URL when relative. A response without `Location` throws
+  `WasServerError`. `WasClient.revoke(zcap)` derives the Space from the chain
+  root the same way and posts to the Space's revocation endpoint.
 
 ## Service discovery
 
 `src/internal/service.ts` implements the spec's Service Description section. The
 server-level URL graph is rooted in one document, the service description. A
-client is built from exactly one of two URLs. With `serviceUrl`,
-`readServiceDescription` reads the document with an unsigned `GET`. With
-`spacesUrl`, `discoverService` first sends an unsigned `HEAD` to the Spaces
-Repository URL and follows the `Link: <...>; rel="service"` header on the
-response, then calls `readServiceDescription` on the linked URL. The PWS server
-itself answers the Spaces Repository URL. The server root need not be, since a
-deployment often serves a landing page there with no `service` link. The spec
-reserves no path for the document, so the client assumes none. The document is
+client has two entry points. The usual one is built from a base server URL, and
+`readServiceDescription` reads `{base}service` with an unsigned `GET`. The other
+is `WasClient.forSpace({ spaceUrl })`, for a server that is a single fixed Space
+with no id and no base. `discoverService` first sends an unsigned `HEAD` to the
+Space URL and follows the `Link: <...>; rel="service"` header on the response,
+then calls `readServiceDescription` on the linked URL. The spec fixes no path
+for the document on such a server, so that client assumes none. The document is
 parsed as storage-core's `ServiceDescription`. The advertised `spaces` URL is a
 container, so `selectServiceVersion` supplies its trailing slash when the
 description omits it (`canonicalContainerUrl`): the bare form only
@@ -288,28 +293,40 @@ Failure classes:
 - `IncompatibleServerError` -- no `service` link on the probe response (a server
   that predates v0.5; the client does not fall back to v0.4), a non-2xx or
   non-JSON document, a document without `url` or `specs`, no understood version,
-  or a malformed `spaces` / `features` on the chosen entry. The client does not
-  compare `spaces` against any URL it was given. `send()`'s null-on-404 read
-  translation applies only to raw transport errors, so a discovery refusal still
-  rejects instead of reading as `null`.
+  or a malformed `spaces` / `features` on the chosen entry. On a client with a
+  base, also a document that fails the consistency check below. `send()`'s
+  null-on-404 read translation applies only to raw transport errors, so a
+  discovery refusal still rejects instead of reading as `null`.
 - The mapped transport error -- a network failure, or a 5xx/429 that comes
   without the link. These say nothing about the protocol.
 
 No failure is memoized, so the next request retries discovery.
 
-A constructor-supplied `serviceDescription` skips the fetch. On a client built
-from `serviceUrl`, its `url` must serialize to that `serviceUrl`, or
-`IncompatibleServerError` is thrown: a server is identified by its service URL,
-so a copy of another one is a cache keyed wrongly. A client built from
-`spacesUrl` names no service URL and accepts the copy as given.
+A constructor-supplied `serviceDescription` skips the fetch.
 
-`createSpace` and `listSpaces` address `info.spacesUrl`, and throw
+A client with a base runs `#assertDescribesThisServer` on every description,
+read or supplied. The description's `url` must equal `{base}service`. Its
+`spaces` member, when present, must equal `{base}spaces/`. Otherwise
+`IncompatibleServerError` names both values. A supplied copy keyed wrongly, or a
+base that names a different mount than the server's, would otherwise fail later
+with a 404 deep in a Space. A client built by `forSpace` has no base and is not
+checked.
+
+`createSpace` and `listSpaces` address `{base}spaces/`, and throw
 `NotSupportedError` before any request when the chosen entry has no `spaces`
-member. A Space URL is received: it comes from the `Location` of the create
-response, a listing item, a linkset, a stored pointer, or a self-locating DID.
-The client never forms one from a server root, and the builders on the `./paths`
-entry each take a Space URL (`collectionUrl({ spaceUrl, collectionId })` and its
-siblings).
+member. On a client built by `forSpace`, `space(id)`, `createSpace` and
+`listSpaces` throw `NotSupportedError`, since there is no base. `createSpace`
+still trusts the `Location` of the response. A received Space URL comes from
+that `Location`, a listing item, a linkset, a stored pointer, or a self-locating
+DID, and is used as given.
+
+Above a Space, the `./paths` entry holds three builders and one inverse. They
+are `serviceDescriptionUrl`, `spacesRepositoryUrl` and `spaceUrlById`, each
+taking a `baseServerUrl`, and `baseServerUrlOf`, which accepts the service,
+Spaces Repository or Space URL. Beneath a Space, the builders each take a Space
+URL (`collectionUrl({ spaceUrl, collectionId })` and its siblings). At an
+origin-root Space the Collection ids `service`, `spaces` and `space` are
+reserved, since they would collide with the server-level paths.
 
 ## Lifecycle of an authenticated request
 
@@ -1025,11 +1042,12 @@ create.
    policy, backend, and problem types). Do not redefine wire types locally.
 8. **No request is signed before service discovery selects a version.** The gate
    lives in `rawRequest`, the one place every signed request passes, and the
-   Spaces Repository URL comes only from the service description. Do not add a
-   signed path that bypasses `rawRequest` or a hardcoded server-level path. A
-   Space URL is received and not assembled: no builder takes a server root, and
+   Spaces Repository URL is checked against the service description. Do not add
+   a signed path that bypasses `rawRequest`. Above a Space, only the three
+   server-level builders form URLs, and only from a base server URL. A received
+   Space URL is used as given and never checked against the base.
    `fromCapability` and `revoke` read the Space off the chain root. Do not add a
-   function that forms a Space URL from a base URL.
+   function that rewrites a received Space URL to fit the base.
 9. **The core entries stay off the encrypted-collection graph.** `.`, `./paths`,
    `./log`, and `./sync` reach neither `src/edv/` (beyond `edv/constants.ts`)
    nor the encrypted-collection packages; `test/node/import-graph.test.ts`
@@ -1101,23 +1119,36 @@ it, and otherwise cover the client-side concepts this file names.
   status (`replicaStatus`). Avoid: sync peer, subscription, mirror.
 - **`ClientContext`** -- the single
   `{ zcapClient, controllerDid, encryption?, service }` record every handle
-  shares by reference (`src/internal/request.ts`). It holds no base URL. See The
-  handle model.
+  shares by reference (`src/internal/request.ts`). It holds no base server URL.
+  See The handle model.
+- **Base server URL** -- the absolute `http(s)` URL, with a trailing slash and
+  no query or fragment, under which the spec's Server Layout places the
+  server-level endpoints. The client is built from it and exposes it as
+  `was.baseServerUrl`. Avoid: `serverUrl`, `baseUrl`, host, server root. See
+  Service discovery.
 - **Space URL** -- the absolute URL of one Space, in canonical form (trailing
-  slash, lower-case host). It is received from the server (a create response's
-  `Location`, a listing item, a linkset, a stored pointer, or a self-locating
-  DID) and is never assembled from a server root. Every builder and handle takes
-  it as `spaceUrl`. A Space's `id` is the last segment of its URL. Avoid: base
-  URL, server root, space path. See Service discovery.
-- **Service URL** -- the URL of the service description, one of the two
-  constructor inputs (`serviceUrl`), read with an unsigned `GET`. The other
-  input, `spacesUrl`, is the Spaces Repository URL. Avoid: server URL,
-  `serverUrl`, base URL. See Service discovery.
+  slash, lower-case host). Either `{base}space/{space_id}/` or received from the
+  server (a create response's `Location`, a listing item, a linkset, a stored
+  pointer, or a self-locating DID), and used as given. Every handle takes it as
+  `spaceUrl`. A Space's `id` is the last segment of its URL, and is `undefined`
+  at an origin root. Avoid: base URL, server root, space path. See Service
+  discovery.
+- **Single fixed Space** -- a server that is one Space with no id and no base
+  server URL, such as a personal site whose Collections sit at its origin.
+  Opened with `WasClient.forSpace({ spaceUrl })`. Avoid: single-space server,
+  root Space. See Service discovery.
+- **Service URL** -- `{base}service`, the URL of the service description,
+  derived from the base server URL by `serviceDescriptionUrl` and read with an
+  unsigned `GET`. Avoid: server URL, `serverUrl`, `baseUrl`, host. See Service
+  discovery.
+- **Spaces URL** -- `{base}spaces/`, the Spaces Repository URL, derived from the
+  base server URL by `spacesRepositoryUrl`. `createSpace` posts to it. Avoid:
+  server URL, `serverUrl`, `baseUrl`, host. See Service discovery.
 - **Service description** -- the server-wide JSON document naming the
   specification versions a server speaks and its server-level URLs, read from
-  the `serviceUrl` or found through the `rel="service"` link on the response to
-  a `HEAD` of the `spacesUrl`. Owned by the PWS spec. Avoid: well-known
-  document, server metadata. See Service discovery.
+  the service URL or found through the `rel="service"` link on the response to a
+  `HEAD` of the Space URL of a single fixed Space. Owned by the PWS spec. Avoid:
+  well-known document, server metadata. See Service discovery.
 - **Service discovery** -- the client's memoized read of the service description
   and its choice of PWS version (`src/internal/service.ts`, `was.service()`),
   awaited before every signed request. Its result is a `ServiceInfo`. See
