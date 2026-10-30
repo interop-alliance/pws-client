@@ -11,27 +11,18 @@
  * leaves it alone, so the tier can still be pointed at an external server;
  * set it to that server's base server URL.
  */
-import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
-import { discoverService } from '../../src/index.js'
-import { baseServerUrlOf } from '../../src/paths/index.js'
+import {
+  openTempBackend,
+  startTestServer
+} from '@interop/web-spaces-server/testing'
 
 export default async function setup(): Promise<() => Promise<void>> {
   if (process.env.TEST_SERVER_URL) {
     return async () => {}
   }
   const backend = await openTempBackend()
-  const { fastify, serverUrl } = await startTestServer({ backend })
-  // The testing counterpart hands back the URL the server listens on. The
-  // service description is found the way any client finds it: through the
-  // `service` link the server puts on every response, whatever the status.
-  let description
-  try {
-    ;({ description } = await discoverService({ url: serverUrl }))
-  } catch (err) {
-    await fastify.close()
-    throw err
-  }
-  process.env.TEST_SERVER_URL = baseServerUrlOf(description.url)
+  const { fastify, baseServerUrl } = await startTestServer({ backend })
+  process.env.TEST_SERVER_URL = baseServerUrl
   return async () => {
     await fastify.close()
   }

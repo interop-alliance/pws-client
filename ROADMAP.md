@@ -1577,14 +1577,14 @@ behavior change.
 - blocked-by: WSS-228, WSS-226
 - touches:
   - web-spaces-server: WSS-228 (`provisionServerIdentity` and the two-server
-    helpers from `web-spaces-server/testing`), WSS-226 (the delegated replicas
-    route)
+    helpers from `@interop/web-spaces-server/testing`), WSS-226 (the delegated
+    replicas route)
 - acceptance:
   - [ ] An integration suite boots a server with a server key seed and a
-        provisioned identity (through `web-spaces-server/testing`, nothing
-        copied from the server's test helpers), creates a source Space and a
-        replica Space under one controller, and registers the source on the
-        replica through `registerReplica`
+        provisioned identity (through `@interop/web-spaces-server/testing`,
+        nothing copied from the server's test helpers), creates a source Space
+        and a replica Space under one controller, and registers the source on
+        the replica through `registerReplica`
   - [ ] `pauseReplica` makes `replicaStatus` read `paused`, with `pausedAt`
         server-set on the record; `resumeReplica` clears both and the next pull
         applies a write made while paused

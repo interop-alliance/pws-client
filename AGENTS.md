@@ -44,7 +44,7 @@ Do not add test files to `tsconfig.json` — they would be emitted into `dist/`.
 - `test/browser/` — Playwright tests (`pnpm run test:browser`); run in real
   Chromium via a Vite dev server (`pnpm run dev`)
 - `test/integration/` — live-server tests (`pnpm run test:integration`); the
-  vitest global setup boots `was-teaching-server` in-process over a temp
+  vitest global setup boots `@interop/web-spaces-server` in-process over a temp
   filesystem backend, unless `TEST_SERVER_URL` names a server to use instead
 
 The `dev` script exists solely to give Playwright a server that can serve and

@@ -70,9 +70,9 @@ Scope and caveats (this is the first, documents-only increment):
   affordances -- a blinded `/query` endpoint (`blinded-index-query`) and the
   `/{id}/chunks/{n}` sub-segment (`chunked-streams`) -- and throw the typed
   `NotSupportedError` (from `@interop/pws-client`) where the backend does not
-  advertise them. Index updates
-  throw unconditionally: in this profile the `indexed` entries ride inside the
-  stored envelope, so an ordinary `update()` re-indexes a document.
+  advertise them. Index updates throw unconditionally: in this profile the
+  `indexed` entries ride inside the stored envelope, so an ordinary `update()`
+  re-indexes a document.
 - **Chunked streams.** `insert({ doc, stream, transport })` and
   `getStream({ doc, transport })` drive chunked encrypted blobs over this
   transport. Use this path when the blob should never be held whole in memory,
@@ -93,5 +93,5 @@ Scope and caveats (this is the first, documents-only increment):
 - **Content type.** Envelopes are stored as `application/json` by default so any
   PWS server accepts them. The preferred marker `application/jose+json`
   (exported as `JOSE_CONTENT_TYPE`) needs the server to register an
-  `application/*+json` content-type parser -- the reference was-teaching-server
+  `application/*+json` content-type parser -- the reference web-spaces-server
   does; pass `contentType: JOSE_CONTENT_TYPE` to opt in.
