@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The one `ZcapClient` construction site: every zcap a was-client consumer
+ * The one `ZcapClient` construction site: every zcap a pws-client consumer
  * mints through it -- invocations and delegations alike -- is signed under
- * `eddsa-jcs-2022`. `WasClient.fromSigner` and the `./identity` derivations
+ * `eddsa-jcs-2022`. `PwsClient.fromSigner` and the `./identity` derivations
  * both build their client here.
  */
 import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'

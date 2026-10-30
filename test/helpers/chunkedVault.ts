@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Live-server fixtures for the chunked-stream integration tests: a WAS client
+ * Live-server fixtures for the chunked-stream integration tests: a PWS client
  * whose EDV provider routes anything over a small threshold to the
  * chunked-stream path, an encrypted Collection provisioned for it, and a probe
  * that reads one stored chunk straight off the server, past the codec, to
@@ -12,7 +12,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { httpStatus, WasClient } from '../../src/index.js'
+import { httpStatus, PwsClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
 import { resourceChunkUrl } from '../../src/internal/paths.js'
 import {
@@ -22,7 +22,7 @@ import {
 } from '../../src/edv/index.js'
 
 /**
- * Builds a WAS client whose EDV provider routes anything over `maxBlobBytes`
+ * Builds a PWS client whose EDV provider routes anything over `maxBlobBytes`
  * to the chunked-stream path, plus the key-agreement key the collection's
  * first epoch is wrapped to.
  *
@@ -30,7 +30,7 @@ import {
  * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.maxBlobBytes {number}   the routing threshold
  * @param options.chunkSize {number}      the size of each encrypted chunk
- * @returns {Promise<{ was: WasClient; kak: IKeyAgreementKey }>}
+ * @returns {Promise<{ pws: PwsClient; kak: IKeyAgreementKey }>}
  */
 export async function chunkedClient({
   baseServerUrl,
@@ -40,7 +40,7 @@ export async function chunkedClient({
   baseServerUrl: string
   maxBlobBytes: number
   chunkSize: number
-}): Promise<{ was: WasClient; kak: IKeyAgreementKey }> {
+}): Promise<{ pws: PwsClient; kak: IKeyAgreementKey }> {
   const keyPair = await Ed25519VerificationKey.generate()
   const did = `did:key:${keyPair.fingerprint()}`
 
@@ -64,7 +64,7 @@ export async function chunkedClient({
     chunkSize
   })
   return {
-    was: WasClient.fromSigner({
+    pws: PwsClient.fromSigner({
       baseServerUrl,
       signer: keyPair.didKeySigner(),
       encryption
@@ -79,21 +79,21 @@ export async function chunkedClient({
  * bound to the client's encryption provider.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.kak {IKeyAgreementKey}
  * @param options.name {string}   the Space name
  * @returns {Promise<{ space: Space; collection: Collection }>}
  */
 export async function provisionVault({
-  was,
+  pws,
   kak,
   name
 }: {
-  was: WasClient
+  pws: PwsClient
   kak: IKeyAgreementKey
   name: string
 }): Promise<{ space: Space; collection: Collection }> {
-  const space = await was.createSpace({ name })
+  const space = await pws.createSpace({ name })
   const declared = await space.createCollection({
     id: 'vault',
     name: 'Vault',
@@ -103,7 +103,7 @@ export async function provisionVault({
     collection: declared,
     recipients: [ownerRecipient({ keyAgreementKey: kak })]
   })
-  return { space, collection: was.spaceAt(space.url).collection('vault') }
+  return { space, collection: pws.spaceAt(space.url).collection('vault') }
 }
 
 /**
@@ -113,25 +113,25 @@ export async function provisionVault({
  * error in that case.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceUrl {string}
  * @param options.resourceId {string}
  * @param options.chunkIndex {number}
  * @returns {Promise<number | undefined>}   the response status
  */
 export async function chunkStatus({
-  was,
+  pws,
   spaceUrl,
   resourceId,
   chunkIndex
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceUrl: string
   resourceId: string
   chunkIndex: number
 }): Promise<number | undefined> {
   try {
-    const response = await was.request({
+    const response = await pws.request({
       url: resourceChunkUrl({
         spaceUrl,
         collectionId: 'vault',

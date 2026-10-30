@@ -1,9 +1,9 @@
-# Wallet Attached Storage Client _(@interop/was-client)_
+# Portable Web Spaces Client _(@interop/pws-client)_
 
-[![Node.js CI](https://github.com/interop-alliance/was-client/workflows/CI/badge.svg)](https://github.com/interop-alliance/was-client/actions?query=workflow%3A%22CI%22)
-[![NPM Version](https://img.shields.io/npm/v/@interop/was-client.svg)](https://npm.im/@interop/was-client)
+[![Node.js CI](https://github.com/interop-alliance/pws-client/workflows/CI/badge.svg)](https://github.com/interop-alliance/pws-client/actions?query=workflow%3A%22CI%22)
+[![NPM Version](https://img.shields.io/npm/v/@interop/pws-client.svg)](https://npm.im/@interop/pws-client)
 
-> A developer-friendly client for Wallet Attached Storage (PWS) servers, with a
+> A developer-friendly client for Portable Web Spaces (PWS) servers, with a
 > database-driver-inspired navigational API over zcap-authorized HTTP.
 
 ## Table of Contents
@@ -42,7 +42,7 @@ The PWS protocol exposes a general purpose database-like container model --
 `SpacesRepository > Space > Collection > Resource` -- over HTTP, authorized with
 [Authorization Capabilities (zcaps)](https://w3c-ccg.github.io/zcap-spec/).
 
-`@interop/was-client` wraps that `ZcapClient` and exposes the containment model
+`@interop/pws-client` wraps that `ZcapClient` and exposes the containment model
 through cheap, lazy navigational handles modeled on a document store's DX
 (`client > db > collection`), using PWS-specific verbs
 (`add`/`get`/`put`/`list`/`delete`) rather than `insertOne`/`findOne` (PWS has
@@ -50,8 +50,8 @@ no query-by-filter yet).
 
 | Document db driver                  | PWS client                                     |
 | ----------------------------------- | ---------------------------------------------- |
-| `new Client(url)`                   | `new WasClient({ baseServerUrl, zcapClient })` |
-| `client.db('app')`                  | `was.spaceAt(spaceUrl)`                        |
+| `new Client(url)`                   | `new PwsClient({ baseServerUrl, zcapClient })` |
+| `client.db('app')`                  | `pws.spaceAt(spaceUrl)`                        |
 | `db.collection('users')`            | `space.collection(collectionId)`               |
 | `collection.insertOne(doc)`         | `collection.add(doc)`                          |
 | `collection.findOne({ _id })`       | `collection.get(resourceId)`                   |
@@ -69,14 +69,14 @@ See also:
 - Node.js 24+ is recommended.
 
 ```
-pnpm install @interop/was-client
+pnpm install @interop/pws-client
 ```
 
 ## Usage
 
 ### Creating a client (signer + zcapClient)
 
-A `WasClient` signs every request with a key you control. The key is held by an
+A `PwsClient` signs every request with a key you control. The key is held by an
 ezcap `ZcapClient`, which you build from a `did:key` identity. You will need two
 companion packages alongside this one (this library already depends on
 `@interop/ed25519-signature`):
@@ -94,7 +94,7 @@ import { ZcapClient } from '@interop/ezcap'
 import * as didKey from '@interop/did-method-key'
 import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 
 // 1. Generate a did:key identity (didDocument + keyPairs).
 const didKeyDriver = didKey.driver()
@@ -109,28 +109,28 @@ const zcapClient = new ZcapClient({
 })
 
 // 3. Wrap it.
-const was = new WasClient({
-  baseServerUrl: 'https://was.example/',
+const pws = new PwsClient({
+  baseServerUrl: 'https://pws.example/',
   zcapClient
 })
 ```
 
-If you already have a single signer, `WasClient.fromSigner()` builds the
+If you already have a single signer, `PwsClient.fromSigner()` builds the
 `ZcapClient` internally (using the `eddsa-jcs-2022` suite). A signer is any
 object with `{ id, sign() }`; here we get one from a generated key. The signer's
 `id` must be a `did:key` so the server can resolve and verify it:
 
 ```ts
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 
 // Pass a 32-byte `seed` for a deterministic key, or omit it for a random one.
 const keyPair = await Ed25519VerificationKey.generate({ seed })
 keyPair.controller = `did:key:${keyPair.fingerprint()}`
 keyPair.id = `${keyPair.controller}#${keyPair.fingerprint()}`
 
-const was = WasClient.fromSigner({
-  baseServerUrl: 'https://was.example/',
+const pws = PwsClient.fromSigner({
+  baseServerUrl: 'https://pws.example/',
   signer: keyPair.signer()
 })
 ```
@@ -145,10 +145,10 @@ description, `{base}spaces/` is the Spaces Repository, and
 `{base}space/{space_id}/` is a Space. The base must be an absolute `http(s)` URL
 with no query, fragment, or userinfo. A missing trailing slash is supplied.
 Anything else is refused with `ValidationError`. The result is exposed as
-`was.baseServerUrl`.
+`pws.baseServerUrl`.
 
-`was.space(spaceId)` opens a handle on `{base}space/{spaceId}/`, with no I/O.
-`was.spaceAt(spaceUrl)` opens a handle on a Space URL you hold, such as the
+`pws.space(spaceId)` opens a handle on `{base}space/{spaceId}/`, with no I/O.
+`pws.spaceAt(spaceUrl)` opens a handle on a Space URL you hold, such as the
 `Location` of a create response, a listing item's `url`, a linkset entry, a
 stored pointer, a capability's target, or a self-locating DID. A received Space
 URL is used as given. It is never checked against the base, because a grant or a
@@ -162,7 +162,7 @@ inverse. It accepts the service, Spaces Repository or Space URL and rejects
 anything else. `splitCollectionUrl(url)` splits a Collection URL into its Space
 URL and id.
 
-`@interop/was-client/paths/layout` exports these same functions and nothing
+`@interop/pws-client/paths/layout` exports these same functions and nothing
 else, with no package behind them. Import it where one URL is validated and the
 rest of `./paths` (the reserved-id predicates, which read
 `@interop/storage-core`'s registry, and the root capability grammar from
@@ -173,22 +173,22 @@ packages on first import.
 
 Some servers are one Space with no id and no base server URL, such as a personal
 site whose Collections are `https://alice.example/posts/` and
-`https://alice.example/images/`. Open one with `WasClient.forSpace()` and reach
+`https://alice.example/images/`. Open one with `PwsClient.forSpace()` and reach
 a Collection directly with `collectionAt()`:
 
 ```ts
-const was = WasClient.forSpace({
+const pws = PwsClient.forSpace({
   spaceUrl: 'https://alice.example/',
   signer: keyPair.didKeySigner()
 })
 
-const posts = was.collectionAt('https://alice.example/posts/')
+const posts = pws.collectionAt('https://alice.example/posts/')
 const post = await posts.get('hello')
 ```
 
 `forSpace` takes
 `{ spaceUrl, zcapClient | signer, encryption?, serviceDescription? }`. The
-client exposes `was.spaceUrl`, and `was.baseServerUrl` is `undefined`. It finds
+client exposes `pws.spaceUrl`, and `pws.baseServerUrl` is `undefined`. It finds
 the service description with an unsigned `HEAD` of the Space URL and the
 `Link: <...>; rel="service"` header. `space(id)`, `createSpace()` and
 `listSpaces()` throw `NotSupportedError`.
@@ -205,13 +205,13 @@ hold a passphrase, or a stored secret, and need to derive the same client from
 it every time. The `./identity` subpath does that derivation:
 
 ```ts
-import { agentsFromSecret } from '@interop/was-client/identity'
-import { WasClient } from '@interop/was-client'
+import { agentsFromSecret } from '@interop/pws-client/identity'
+import { PwsClient } from '@interop/pws-client'
 
 const agents = await agentsFromSecret({ secret: 'the account secret' })
 
-const was = WasClient.fromSigner({
-  baseServerUrl: 'https://was.example/',
+const pws = PwsClient.fromSigner({
+  baseServerUrl: 'https://pws.example/',
   signer: agents.keyAgent.getSigner()
 })
 ```
@@ -279,10 +279,10 @@ memoized, so the next request retries. Unsigned public reads (`publicRead`,
 `publicListCollection`, ...) take absolute URLs that may point at another
 server, and do not wait on discovery.
 
-`was.service()` returns what discovery found:
+`pws.service()` returns what discovery found:
 
 ```ts
-const info = await was.service()
+const info = await pws.service()
 info.version // '0.5'
 info.entry // the chosen `PwsVersionEntry`
 info.description // the whole `ServiceDescription`
@@ -291,7 +291,7 @@ info.features // e.g. ['listing', 'collection-management', 'changes-query', ...]
 info.hasFeature('quotas') // false when the token is absent
 
 // Discover again, e.g. before relying on an affordance a host may have dropped.
-await was.service({ refresh: true })
+await pws.service({ refresh: true })
 ```
 
 `features` is an open token list. A token this client does not know is carried
@@ -307,13 +307,13 @@ that copy without fetching, and `service({ refresh: true })` discovers afresh.
 The client exposes the PWS containment model
 (`SpacesRepository > Space > Collection > Resource`) as navigational handles.
 Handles are lazy and synchronous to obtain -- only the verb methods hit the
-network. A chain such as `was.spaceAt(url).collection(y)` does no I/O and just
+network. A chain such as `pws.spaceAt(url).collection(y)` does no I/O and just
 accumulates URL context; the only way it throws is `ValidationError`, on a URL
 that cannot name a Space or an id on the reserved-segment registry. Existence is
 checked on the first network verb.
 
 ```ts
-const space = await was.createSpace({ name: 'Home' })
+const space = await pws.createSpace({ name: 'Home' })
 
 const collection = await space.createCollection({
   name: 'Verifiable Credentials'
@@ -339,22 +339,22 @@ A Space is the top-level container, created from the spaces repository. The
 server requires a `name`; `controller` defaults to the client's own DID, and the
 server generates the id unless you pass one. `createSpace()` reads the
 `Location` header of the response and returns a handle on that Space URL. A
-response without `Location` throws `WasServerError`. `createSpace()` and
+response without `Location` throws `PwsServerError`. `createSpace()` and
 `listSpaces()` address the Spaces Repository, `{base}spaces/` (see
 [Service discovery](#service-discovery)). Against a server whose description has
 no `spaces` URL, they throw `NotSupportedError` without sending anything.
 
 ```ts
-const space = await was.createSpace({ name: 'Home' }) // POST {base}spaces/
+const space = await pws.createSpace({ name: 'Home' }) // POST {base}spaces/
 // A typed Space, e.g. an auxiliary one; `type` defaults to ['Space'].
-const aux = await was.createSpace({
+const aux = await pws.createSpace({
   name: 'Clients',
   type: ['AuxiliarySpace', 'Space']
 })
 
 // Lazy handle to an existing space by its URL -- no I/O until a verb runs.
-const same = was.spaceAt(space.url)
-const byId = was.space('abc') // {base}space/abc/, no I/O
+const same = pws.spaceAt(space.url)
+const byId = pws.space('abc') // {base}space/abc/, no I/O
 
 // Read the Space Metadata object (null if missing or not visible to you).
 const desc = await space.describe() // { id, type: ['Space'], name, controller } | null
@@ -375,7 +375,7 @@ await space.replaceDescription(
   { name: 'Home', controller: read!.description.controller },
   { ifMatch: read!.etag }
 ) // { etag? }
-await was
+await pws
   .spaceAt(freshSpaceUrl)
   .replaceDescription(
     { name: 'Fresh', controller: 'did:key:z6Mk...' },
@@ -392,7 +392,7 @@ const { outcome } = await space.deleteWithOutcome()
 ```
 
 List the spaces in the repository visible to your signer with
-`was.listSpaces()`. It returns a `{ url, totalItems, items }` listing holding
+`pws.listSpaces()`. It returns a `{ url, totalItems, items }` listing holding
 every space whose controller your invocation is authorized for, auxiliary spaces
 included; an unauthorized caller gets an empty list rather than an error. Each
 item carries the space's `type` array, the same value as its Space Metadata
@@ -401,7 +401,7 @@ can be told apart without reading it. To enumerate what is _inside_ a space, use
 `space.collections()` (below).
 
 ```ts
-const { totalItems, items } = await was.listSpaces()
+const { totalItems, items } = await pws.listSpaces()
 // items: [{ id, type, url, name? }, ...]
 const userSpaces = items.filter(item => !item.type.includes('AuxiliarySpace'))
 ```
@@ -550,9 +550,9 @@ await collection.put('greeting', new Blob(['hello'], { type: 'text/plain' }))
 
 ### Delegation and sharing
 
-`was.grant(...)` is the general delegation primitive; `space.grant(...)` and
+`pws.grant(...)` is the general delegation primitive; `space.grant(...)` and
 `collection.grant(...)` are sugar that prefill the grant `target` and `spaceUrl`
-from the handle. A bare `was.grant(...)` with no `capability` and no `spaceUrl`
+from the handle. A bare `pws.grant(...)` with no `capability` and no `spaceUrl`
 is rooted at the target's own root capability. Passing `spaceUrl` roots it at
 that Space instead, and throws `ValidationError` if `target` is not at or
 beneath the Space. The recipient rebuilds access from the received zcap with
@@ -565,7 +565,7 @@ address. The server is the authority on whether the root names a Space.
 ```ts
 // Alice grants Bob read access to a resource.
 const added = await collection.add({ secret: 'value' })
-const zcap = await was.grant({
+const zcap = await pws.grant({
   to: bobDid,
   actions: ['GET'], // HTTP verbs: 'GET' | 'HEAD' | 'PUT' | 'POST' | 'DELETE'
   target: added.url,
@@ -573,7 +573,7 @@ const zcap = await was.grant({
 })
 
 // Bob, holding the zcap, rebuilds a handle at the right depth.
-const handle = bobWas.fromCapability(zcap) // a Resource here
+const handle = bobPws.fromCapability(zcap) // a Resource here
 await handle.get() // succeeds; a write would be denied by the GET-only grant
 ```
 
@@ -585,7 +585,7 @@ an explicit override, as you would to `collection.resource(id, options)`:
 descriptor (shared out of band with the grant) for an encrypted one.
 
 ```ts
-const handle = bobWas.fromCapability(zcap, { encryption: 'plaintext' })
+const handle = bobPws.fromCapability(zcap, { encryption: 'plaintext' })
 ```
 
 Actions are HTTP verbs (`GET` / `PUT` / `POST` / `DELETE`). The PWS server
@@ -596,7 +596,7 @@ lowercase forms and normalizes them to uppercase in the signed zcap -- so
 ### Revoking a capability
 
 `space.revoke(zcap)` undoes a `grant()`, so a leaked capability need not be
-waited out to its `expires`. `was.revoke(zcap)` is the same operation with the
+waited out to its `expires`. `pws.revoke(zcap)` is the same operation with the
 Space read off the capability's delegation chain root.
 
 ```ts
@@ -680,22 +680,22 @@ capability invocation), so they work for a consumer who only holds the link.
 
 ```ts
 // Fetch a single public resource (auto-parses JSON, returns binary as a Blob).
-const doc = await was.publicRead({
-  resourceUrl: 'https://was.example/space/s/c/r'
+const doc = await pws.publicRead({
+  resourceUrl: 'https://pws.example/space/s/c/r'
 }) // Json | Blob | null
 
 // List a public collection -- e.g. a blog published as a public-read collection.
-const listing = await was.publicListCollection({
-  collectionUrl: 'https://was.example/space/s/c'
+const listing = await pws.publicListCollection({
+  collectionUrl: 'https://pws.example/space/s/c'
 }) // ResourceListing | null
 
 // Or stream a large public collection one item/page at a time:
-for await (const item of was.publicListCollectionItems({
-  collectionUrl: 'https://was.example/space/s/c'
+for await (const item of pws.publicListCollectionItems({
+  collectionUrl: 'https://pws.example/space/s/c'
 })) {
   // item: { id, url, contentType, name? }
 }
-// (`was.publicListCollectionPages(...)` yields whole pages.)
+// (`pws.publicListCollectionPages(...)` yields whole pages.)
 ```
 
 Both follow the read-method 404/null caveat: a missing or non-public target
@@ -819,7 +819,7 @@ not match the verified head. Pass a `signer` to write; without one the store is
 read-only.
 
 ```ts
-import { logGovernedCollectionDescriptorStore } from '@interop/was-client/edv'
+import { logGovernedCollectionDescriptorStore } from '@interop/pws-client/edv'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 
 const store = logGovernedCollectionDescriptorStore({
@@ -888,7 +888,7 @@ optional affordances. Server-wide affordances are read from the service
 description instead:
 
 ```ts
-const info = await was.service()
+const info = await pws.service()
 if (info.hasFeature('changes-query')) {
   // the server serves the replication change feed
 }
@@ -973,7 +973,7 @@ Collection.
 // as `instance.serverDid` in its service description. `instance` is an
 // operator disclosure, so a deployment may leave it out; ask the operator
 // for the DID then.
-const { description } = await was.service()
+const { description } = await pws.service()
 const serverDid = description.instance?.serverDid
 if (serverDid === undefined) {
   throw new Error('This server does not disclose its DID.')
@@ -981,7 +981,7 @@ if (serverDid === undefined) {
 
 // The pull capability: GET-only, rooted in the peer Space, delegated to that
 // DID.
-const capability = await peerWas.spaceAt(peerSpaceUrl).grant({
+const capability = await peerPws.spaceAt(peerSpaceUrl).grant({
   to: serverDid,
   actions: ['GET']
 })
@@ -1057,14 +1057,14 @@ delegated caller on a server that still treats the route as controller-only.
 `registerReplica()` throws `NotFoundError`. `deregisterReplica()` reports it as
 `{ outcome: 'not-found' }` rather than swallowing it, so such a caller can tell
 that nothing was removed. The three reads reserve `null` for that 404. A 2xx
-with no JSON body is a server fault and throws `WasServerError`.
+with no JSON body is a server fault and throws `PwsServerError`.
 
 A grant on the route targets `{spaceUrl}replicas`, the bare URL with no trailing
 slash. `spaceReplicasUrl({ spaceUrl })` on the `./paths` entry forms it, and
 `replicaRegistrationUrl({ spaceUrl, replicaId })` forms one registration beneath
 it. `fromCapability` refuses that target as a reserved sub-resource, so the
-holder opens the Space handle with `was.space(id, { capability })` (or
-`was.spaceAt(url, { capability })`) and calls the replica methods on it.
+holder opens the Space handle with `pws.space(id, { capability })` (or
+`pws.spaceAt(url, { capability })`) and calls the replica methods on it.
 
 `registerReplica()` throws `ValidationError` (400 `invalid-request-body`) for a
 malformed body. Each entry of the error's `problems` carries a `pointer` naming
@@ -1080,7 +1080,7 @@ apart by the error's `type` URI:
   already exists.
 
 ```ts
-import { ProblemTypes } from '@interop/was-client'
+import { ProblemTypes } from '@interop/pws-client'
 
 try {
   await space.registerReplica(registration)
@@ -1108,7 +1108,7 @@ capability. The server ignores `replicas` in a write body.
 ### Encrypted collections (EDV-over-PWS): pass-through encryption via the PWS client (recommended)
 
 This is the recommended way to use encrypted collections. For the low-level
-alternative -- driving an `EdvClientCore` directly via `WasTransport`, which is
+alternative -- driving an `EdvClientCore` directly via `PwsTransport`, which is
 also how to stream a blob you do not want to hold in memory -- see
 [docs/edv-client-core-usage.md](docs/edv-client-core-usage.md).
 
@@ -1121,8 +1121,8 @@ stores faithfully). Two things drive it, kept separate:
   non-secret `encryption` descriptor to the Collection Metadata object. Any
   authorized reader -- including a delegated consumer that did **not** create
   the collection -- discovers it by reading that object, so it knows to decrypt.
-- **Keys** come from an `encryption` provider you pass to `WasClient` (built
-  from the opt-in `@interop/was-client/edv` subpath, so plaintext consumers
+- **Keys** come from an `encryption` provider you pass to `PwsClient` (built
+  from the opt-in `@interop/pws-client/edv` subpath, so plaintext consumers
   never pull the crypto graph). It is a pure **keystore**: `resolveKeys` returns
   the collection's keys, which live in your wallet. The server only ever stores
   opaque JWE envelopes.
@@ -1132,8 +1132,8 @@ and decrypt on read for any collection the descriptor (or an override) declares
 encrypted.
 
 ```ts
-import { WasClient } from '@interop/was-client'
-import { createEdvEncryption } from '@interop/was-client/edv'
+import { PwsClient } from '@interop/pws-client'
+import { createEdvEncryption } from '@interop/pws-client/edv'
 
 const encryption = createEdvEncryption({
   // The keystore: return the collection's keys (from your wallet).
@@ -1141,11 +1141,11 @@ const encryption = createEdvEncryption({
     return { keyAgreementKey, keyResolver }
   }
 })
-const was = WasClient.fromSigner({ baseServerUrl, signer, encryption })
+const pws = PwsClient.fromSigner({ baseServerUrl, signer, encryption })
 
 // Declare the collection encrypted (writes the descriptor). The returned handle is
 // pre-seeded, so the first write encrypts with no extra round-trip.
-const vault = await was
+const vault = await pws
   .spaceAt(spaceUrl)
   .createCollection({ id: 'vault', encryption: { scheme: 'edv' } })
 const { id } = await vault.add({ secret: 'hello' }) // encrypted; id is an EDV id
@@ -1154,7 +1154,7 @@ const back = await vault.get(id) // { secret: 'hello' } -- decrypted
 // A consumer that did not create it discovers the descriptor and decrypts with its
 // own keys -- no override needed; one cached read of the Collection Metadata
 // object:
-const same = was.spaceAt(spaceUrl).collection('vault')
+const same = pws.spaceAt(spaceUrl).collection('vault')
 await same.get(id) // reads the descriptor, then decrypts
 ```
 
@@ -1171,7 +1171,7 @@ to force the decision and skip the Collection Metadata read --
 inline), or `'plaintext'`:
 
 ```ts
-const vault = was.spaceAt(spaceUrl).collection('vault', {
+const vault = pws.spaceAt(spaceUrl).collection('vault', {
   encryption: { scheme: 'edv' }
 })
 ```
@@ -1247,7 +1247,7 @@ scope for now):
 
 **Working offline.** A consumer that only decrypts bytes it already holds --
 opening an archived collection, say -- has no server to reach. Import
-`@interop/was-client/edv/core` instead of `@interop/was-client/edv`: it is the
+`@interop/pws-client/edv/core` instead of `@interop/pws-client/edv`: it is the
 same codec, doc ciphers, key epochs, recipient operations, blinding keys,
 `resourceDescriptorStore`, and the log-governed descriptor stores, with every
 transport module left out of the import graph. `collectionDescriptorStore` stays
@@ -1261,7 +1261,7 @@ from bytes you already hold. A missing chunk throws `NotFoundError`, and
 React Native included.
 
 ```ts
-import { createEdvDocCipher } from '@interop/was-client/edv/core'
+import { createEdvDocCipher } from '@interop/pws-client/edv/core'
 
 const cipher = await createEdvDocCipher({
   keyAgreementKey,
@@ -1274,15 +1274,15 @@ const data = await cipher.decrypt({ id, envelope })
 
 A consumer that also wants no resource-log dependency --
 `@interop/wallet-backup` opening an archive with no log to verify, say --
-imports `@interop/was-client/edv/cipher` instead: the same codec, doc ciphers,
+imports `@interop/pws-client/edv/cipher` instead: the same codec, doc ciphers,
 key epochs, recipient operations, blinding keys, and `resourceDescriptorStore`,
 without `./edv/core`'s log-governed descriptor stores. Importing it evaluates no
 `@interop/vh-resource-log` or `@interop/did-method-webvh` module, on top of no
 transport module.
 
-Online consumers keep importing `@interop/was-client/edv` and nothing changes
+Online consumers keep importing `@interop/pws-client/edv` and nothing changes
 for them: it re-exports everything `./edv/core` does (which in turn re-exports
-everything `./edv/cipher` does) and adds the transport (`WasTransport`,
+everything `./edv/cipher` does) and adds the transport (`PwsTransport`,
 `createEdvEncryption`, descriptor acquisition and refresh).
 
 #### Searching an encrypted collection
@@ -1308,7 +1308,7 @@ await ensureFirstEpoch({
 Then declare what is searchable and search it:
 
 ```ts
-const vault = was.spaceAt(spaceUrl).collection('vault')
+const vault = pws.spaceAt(spaceUrl).collection('vault')
 await vault.declareIndex({ attribute: 'content.type' })
 
 await vault.add({ type: 'note', title: 'alpha' })
@@ -1358,13 +1358,13 @@ intact either way.
 
 ### Cross-replica sync
 
-The opt-in `@interop/was-client/sync` subpath supplies everything a wallet needs
+The opt-in `@interop/pws-client/sync` subpath supplies everything a wallet needs
 to replicate one Space + Collection across devices, with PWS as the primary
 copy. It is not a sync engine itself -- it provides the seams a change engine
 plugs into:
 
-- **`createWasSyncPort({ was, spaceUrl, collectionId })`** builds a
-  `WasSyncPort`: paged pulls over the collection's `changes` feed (resumable via
+- **`createPwsSyncPort({ pws, spaceUrl, collectionId })`** builds a
+  `PwsSyncPort`: paged pulls over the collection's `changes` feed (resumable via
   an opaque server-side checkpoint) and conditional pushes
   (`putContent`/`deleteContent`/`putMeta`) guarded by the server's content
   `ETag`. A pull hands back the feed's JSON Resources and their tombstones only,
@@ -1373,13 +1373,13 @@ plugs into:
   client does not know are skipped, and the checkpoint still moves past them.
   The port moves stored bodies **verbatim** -- for an encrypted collection that
   means the opaque EDV envelope, never plaintext, and the port itself never
-  touches keys. A rejected precondition throws `WasSyncConflictError` (412); a
+  touches keys. A rejected precondition throws `PwsSyncConflictError` (412); a
   delete of an already-gone resource or a `putMeta` against one throws
-  `WasSyncNotFoundError` (404) -- both catchable subtypes of the core
+  `PwsSyncNotFoundError` (404) -- both catchable subtypes of the core
   `PreconditionFailedError` / `NotFoundError`; a `query` whose checkpoint the
-  server did not issue throws `WasSyncCheckpointError` (400, a `ValidationError`
+  server did not issue throws `PwsSyncCheckpointError` (400, a `ValidationError`
   subtype), and the pull restarts from the beginning. Every other failure
-  arrives as the typed `WasError` subclass for its status, carrying the server's
+  arrives as the typed `PwsError` subclass for its status, carrying the server's
   `problem+json` fields.
 - **`isSyncConflictError` / `isSyncNotFoundError` / `isSyncCheckpointError` /
   `isSyncAuthError` / `isUnknownEpochError` / `isKeyUnwrapError` /
@@ -1406,7 +1406,7 @@ plugs into:
   `collection.codecContext()` as `context` to read a chunked encrypted blob,
   which then decrypts to a `Blob`. `createPlaintextDocCipher(...)` is the
   crypto-free identity implementation for a plaintext content-addressed
-  collection; `createEdvDocCipher(...)` (from `@interop/was-client/edv`) is the
+  collection; `createEdvDocCipher(...)` (from `@interop/pws-client/edv`) is the
   encrypting one, built from the collection's key-epoch descriptor (every
   encrypted collection carries one from birth; install epoch[0] at provision
   time with `ensureFirstEpoch`). Build it with the collection's `spaceUrl` to
@@ -1418,17 +1418,17 @@ plugs into:
   write-only counterpart, built from the descriptor alone with no key-agreement
   secret (writes seal to the current epoch's public key, reconstructed from the
   epoch id); `decrypt` on it refuses with the typed `EncryptOnlyCipherError`.
-- **`createRefreshingEdvDocCipher(...)`** (from `@interop/was-client/edv`) is
+- **`createRefreshingEdvDocCipher(...)`** (from `@interop/pws-client/edv`) is
   `createEdvDocCipher` bound to descriptor acquisition and the unknown-epoch
   refresh rule: it acquires the collection's descriptor through the
   `EncryptionDescriptorSource` / `EncryptionDescriptorCache` seams
-  (`wasDescriptorSource` is the source over a `WasClient`; the cache is a
+  (`pwsDescriptorSource` is the source over a `PwsClient`; the cache is a
   client-local get/put your app scopes to one Space), refuses fail-closed to
   build without one, and on an `UnknownEpochError` decrypt re-reads the
   descriptor, swaps itself, and retries exactly once per instance. A descriptor
   that carries `history` (a log-governed collection) is refused with
   `UnverifiedDescriptorError` unless its source declares
-  `verifiesHistory: true`; `wasDescriptorSource` does not. An epoch rotation
+  `verifiesHistory: true`; `pwsDescriptorSource` does not. An epoch rotation
   emits no Resource entry in the change feed, so this is how a replica meets an
   envelope sealed under an epoch it has never seen without a refetch per
   resource. `acquireDescriptor` / `acquireDescriptors` are the acquisition alone
@@ -1452,23 +1452,23 @@ plugs into:
 
 ```ts
 import {
-  createWasSyncPort,
+  createPwsSyncPort,
   createPlaintextDocCipher,
   ensureSpaceAndCollection,
   isSyncConflictError
-} from '@interop/was-client/sync'
+} from '@interop/pws-client/sync'
 
 // The Space URL is received, then stored: the same Space on every client.
 const spaceUrl = storedSpaceUrl
 await ensureSpaceAndCollection({
-  was,
+  pws,
   spaceUrl,
   controllerDid,
   collectionId: 'notes',
   encryption: 'plaintext'
 })
 
-const port = createWasSyncPort({ was, spaceUrl, collectionId: 'notes' })
+const port = createPwsSyncPort({ pws, spaceUrl, collectionId: 'notes' })
 const cipher = createPlaintextDocCipher({ collectionId: 'notes' })
 
 // Push: encrypt (mints the id), then write the stored body verbatim.
@@ -1492,7 +1492,7 @@ do {
     const data = await cipher.decrypt({ id: doc.id, envelope: doc.data })
     // apply to the local replica, recording doc.etag for later pushes
   }
-  checkpoint = page.checkpoint // null when the page was empty (caught up)
+  checkpoint = page.checkpoint // null when the page pws empty (caught up)
 } while (checkpoint)
 ```
 
@@ -1518,7 +1518,7 @@ const page = await collection.changes({ method: 'GET', checkpoint, limit: 100 })
 
 ### Resource logs (co-managed key resources)
 
-The opt-in `@interop/was-client/log` subpath is the PWS binding of
+The opt-in `@interop/pws-client/log` subpath is the PWS binding of
 `@interop/vh-resource-log`'s store port. Resource logs -- the hash-linked, JSON
 Lines log format (the encrypted-collections spec's Resource Log Profile)
 governing key resources co-managed between a wallet's clients and the storage
@@ -1572,14 +1572,14 @@ large Blobs to disk.)
 
 ### The manual-request escape hatch
 
-`was.request(...)` mirrors ezcap's generic `request()` for hand-built calls. It
+`pws.request(...)` mirrors ezcap's generic `request()` for hand-built calls. It
 takes an absolute `url`. As a deliberate escape hatch it returns the raw
 `HttpResponse` and throws raw ezcap/ky errors -- it does not apply the
 null-on-404 or typed-error conveniences. It still waits on service discovery, so
 against an incompatible server it rejects with `IncompatibleServerError`.
 
 ```ts
-const response = await was.request({ url: space.url, method: 'GET' })
+const response = await pws.request({ url: space.url, method: 'GET' })
 ```
 
 ## Errors and the 404/null caveat
@@ -1599,9 +1599,9 @@ not exist". Write/delete methods throw a typed error instead.
 | 413    | `PayloadTooLargeError` | `PayloadTooLargeError` |
 | 501    | `NotImplementedError`  | `NotImplementedError`  |
 | 507    | `QuotaExceededError`   | `QuotaExceededError`   |
-| 5xx    | `WasServerError`       | `WasServerError`       |
+| 5xx    | `PwsServerError`       | `PwsServerError`       |
 
-All error classes extend `WasError` (carrying `status`, the problem-kind `type`
+All error classes extend `PwsError` (carrying `status`, the problem-kind `type`
 URI, `title`, `details`, and `requestUrl`). When the server sends a
 `problem+json` `type` (the spec's Error Type Registry), `mapError()` dispatches
 on that kind first and falls back to the HTTP status -- so, for example, a 409
@@ -1615,7 +1615,7 @@ Spec endpoints a given server has not yet implemented surface as
 `NotImplementedError` (the server's 501).
 
 The client-side errors (`EncryptionError` and its subtypes, `NotSupportedError`,
-`UnknownEpochError`) are `WasError`s too; they carry no `status`. An
+`UnknownEpochError`) are `PwsError`s too; they carry no `status`. An
 `UnknownEpochError` carries the `collectionId` whose descriptor to re-read and
 the envelope's unroutable `kids`.
 

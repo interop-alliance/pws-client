@@ -3,7 +3,7 @@
  */
 /**
  * Unit tests for the encrypted-collection hardening layer (no network): the
- * AEAD-authenticated `was` protected-header binding (resource-id swap detection,
+ * AEAD-authenticated `pws` protected-header binding (resource-id swap detection,
  * content-derived id verification, metadata binding, and the unconditional
  * per-envelope epoch binding), the epoch-from-birth routing rule (a descriptor
  * carrying no key-epoch roster is refused fail-closed), the scheme-version
@@ -124,7 +124,7 @@ async function makeEpochDescriptor(reader: {
  * Builds an EDV codec over a fresh real X25519 reader and the single-epoch
  * descriptor that reader is recipient zero of, via the public provider. Also
  * hands back the epoch key pair itself, so a test can craft an envelope this
- * codec still routes to a read key but whose `was` binding the codec did not
+ * codec still routes to a read key but whose `pws` binding the codec did not
  * write.
  *
  * Also hands back a `siblingCodec` that reads the SAME epoch material under a
@@ -182,22 +182,22 @@ async function makeCodec(
 
 /**
  * Crafts an EDV envelope directly under an epoch key pair, bypassing the codec,
- * with a caller-chosen `was` binding -- or none at all. This is the only way to
+ * with a caller-chosen `pws` binding -- or none at all. This is the only way to
  * produce an envelope a codec built over that epoch still routes to a read key
  * while its protected-header binding is missing or malformed.
  *
  * @param options {object}
  * @param options.keyPair {IKeyAgreementKey}   the epoch key pair to seal to
- * @param [options.was] {Record<string, unknown>}   the binding to stamp; omit it
- *   to stamp no `was` parameter at all
+ * @param [options.pws] {Record<string, unknown>}   the binding to stamp; omit it
+ *   to stamp no `pws` parameter at all
  * @returns {Promise<Uint8Array>}   the envelope bytes, ready for `responseFrom`
  */
 async function craftEnvelope({
   keyPair,
-  was
+  pws
 }: {
   keyPair: IKeyAgreementKey
-  was?: Record<string, unknown>
+  pws?: Record<string, unknown>
 }): Promise<Uint8Array> {
   const edv = new EdvClientCore({
     keyAgreementKey: keyPair,
@@ -212,7 +212,7 @@ async function craftEnvelope({
     recipients: edv.documentCipher.createDefaultRecipients(keyPair),
     keyResolver: didKeyResolver,
     update: false,
-    ...(was !== undefined && { additionalProtectedParams: { was } })
+    ...(pws !== undefined && { additionalProtectedParams: { pws } })
   })
   return new TextEncoder().encode(JSON.stringify(encrypted))
 }
@@ -235,29 +235,29 @@ function responseFrom(body?: Uint8Array | Blob): HttpResponse {
 }
 
 /**
- * Parses the `was` binding out of an envelope object's JWE protected header.
+ * Parses the `pws` binding out of an envelope object's JWE protected header.
  *
  * @param envelope {unknown}
  * @returns {Record<string, unknown> | undefined}
  */
-function wasOf(envelope: unknown): Record<string, unknown> | undefined {
+function pwsOf(envelope: unknown): Record<string, unknown> | undefined {
   const { jwe } = envelope as { jwe: { protected: string } }
   const decoded = JSON.parse(
     new TextDecoder().decode(base64urlnopad.decode(jwe.protected))
   )
-  return decoded.was
+  return decoded.pws
 }
 
 /**
- * Parses the `was` binding out of an encoded envelope's JWE protected header.
+ * Parses the `pws` binding out of an encoded envelope's JWE protected header.
  *
  * @param body {Uint8Array | Blob}
  * @returns {Record<string, unknown> | undefined}
  */
-function wasHeaderOf(
+function pwsHeaderOf(
   body?: Uint8Array | Blob
 ): Record<string, unknown> | undefined {
-  return wasOf(JSON.parse(new TextDecoder().decode(body as Uint8Array)))
+  return pwsOf(JSON.parse(new TextDecoder().decode(body as Uint8Array)))
 }
 
 /**
@@ -278,12 +278,12 @@ async function makeReader(): Promise<{
   return { kak: kak as IKeyAgreementKey, publicKeyMultibase }
 }
 
-describe('was binding: resource-id swap detection', () => {
+describe('pws binding: resource-id swap detection', () => {
   it('binds the minted id and reads it back with the expected id', async () => {
     const { codec, epoch } = await makeCodec()
     const encoded = await codec.encode({ data: { secret: 'a' } })
-    // The envelope carries `was: { v: 1, resource: <minted id>, epoch }`.
-    expect(wasHeaderOf(encoded.body)).toEqual({
+    // The envelope carries `pws: { v: 1, resource: <minted id>, epoch }`.
+    expect(pwsHeaderOf(encoded.body)).toEqual({
       v: 1,
       resource: encoded.id,
       epoch
@@ -299,71 +299,71 @@ describe('was binding: resource-id swap detection', () => {
     const first = await codec.encode({ data: { which: 'first' } })
     const second = await codec.encode({ data: { which: 'second' } })
     // A malicious server serves the SECOND envelope under the FIRST id: the
-    // AEAD-bound `was.resource` no longer matches the requested id.
+    // AEAD-bound `pws.resource` no longer matches the requested id.
     await expect(
       codec.decode(responseFrom(second.body), first.id)
     ).rejects.toBeInstanceOf(IntegrityError)
   })
 })
 
-describe('was binding: malformed or absent binding', () => {
-  it('refuses an envelope that carries no `was` binding at all', async () => {
+describe('pws binding: malformed or absent binding', () => {
+  it('refuses an envelope that carries no `pws` binding at all', async () => {
     // Epoch-from-birth leaves no legacy era: an envelope sealed to the epoch key
     // but written without the binding comes from a writer this scheme does not
     // admit, so it is refused rather than accepted for back-compat.
     const { codec, keyPair } = await makeCodec()
     const body = await craftEnvelope({ keyPair })
-    expect(wasHeaderOf(body)).toBe(undefined)
+    expect(pwsHeaderOf(body)).toBe(undefined)
     await expect(
       codec.decode(responseFrom(body), CRAFTED_ID)
     ).rejects.toBeInstanceOf(EncryptionError)
     await expect(codec.decode(responseFrom(body), CRAFTED_ID)).rejects.toThrow(
-      /no `was` binding/
+      /no `pws` binding/
     )
   })
 
-  it('refuses an envelope whose `was` carries no epoch member', async () => {
-    // The `was` parameter is present and its `resource` even matches, but the
-    // epoch binding is missing: refused like a missing `was`, since the epoch
+  it('refuses an envelope whose `pws` carries no epoch member', async () => {
+    // The `pws` parameter is present and its `resource` even matches, but the
+    // epoch binding is missing: refused like a missing `pws`, since the epoch
     // check is unconditional.
     const { codec, keyPair } = await makeCodec()
     const body = await craftEnvelope({
       keyPair,
-      was: { v: 1, resource: CRAFTED_ID }
+      pws: { v: 1, resource: CRAFTED_ID }
     })
     await expect(
       codec.decode(responseFrom(body), CRAFTED_ID)
     ).rejects.toBeInstanceOf(EncryptionError)
     await expect(codec.decode(responseFrom(body), CRAFTED_ID)).rejects.toThrow(
-      /binds no `was.epoch`/
+      /binds no `pws.epoch`/
     )
   })
 
-  it('refuses an envelope whose `was` carries no `v` member', async () => {
-    // The `was` parameter is present with a matching `resource` and `epoch`,
-    // but the scheme-version stamp is missing: refused like a missing `was`,
+  it('refuses an envelope whose `pws` carries no `v` member', async () => {
+    // The `pws` parameter is present with a matching `resource` and `epoch`,
+    // but the scheme-version stamp is missing: refused like a missing `pws`,
     // since every envelope stamps its scheme version at encrypt time.
     const { codec, keyPair, epoch } = await makeCodec()
     const body = await craftEnvelope({
       keyPair,
-      was: { resource: CRAFTED_ID, epoch }
+      pws: { resource: CRAFTED_ID, epoch }
     })
     await expect(
       codec.decode(responseFrom(body), CRAFTED_ID)
     ).rejects.toBeInstanceOf(EncryptionError)
     await expect(codec.decode(responseFrom(body), CRAFTED_ID)).rejects.toThrow(
-      /binds no `was.v`/
+      /binds no `pws.v`/
     )
   })
 
-  it('fails with IntegrityError when `was.epoch` names another epoch', async () => {
+  it('fails with IntegrityError when `pws.epoch` names another epoch', async () => {
     // A replay under a different epoch's label: the envelope decrypts with this
     // reader's epoch key, but the bound epoch is a different one.
     const { codec, keyPair } = await makeCodec()
     const { epochId: otherEpoch } = await mintEpoch()
     const body = await craftEnvelope({
       keyPair,
-      was: { v: 1, resource: CRAFTED_ID, epoch: otherEpoch }
+      pws: { v: 1, resource: CRAFTED_ID, epoch: otherEpoch }
     })
     await expect(
       codec.decode(responseFrom(body), CRAFTED_ID)
@@ -371,13 +371,13 @@ describe('was binding: malformed or absent binding', () => {
   })
 })
 
-describe('was binding: content-derived id verification', () => {
+describe('pws binding: content-derived id verification', () => {
   it('omits `resource` and verifies the honest round trip by re-deriving the id', async () => {
     const { codec, epoch } = await makeCodec({ idDerivation: 'content' })
     const encoded = await codec.encode({ data: { addressed: true } })
     // No `resource` on a content-derived write (the id is a function of the
     // ciphertext), but the epoch is bound like every write.
-    expect(wasHeaderOf(encoded.body)).toEqual({ v: 1, epoch })
+    expect(pwsHeaderOf(encoded.body)).toEqual({ v: 1, epoch })
     await expect(
       codec.decode(responseFrom(encoded.body), encoded.id)
     ).resolves.toEqual({ addressed: true })
@@ -395,16 +395,16 @@ describe('was binding: content-derived id verification', () => {
   })
 })
 
-describe('was binding: metadata envelope', () => {
+describe('pws binding: metadata envelope', () => {
   it('binds the resource id and the epoch into the metadata envelope and round-trips', async () => {
     const { codec, epoch } = await makeCodec()
     const { custom } = await codec.encodeMeta({
       custom: { name: 'Secret' },
       slot: { kind: 'resource', id: 'zResourceId' }
     })
-    // A metadata envelope seals to the current epoch key and binds `was.epoch`
+    // A metadata envelope seals to the current epoch key and binds `pws.epoch`
     // like every other write, so it satisfies the unconditional decode check.
-    expect(wasOf(custom)).toEqual({ v: 1, resource: 'zResourceId', epoch })
+    expect(pwsOf(custom)).toEqual({ v: 1, resource: 'zResourceId', epoch })
     await expect(
       codec.decodeMeta({ custom }, { kind: 'resource', id: 'zResourceId' })
     ).resolves.toEqual({ name: 'Secret' })
@@ -437,7 +437,7 @@ describe('was binding: metadata envelope', () => {
 
   it('fails with IntegrityError when the Collection envelope is served for a resource', async () => {
     const { codec } = await makeCodec()
-    // A Collection metadata envelope binds `was.collection`, which a resource's
+    // A Collection metadata envelope binds `pws.collection`, which a resource's
     // slot never carries: it is refused there before any id comparison.
     const { custom } = await codec.encodeMeta({
       custom: { name: 'Shared' },
@@ -481,7 +481,7 @@ describe('was binding: metadata envelope', () => {
       custom: { name: 'Shared' },
       slot: { kind: 'collection' }
     })
-    expect(wasOf(custom)).toEqual({ v: 1, collection: 'c', epoch })
+    expect(pwsOf(custom)).toEqual({ v: 1, collection: 'c', epoch })
     await expect(
       codec.decodeMeta({ custom }, { kind: 'collection' })
     ).resolves.toEqual({
@@ -492,11 +492,11 @@ describe('was binding: metadata envelope', () => {
   it('fails with IntegrityError when a content envelope is served in the Collection slot', async () => {
     const { codec, keyPair, epoch } = await makeCodec()
     // A content-derived content envelope binds neither slot marker, so the
-    // Collection metadata slot cannot accept it: absence of `was.collection`
+    // Collection metadata slot cannot accept it: absence of `pws.collection`
     // means the envelope was written for some other slot entirely.
     const custom = JSON.parse(
       new TextDecoder().decode(
-        await craftEnvelope({ keyPair, was: { v: 1, epoch } })
+        await craftEnvelope({ keyPair, pws: { v: 1, epoch } })
       )
     )
     await expect(
@@ -519,10 +519,10 @@ describe('was binding: metadata envelope', () => {
   })
 })
 
-describe('was binding: per-envelope epoch label', () => {
+describe('pws binding: per-envelope epoch label', () => {
   /**
    * Builds an epoch-bearing EdvCodec directly over a freshly-minted epoch key.
-   * The declared write epoch (`was.epoch`) defaults to that key's real epoch, or
+   * The declared write epoch (`pws.epoch`) defaults to that key's real epoch, or
    * can be overridden with `relabelEpoch` to simulate a re-labeled envelope
    * whose declared epoch differs from the key that actually decrypts it.
    *
@@ -557,23 +557,23 @@ describe('was binding: per-envelope epoch label', () => {
     return { codec, realEpoch, writeEpoch }
   }
 
-  it('stamps `was.epoch` with the write epoch and reads it back', async () => {
+  it('stamps `pws.epoch` with the write epoch and reads it back', async () => {
     const { codec, realEpoch } = await epochCodec()
     const encoded = await codec.encode({ data: { ok: true } })
-    expect(wasHeaderOf(encoded.body)).toMatchObject({ v: 1, epoch: realEpoch })
+    expect(pwsHeaderOf(encoded.body)).toMatchObject({ v: 1, epoch: realEpoch })
     await expect(
       codec.decode(responseFrom(encoded.body), encoded.id)
     ).resolves.toEqual({ ok: true })
   })
 
-  it('fails with IntegrityError when `was.epoch` mismatches the decrypting key', async () => {
+  it('fails with IntegrityError when `pws.epoch` mismatches the decrypting key', async () => {
     // The codec labels writes with a fake epoch while actually encrypting under
     // the real key's epoch, so the decrypting key's epoch differs from
-    // `was.epoch`.
+    // `pws.epoch`.
     const fakeEpoch = 'did:key:z' + 'F'.repeat(21)
     const { codec, realEpoch } = await epochCodec({ relabelEpoch: fakeEpoch })
     const encoded = await codec.encode({ data: { ok: true } })
-    expect(wasHeaderOf(encoded.body)).toMatchObject({ epoch: fakeEpoch })
+    expect(pwsHeaderOf(encoded.body)).toMatchObject({ epoch: fakeEpoch })
     expect(realEpoch).not.toBe(fakeEpoch)
     await expect(
       codec.decode(responseFrom(encoded.body), encoded.id)

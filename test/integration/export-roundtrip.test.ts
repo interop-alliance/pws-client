@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: the three whole-space export shapes against a live WAS
+ * Integration test: the three whole-space export shapes against a live PWS
  * server. Proves that `export()`, `exportBlob()`, and a fully-drained
  * `exportStream()` produce byte-identical tar archives for the same space, and
  * that `spaceB.import(await spaceA.exportBlob())` round-trips the resources.
@@ -13,7 +13,7 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { Space } from '../../src/index.js'
 import { drain } from '../helpers/bytes.js'
 
@@ -21,25 +21,25 @@ const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
- * Builds a fresh did:key Ed25519 signer and a WAS client over it.
+ * Builds a fresh did:key Ed25519 signer and a PWS client over it.
  *
- * @returns {Promise<WasClient>}
+ * @returns {Promise<PwsClient>}
  */
-async function freshWasClient(): Promise<WasClient> {
+async function freshPwsClient(): Promise<PwsClient> {
   const keyPair = await Ed25519VerificationKey.generate()
-  return WasClient.fromSigner({
+  return PwsClient.fromSigner({
     baseServerUrl: baseServerUrl!,
     signer: keyPair.didKeySigner()
   })
 }
 
 describeLive('whole-space export shapes (live server)', () => {
-  let was: WasClient
+  let pws: PwsClient
   let source: Space
 
   beforeAll(async () => {
-    was = await freshWasClient()
-    source = await was.createSpace({ name: 'Export Integration' })
+    pws = await freshPwsClient()
+    source = await pws.createSpace({ name: 'Export Integration' })
     const notes = await source.createCollection({ id: 'notes', name: 'Notes' })
     await notes.put('first', { message: 'hello export' })
     await notes.put('second', { message: 'and again' })
@@ -70,7 +70,7 @@ describeLive('whole-space export shapes (live server)', () => {
     const blob = await source.exportBlob()
     expect(blob.type).toBe('application/x-tar')
 
-    const target = await was.createSpace({ name: 'Export Target' })
+    const target = await pws.createSpace({ name: 'Export Target' })
     try {
       const stats = await target.import(blob)
       expect(stats.collectionsCreated).toBeGreaterThan(0)

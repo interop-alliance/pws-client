@@ -3,7 +3,7 @@
  */
 /**
  * A `ReadableStream<Uint8Array>` written and read through the handle API, end
- * to end over an in-memory WAS server. On an encrypted random-id collection
+ * to end over an in-memory PWS server. On an encrypted random-id collection
  * `add(stream)` and a create by `put(stream)` always take the chunked-stream
  * path, whatever the stream's size, and `getStream()` hands the decrypted
  * bytes back as a stream. A write by id over an existing document replaces

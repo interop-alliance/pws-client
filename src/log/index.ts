@@ -2,10 +2,10 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/log` subpath entry: the WAS binding of
+ * The `@interop/pws-client/log` subpath entry: the PWS binding of
  * `@interop/vh-resource-log`'s store port -- `resourceLogStore` maps the
  * port's read-with-etag, compare-and-swap append, and guarded genesis create
- * onto the conditional writes of one WAS Resource, or of a Collection's
+ * onto the conditional writes of one PWS Resource, or of a Collection's
  * governing history log at `/meta/log`, rethrowing a lost race as the
  * library's `ResourceLogConflictError`. Everything else about resource logs
  * (the Resource Log Profile, encrypted-collections-spec

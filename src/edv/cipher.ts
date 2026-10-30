@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/edv/cipher` subpath entry: the log-free part of the
- * offline half of encrypted (EDV-over-WAS) storage support. Everything here
+ * The `@interop/pws-client/edv/cipher` subpath entry: the log-free part of the
+ * offline half of encrypted (EDV-over-PWS) storage support. Everything here
  * works on bytes and keys a caller already holds -- the codec, the doc
  * ciphers, the key epochs, the recipient operations, `resourceDescriptorStore`
  * and the blinding keys -- with no server and no resource log in the graph. A
@@ -14,9 +14,9 @@
  * transport factory through `import()` for the chunked paths. A call that
  * names no Space loads nothing.
  *
- * `@interop/was-client/edv/core` re-exports all of it and adds the
+ * `@interop/pws-client/edv/core` re-exports all of it and adds the
  * log-governed descriptor stores, which read through a resource log verified
- * by `@interop/vh-resource-log`. `@interop/was-client/edv` re-exports core in
+ * by `@interop/vh-resource-log`. `@interop/pws-client/edv` re-exports core in
  * turn and adds the online set on top.
  *
  * Every encrypted collection carries a key-epoch roster from birth:

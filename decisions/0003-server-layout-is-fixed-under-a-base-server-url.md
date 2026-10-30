@@ -9,7 +9,7 @@
   assumption was wrong, and the two spec-conformant ways out (a List Spaces
   round trip, or a URL template on the service description) both cost more than
   the convention they replaced.
-- Affects: `@interop/was-client` (`WasClient`, `paths`, `internal/service`,
+- Affects: `@interop/pws-client` (`PwsClient`, `paths`, `internal/service`,
   `testing`), `@interop/wallet-core` (the did:webvh template and its inverse,
   `verifyAccountLog`, the keyring account pointer, the passphrase unlock Space,
   every `serviceUrl` parameter introduced under 0002), `@interop/wallet-request`
@@ -26,7 +26,7 @@ The spec fixes the URL layout below a Space: `{space}/{collection_id}/`,
 it fixed nothing. Decision 0002 took that freedom seriously: a server may mount
 `/spaces/`, `/space/{space_id}/` and the service description anywhere, so a
 client must never assemble a Space URL and must obtain one from a `Location`
-header, a listing, a capability chain, a DID, or out of band. was-client 0.100.0
+header, a listing, a capability chain, a DID, or out of band. pws-client 0.100.0
 implemented that rule and removed `baseUrl` and `space(spaceId)`.
 
 The first consumer to port hit a case the rule cannot serve. A fresh passphrase
@@ -67,7 +67,7 @@ nothing else.
    server URL may construct all three. The segments `service`, `spaces` and
    `space` are the permanent part of this record.
 
-2. **`baseServerUrl` is the client's one locator for that layout.** `WasClient`
+2. **`baseServerUrl` is the client's one locator for that layout.** `PwsClient`
    is constructed from `{ baseServerUrl }`: an absolute http(s) URL with no
    query or fragment, to which a missing trailing slash is added rather than
    refused (settled 2026-10-29). It derives the service URL and the Spaces URL
@@ -87,7 +87,7 @@ nothing else.
    structural request rather than with a 404 deep in a Space.
 
 4. **A fixed Space is opened by its own URL.** For a server that is one Space
-   with no id, the client offers `WasClient.forSpace({ spaceUrl, ... })` (name
+   with no id, the client offers `PwsClient.forSpace({ spaceUrl, ... })` (name
    settled 2026-10-29), which takes the Space URL and nothing above it. It finds
    the service description by following the `Link: rel="service"` header on a
    HEAD of the Space URL, which is the one place the discovery mechanism of 0002
@@ -159,10 +159,10 @@ nothing else.
   change from "must not assume peers" to "are peers under one base", and the
   reserved-segment list grows by three names. The changelog says plainly that
   this is a reversal.
-- A second breaking was-client release follows 0.100.0. wallet-core,
+- A second breaking pws-client release follows 0.100.0. wallet-core,
   wallet-request, freewallet, was-react, dcw and the teaching server's testing
   counterpart had not yet shipped their 0002 ports, so the churn is confined to
-  was-client and the spec. Greenfield: no migration of stored pointers or rows.
+  pws-client and the spec. Greenfield: no migration of stored pointers or rows.
 - Consumers may rely on: `{base}service`, `{base}spaces/` and
   `{base}space/{id}/` for any server built from a base server URL; a Space
   handle whose URL is byte-identical to what the server advertised, whichever

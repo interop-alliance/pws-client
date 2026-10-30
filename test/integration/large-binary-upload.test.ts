@@ -3,7 +3,7 @@
  */
 /**
  * Integration test: a large binary `Blob` written to a plaintext Collection,
- * via both `Resource.put()` and `Collection.add()`, against a live WAS server.
+ * via both `Resource.put()` and `Collection.add()`, against a live PWS server.
  * The signed request's `Digest` is computed by hashing the Blob incrementally,
  * and the same Blob is the request body. The server verifies that digest over
  * the streamed body before it commits the Resource, so a successful write
@@ -16,7 +16,7 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
 import { bytesOf } from '../helpers/bytes.js'
 
@@ -51,11 +51,11 @@ describeLive(
 
     beforeAll(async () => {
       const keyPair = await Ed25519VerificationKey.generate()
-      const was = WasClient.fromSigner({
+      const pws = PwsClient.fromSigner({
         baseServerUrl: baseServerUrl!,
         signer: keyPair.didKeySigner()
       })
-      space = await was.createSpace({ name: 'Large Binary Upload Integration' })
+      space = await pws.createSpace({ name: 'Large Binary Upload Integration' })
       collection = await space.createCollection({ id: 'files', name: 'Files' })
       body = new Blob([bytesOf(LARGE_BODY_BYTES)], {
         type: 'application/octet-stream'

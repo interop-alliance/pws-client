@@ -1,44 +1,44 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import type { WasClient as WasClientClass } from '../../src/index.js'
+import type { PwsClient as PwsClientClass } from '../../src/index.js'
 import type { Outcome } from './fixtures/chunked.js'
 
 /**
  * Browser smoke test: confirms the bundle loads in a real browser and that the
  * lazy navigational handles build synchronously (no network, no key material).
  */
-test('WasClient builds lazy handles in the browser', async ({ page }) => {
+test('PwsClient builds lazy handles in the browser', async ({ page }) => {
   await page.goto('/test/index.html')
   const result = await page.evaluate(async () => {
     // `/src/index.ts` is a Vite dev-server path resolved at runtime in the
     // browser; `tsc` cannot resolve the specifier, so the static type comes
     // from the type-only import above.
     // @ts-expect-error -- Vite-only module specifier, resolved at runtime.
-    const { WasClient } = (await import('/src/index.ts')) as {
-      WasClient: typeof WasClientClass
+    const { PwsClient } = (await import('/src/index.ts')) as {
+      PwsClient: typeof PwsClientClass
     }
     // The constructor only stores baseServerUrl + zcapClient; a minimal stub is
     // enough to exercise synchronous, network-free handle construction.
     const stubZcapClient = {
       invocationSigner: { id: 'did:example:1#key-1' }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const was = new WasClient({
-      baseServerUrl: 'https://was.example/',
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const pws = new PwsClient({
+      baseServerUrl: 'https://pws.example/',
       zcapClient: stubZcapClient
     })
-    const resource = was
-      .spaceAt('https://was.example/space/s/')
+    const resource = pws
+      .spaceAt('https://pws.example/space/s/')
       .collection('c')
       .resource('r')
     return {
       spaceUrl: resource.spaceUrl,
       collectionId: resource.collectionId,
       resourceId: resource.id,
-      controllerDid: was.controllerDid
+      controllerDid: pws.controllerDid
     }
   })
   expect(result).toEqual({
-    spaceUrl: 'https://was.example/space/s/',
+    spaceUrl: 'https://pws.example/space/s/',
     collectionId: 'c',
     resourceId: 'r',
     controllerDid: 'did:example:1'

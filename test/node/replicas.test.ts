@@ -27,7 +27,7 @@ import {
   PreconditionFailedError,
   ProblemTypes,
   ValidationError,
-  WasServerError
+  PwsServerError
 } from '../../src/index.js'
 import type { RequestArgs } from '../helpers/stubClient.js'
 import {
@@ -40,7 +40,7 @@ import {
 const registration = {
   id: 'peer',
   fromSpace: 'https://source.example/space/reg-src/',
-  toSpace: 'https://was.example/space/s/',
+  toSpace: 'https://pws.example/space/s/',
   capability: {
     '@context': 'https://w3id.org/zcap/v1',
     id: 'urn:uuid:1',
@@ -53,7 +53,7 @@ const registration = {
   role: 'source'
 } as unknown as ReplicaRegistration
 
-const registrationUrl = 'https://was.example/space/s/replicas/peer'
+const registrationUrl = 'https://pws.example/space/s/replicas/peer'
 
 /**
  * A thrown `@interop/http-client` error carrying a `problem+json` body of the
@@ -76,7 +76,7 @@ describe('space.registerReplica()', () => {
     const result = await client
       .spaceAt(spaceUrlFor('s'))
       .registerReplica(registration)
-    expect(calls[0]?.url).toBe('https://was.example/space/s/replicas')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/replicas')
     expect(calls[0]?.method).toBe('POST')
     expect(calls[0]?.json).toEqual(registration)
     expect(result).toEqual(registration)
@@ -108,13 +108,13 @@ describe('replica calls on a 2xx with no JSON body', () => {
     ['replica', (space: Space) => space.replica('peer')],
     ['replicaStatus', (space: Space) => space.replicaStatus('peer')]
   ])(
-    '%s throws WasServerError naming the content type instead of reading it as null',
+    '%s throws PwsServerError naming the content type instead of reading it as null',
     async (_name, call) => {
       const client = clientWithStub(() =>
         jsonResponse({ status: 200, headers: { 'content-type': 'text/plain' } })
       )
       const attempt = call(client.spaceAt(spaceUrlFor('s')))
-      await expect(attempt).rejects.toBeInstanceOf(WasServerError)
+      await expect(attempt).rejects.toBeInstanceOf(PwsServerError)
       await expect(attempt).rejects.toThrow(/text\/plain/)
     }
   )
@@ -129,7 +129,7 @@ describe('space.replicas()', () => {
     }
     const { client, calls } = clientWithRequestSpy({ data: listing })
     const result = await client.spaceAt(spaceUrlFor('s')).replicas()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/replicas')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/replicas')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(listing)
   })
@@ -152,7 +152,7 @@ describe('space.replica()', () => {
   it('percent-encodes the replica id', async () => {
     const { client, calls } = clientWithRequestSpy({ data: registration })
     await client.spaceAt(spaceUrlFor('s')).replica('a b')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/replicas/a%20b')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/replicas/a%20b')
   })
 
   it('returns null when the registration is absent (404)', async () => {
@@ -206,7 +206,7 @@ describe('space.replicaStatus()', () => {
     const { client, calls } = clientWithRequestSpy({ data: status })
     const result = await client.spaceAt(spaceUrlFor('s')).replicaStatus('peer')
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/replicas/peer/status'
+      'https://pws.example/space/s/replicas/peer/status'
     )
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(status)
@@ -317,11 +317,11 @@ describe('space.pauseReplica()', () => {
     ])
   })
 
-  it('throws WasServerError when the read is a 2xx with no JSON body', async () => {
+  it('throws PwsServerError when the read is a 2xx with no JSON body', async () => {
     const client = clientWithStub(() => jsonResponse())
     await expect(
       client.spaceAt(spaceUrlFor('s')).pauseReplica('peer')
-    ).rejects.toBeInstanceOf(WasServerError)
+    ).rejects.toBeInstanceOf(PwsServerError)
   })
 })
 
@@ -393,7 +393,7 @@ describe('space.describe() replicas member', () => {
       replicas: [
         {
           fromSpace: 'https://source.example/space/reg-src/',
-          toSpace: 'https://was.example/space/s/',
+          toSpace: 'https://pws.example/space/s/',
           role: 'source'
         }
       ]
@@ -461,7 +461,7 @@ describe('collection.changes({ method: "GET" })', () => {
   // capability invoked outside its own target).
   const getOnlyCapability = {
     ...registration.capability,
-    invocationTarget: 'https://was.example/space/s/notes/'
+    invocationTarget: 'https://pws.example/space/s/notes/'
   }
 
   it('GETs the query endpoint with the parameters in the query string', async () => {
@@ -472,7 +472,7 @@ describe('collection.changes({ method: "GET" })', () => {
       .changes({ method: 'GET', checkpoint: 'cp/1+=', limit: 10 })
     expect(calls[0]?.method).toBe('GET')
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/notes/query?profile=changes&checkpoint=cp%2F1%2B%3D&limit=10'
+      'https://pws.example/space/s/notes/query?profile=changes&checkpoint=cp%2F1%2B%3D&limit=10'
     )
     expect(calls[0]?.json).toBeUndefined()
     expect(result).toEqual(page)
@@ -485,7 +485,7 @@ describe('collection.changes({ method: "GET" })', () => {
       .collection('notes')
       .changes({ method: 'GET' })
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/notes/query?profile=changes'
+      'https://pws.example/space/s/notes/query?profile=changes'
     )
   })
 
@@ -496,7 +496,7 @@ describe('collection.changes({ method: "GET" })', () => {
       .collection('notes')
       .changes({ limit: 5 })
     expect(calls[0]?.method).toBe('POST')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/notes/query')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/notes/query')
     expect(calls[0]?.json).toEqual({ profile: 'changes', limit: 5 })
   })
 
@@ -508,7 +508,7 @@ describe('collection.changes({ method: "GET" })', () => {
       .changes({ limit: 5 })
     expect(calls[0]?.method).toBe('GET')
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/notes/query?profile=changes&limit=5'
+      'https://pws.example/space/s/notes/query?profile=changes&limit=5'
     )
   })
 

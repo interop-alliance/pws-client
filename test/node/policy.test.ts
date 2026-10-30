@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import type { Collection, Resource, Space, WasClient } from '../../src/index.js'
+import type { Collection, Resource, Space, PwsClient } from '../../src/index.js'
 import { clientWithRequestSpy, spaceUrlFor } from '../helpers/stubClient.js'
 
 describe('policy handle methods', () => {
@@ -18,7 +18,7 @@ describe('policy handle methods', () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.spaceAt(spaceUrlFor('s')).collection('c').setPublic()
     const req = lastRequest()
-    expect(req?.url).toBe('https://was.example/space/s/c/policy')
+    expect(req?.url).toBe('https://pws.example/space/s/c/policy')
     expect(req?.method).toBe('PUT')
     expect(req?.json).toEqual({ type: 'PublicCanRead' })
   })
@@ -34,7 +34,7 @@ describe('policy handle methods', () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.spaceAt(spaceUrlFor('s')).collection('c').clearPolicy()
     const req = lastRequest()
-    expect(req?.url).toBe('https://was.example/space/s/c/policy')
+    expect(req?.url).toBe('https://pws.example/space/s/c/policy')
     expect(req?.method).toBe('DELETE')
   })
 
@@ -59,7 +59,7 @@ describe('policy handle methods', () => {
   it('targets the policy resource at the space level', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.spaceAt(spaceUrlFor('s')).setPublic()
-    expect(lastRequest()?.url).toBe('https://was.example/space/s/policy')
+    expect(lastRequest()?.url).toBe('https://pws.example/space/s/policy')
   })
 
   it('targets the policy resource at the resource level', async () => {
@@ -69,7 +69,7 @@ describe('policy handle methods', () => {
       .collection('c')
       .resource('r')
       .setPublic()
-    expect(lastRequest()?.url).toBe('https://was.example/space/s/c/r/policy')
+    expect(lastRequest()?.url).toBe('https://pws.example/space/s/c/r/policy')
   })
 
   it('getPolicyWithEtag() returns null when no policy is set (404)', async () => {
@@ -136,7 +136,7 @@ describe('policy handle methods', () => {
     const itRoundTripsEtag = (
       level: string, // 'space', 'collection', 'resource'
       policyUrl: string,
-      getHandle: (client: WasClient) => Space | Collection | Resource
+      getHandle: (client: PwsClient) => Space | Collection | Resource
     ): void => {
       describe(level, () => {
         it('getPolicyWithEtag() returns the policy with its ETag', async () => {
@@ -178,17 +178,17 @@ describe('policy handle methods', () => {
       })
     }
 
-    itRoundTripsEtag('space', 'https://was.example/space/s/policy', client =>
+    itRoundTripsEtag('space', 'https://pws.example/space/s/policy', client =>
       client.spaceAt(spaceUrlFor('s'))
     )
     itRoundTripsEtag(
       'collection',
-      'https://was.example/space/s/c/policy',
+      'https://pws.example/space/s/c/policy',
       client => client.spaceAt(spaceUrlFor('s')).collection('c')
     )
     itRoundTripsEtag(
       'resource',
-      'https://was.example/space/s/c/r/policy',
+      'https://pws.example/space/s/c/r/policy',
       client => client.spaceAt(spaceUrlFor('s')).collection('c').resource('r')
     )
   })
@@ -196,7 +196,7 @@ describe('policy handle methods', () => {
   describe('isPublic()', () => {
     const itChecksIsPublic = (
       level: string, // 'space', 'collection', 'resource'
-      getHandle: (client: WasClient) => { isPublic(): Promise<boolean> }
+      getHandle: (client: PwsClient) => { isPublic(): Promise<boolean> }
     ): void => {
       describe(level, () => {
         it(`is true when the ${level} policy is PublicCanRead`, async () => {
@@ -237,7 +237,7 @@ describe('policy handle methods', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .linkset()
-    expect(lastRequest()?.url).toBe('https://was.example/space/s/c/linkset')
+    expect(lastRequest()?.url).toBe('https://pws.example/space/s/c/linkset')
     expect(result).toEqual({ linkset: [{ anchor: '/space/s/c' }] })
   })
 })

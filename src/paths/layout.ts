@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/paths/layout` subpath entry: the part of the
+ * The `@interop/pws-client/paths/layout` subpath entry: the part of the
  * `./paths` grammar that needs nothing beyond the platform `URL`. It holds
  * the spec's Server Layout above a Space (`serviceDescriptionUrl`,
  * `spacesRepositoryUrl` and `spaceUrlById`, each from a base server URL, with

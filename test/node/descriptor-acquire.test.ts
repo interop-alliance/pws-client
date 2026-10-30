@@ -30,7 +30,7 @@ import {
   PreconditionFailedError
 } from '../../src/index.js'
 import { spaceUrlFor } from '../helpers/stubClient.js'
-import type { CollectionEncryption, WasClient } from '../../src/index.js'
+import type { CollectionEncryption, PwsClient } from '../../src/index.js'
 import {
   acquireDescriptor,
   acquireDescriptors,
@@ -42,7 +42,7 @@ import {
   removeRecipient,
   UnknownEpochError,
   UnverifiedDescriptorError,
-  wasDescriptorSource,
+  pwsDescriptorSource,
   type EncryptionDescriptorCache,
   type EncryptionDescriptorSource,
   type EncryptionDescriptorStore,
@@ -119,7 +119,7 @@ function memorySource({
 }
 
 /**
- * The in-memory compare-and-swap `EncryptionDescriptorStore` the was-client
+ * The in-memory compare-and-swap `EncryptionDescriptorStore` the pws-client
  * recipient primitives (initRecipients / removeRecipient) run their real
  * write path against, to mint real epoch rosters for the cipher tests.
  */
@@ -250,7 +250,7 @@ describe('acquireDescriptor', () => {
     const descriptor = sampleDescriptor()
     cache._set(COLLECTION_ID, descriptor)
 
-    // An empty description is ambiguous: WAS serves the same shape for an
+    // An empty description is ambiguous: PWS serves the same shape for an
     // unauthorized read as for an unencrypted collection.
     const acquired = await acquireDescriptor({
       source,
@@ -389,19 +389,19 @@ describe('acquireDescriptor', () => {
     expect(observed).toHaveLength(0)
   })
 
-  it('refuses a governed descriptor read through wasDescriptorSource', async () => {
-    const was = {
+  it('refuses a governed descriptor read through pwsDescriptorSource', async () => {
+    const pws = {
       spaceAt: () => ({
         collection: () => ({
           describe: async () => ({ encryption: governedDescriptor() })
         })
       })
-    } as unknown as WasClient
+    } as unknown as PwsClient
     const cache = memoryCache()
 
     await expect(
       acquireDescriptor({
-        source: wasDescriptorSource({ was, spaceUrl: spaceUrlFor('s1') }),
+        source: pwsDescriptorSource({ pws, spaceUrl: spaceUrlFor('s1') }),
         cache,
         collectionId: COLLECTION_ID
       })

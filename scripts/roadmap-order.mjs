@@ -7,7 +7,7 @@
  *
  *   - resolves `blocked-by` (and `depends-on`, where present) against the open
  *     items and the archive (an archived target counts as satisfied; a
- *     `WAS-`/`WASS-`/`FW-`-style id counts as an external, open blocker);
+ *     `WSS-`/`WASS-`/`FW-`-style id counts as an external, open blocker);
  *   - writes `blocks:` as the reverse of the open edges;
  *   - sorts the items inside each `##` section so every dependency precedes
  *     its dependents, tie-broken by priority, then the prior order; a section
@@ -52,7 +52,7 @@ const INDEX_END = '<!-- roadmap-order:index:end -->'
 const BY_ID_MARKER = '<!-- roadmap-order: by-id -->'
 const PRIORITY_RANK = { high: 0, medium: 1, low: 2 }
 const PRIORITY_TAG = { high: 'H', medium: 'M', low: 'L' }
-const EXTERNAL_ID = /\b(?:WAS|WASS|WC|FW|DCW|WBU|WR|WSR|SC|ECS|PWSCS|WS)-\d+\b/g
+const EXTERNAL_ID = /\b(?:WSS|WASS|WC|FW|DCW|WBU|WR|WSR|SC|ECS|PWSCS|WS)-\d+\b/g
 const ITEM_HEADING = /^### (WCL-\d+):\s*((?:\[[^\]]*\]\s*)*)(.*)$/
 
 const problems = []

@@ -4,7 +4,7 @@
 /**
  * Unit tests for list pagination: the `collectPages` helper and the listing
  * methods built on it -- the signed `Collection.list()`, `Space.collections()`,
- * and `WasClient.listSpaces()`, and the unsigned `was.publicListCollection()`.
+ * and `PwsClient.listSpaces()`, and the unsigned `pws.publicListCollection()`.
  * All transparently follow the server's `next` continuation links and aggregate
  * every page into one listing. A stub `ZcapClient` (signed path) and a stubbed
  * global `fetch` (public path) return canned pages keyed by request URL, so no
@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import { WasClient, WasServerError } from '../../src/index.js'
+import { PwsClient, PwsServerError } from '../../src/index.js'
 import {
   DEFAULT_MAX_PAGES,
   collectPages,
@@ -113,14 +113,14 @@ function spacesPage(
 }
 
 /**
- * Builds a `WasClient` over a stub `ZcapClient` that returns each page in
+ * Builds a `PwsClient` over a stub `ZcapClient` that returns each page in
  * `pages` keyed by request URL, recording the URLs it was asked for.
  *
  * @param pages {Record<string, object>}   listing envelopes keyed by request URL
  * @returns {object} { client, urls }
  */
 function clientWithPages(pages: Record<string, object>): {
-  client: WasClient
+  client: PwsClient
   urls: string[]
 } {
   const urls: string[] = []
@@ -148,7 +148,7 @@ describe('collectPages()', () => {
     const first = page(['a', 'b'])
     const result = await collectPages({
       first,
-      firstUrl: 'https://was.example/space/s/c/',
+      firstUrl: 'https://pws.example/space/s/c/',
       fetchPage: async () => {
         throw new Error('should not fetch')
       }
@@ -162,7 +162,7 @@ describe('collectPages()', () => {
     // Each page declares `totalItems: 5`; the walk yields three items in all.
     const result = await collectPages({
       first: page(['a', 'b'], '/space/s/c/?cursor=2'),
-      firstUrl: 'https://was.example/space/s/c/',
+      firstUrl: 'https://pws.example/space/s/c/',
       fetchPage: async () => page(['c'])
     })
     expect(result.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
@@ -174,7 +174,7 @@ describe('collectPages()', () => {
     delete (first as Partial<CollectionResourcesList>).totalItems
     const result = await collectPages({
       first,
-      firstUrl: 'https://was.example/space/s/c/',
+      firstUrl: 'https://pws.example/space/s/c/',
       fetchPage: async () => {
         throw new Error('should not fetch')
       }
@@ -186,13 +186,13 @@ describe('collectPages()', () => {
     const fetched: string[] = []
     const result = await collectPages({
       first: page(['a'], '/space/s/c/?cursor=2'),
-      firstUrl: 'https://was.example/space/s/c/',
+      firstUrl: 'https://pws.example/space/s/c/',
       fetchPage: async url => {
         fetched.push(url)
         return page(['b'])
       }
     })
-    expect(fetched).toEqual(['https://was.example/space/s/c/?cursor=2'])
+    expect(fetched).toEqual(['https://pws.example/space/s/c/?cursor=2'])
     expect(result.items.map(item => item.id)).toEqual(['a', 'b'])
     expect(result.next).toBeUndefined()
   })
@@ -201,14 +201,14 @@ describe('collectPages()', () => {
     let calls = 0
     await expect(
       collectPages({
-        first: page(['a'], 'https://was.example/space/s/c/'),
-        firstUrl: 'https://was.example/space/s/c/',
+        first: page(['a'], 'https://pws.example/space/s/c/'),
+        firstUrl: 'https://pws.example/space/s/c/',
         fetchPage: async () => {
           calls += 1
-          return page(['b'], 'https://was.example/space/s/c/')
+          return page(['b'], 'https://pws.example/space/s/c/')
         }
       })
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
     // `next` points back at the first (already-seen) URL, so no fetch happens.
     expect(calls).toBe(0)
   })
@@ -218,10 +218,10 @@ describe('collectPages()', () => {
     await expect(
       collectPages({
         first: page(['a'], '/space/s/c/?cursor=2'),
-        firstUrl: 'https://was.example/space/s/c/',
+        firstUrl: 'https://pws.example/space/s/c/',
         fetchPage: async () => null
       })
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
   })
 
   it('detects a cycle even when the first URL is not in canonical form', async () => {
@@ -232,14 +232,14 @@ describe('collectPages()', () => {
     let calls = 0
     await expect(
       collectPages({
-        first: page(['a'], 'https://was.example/space/s/c/'),
-        firstUrl: 'https://was.example:443/space/s/c/',
+        first: page(['a'], 'https://pws.example/space/s/c/'),
+        firstUrl: 'https://pws.example:443/space/s/c/',
         fetchPage: async () => {
           calls += 1
           return page(['b'])
         }
       })
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
     expect(calls).toBe(0)
   })
 })
@@ -247,16 +247,16 @@ describe('collectPages()', () => {
 describe('Collection.list() pagination', () => {
   it('follows `next` across pages and aggregates the items', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/c/': page(
+      'https://pws.example/space/s/c/': page(
         ['a', 'b'],
         '/space/s/c/?cursor=2'
       ),
-      'https://was.example/space/s/c/?cursor=2': page(['c'])
+      'https://pws.example/space/s/c/?cursor=2': page(['c'])
     })
     const result = await client.spaceAt(spaceUrlFor('s')).collection('c').list()
     expect(urls).toEqual([
-      'https://was.example/space/s/c/',
-      'https://was.example/space/s/c/?cursor=2'
+      'https://pws.example/space/s/c/',
+      'https://pws.example/space/s/c/?cursor=2'
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result?.next).toBeUndefined()
@@ -268,11 +268,11 @@ describe('Collection.list() pagination', () => {
 describe('Collection.listPages() / listItems()', () => {
   it('listPages() yields each page lazily', async () => {
     const { client } = clientWithPages({
-      'https://was.example/space/s/c/': page(
+      'https://pws.example/space/s/c/': page(
         ['a', 'b'],
         '/space/s/c/?cursor=2'
       ),
-      'https://was.example/space/s/c/?cursor=2': page(['c'])
+      'https://pws.example/space/s/c/?cursor=2': page(['c'])
     })
     const sizes: number[] = []
     for await (const pageResult of client
@@ -286,11 +286,11 @@ describe('Collection.listPages() / listItems()', () => {
 
   it('listItems() flattens items across pages', async () => {
     const { client } = clientWithPages({
-      'https://was.example/space/s/c/': page(
+      'https://pws.example/space/s/c/': page(
         ['a', 'b'],
         '/space/s/c/?cursor=2'
       ),
-      'https://was.example/space/s/c/?cursor=2': page(['c'])
+      'https://pws.example/space/s/c/?cursor=2': page(['c'])
     })
     const ids: string[] = []
     for await (const item of client
@@ -304,11 +304,11 @@ describe('Collection.listPages() / listItems()', () => {
 
   it('listItems() stops fetching when the consumer breaks early', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/c/': page(
+      'https://pws.example/space/s/c/': page(
         ['a', 'b'],
         '/space/s/c/?cursor=2'
       ),
-      'https://was.example/space/s/c/?cursor=2': page(['c'])
+      'https://pws.example/space/s/c/?cursor=2': page(['c'])
     })
     const ids: string[] = []
     for await (const item of client
@@ -322,7 +322,7 @@ describe('Collection.listPages() / listItems()', () => {
     }
     expect(ids).toEqual(['a'])
     // Broke during the first page, so the second page was never requested.
-    expect(urls).toEqual(['https://was.example/space/s/c/'])
+    expect(urls).toEqual(['https://pws.example/space/s/c/'])
   })
 
   it('listPages() yields nothing for a missing collection', async () => {
@@ -343,8 +343,8 @@ describe('Collection.listPages() / listItems()', () => {
 describe('publicListCollection() pagination', () => {
   it('follows `next` across pages with an unsigned fetch', async () => {
     const pages: Record<string, CollectionResourcesList> = {
-      'https://was.example/space/s/c/': page(['a'], '/space/s/c/?cursor=2'),
-      'https://was.example/space/s/c/?cursor=2': page(['b', 'c'])
+      'https://pws.example/space/s/c/': page(['a'], '/space/s/c/?cursor=2'),
+      'https://pws.example/space/s/c/?cursor=2': page(['b', 'c'])
     }
     const requested: string[] = []
     vi.stubGlobal('fetch', async (input: string | Request) => {
@@ -355,18 +355,18 @@ describe('publicListCollection() pagination', () => {
     })
     const zcapClient = {
       invocationSigner: { id: 'did:example:alice#key-1' }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
     const result = await client.publicListCollection({
-      collectionUrl: 'https://was.example/space/s/c'
+      collectionUrl: 'https://pws.example/space/s/c'
     })
     expect(requested).toEqual([
-      'https://was.example/space/s/c/',
-      'https://was.example/space/s/c/?cursor=2'
+      'https://pws.example/space/s/c/',
+      'https://pws.example/space/s/c/?cursor=2'
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result?.next).toBeUndefined()
@@ -375,8 +375,8 @@ describe('publicListCollection() pagination', () => {
 
   it('publicListCollectionItems() streams items and stops early', async () => {
     const pages: Record<string, CollectionResourcesList> = {
-      'https://was.example/space/s/c/': page(['a'], '/space/s/c/?cursor=2'),
-      'https://was.example/space/s/c/?cursor=2': page(['b'])
+      'https://pws.example/space/s/c/': page(['a'], '/space/s/c/?cursor=2'),
+      'https://pws.example/space/s/c/?cursor=2': page(['b'])
     }
     const requested: string[] = []
     vi.stubGlobal('fetch', async (input: string | Request) => {
@@ -387,38 +387,38 @@ describe('publicListCollection() pagination', () => {
     })
     const zcapClient = {
       invocationSigner: { id: 'did:example:alice#key-1' }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
     })
     const ids: string[] = []
     for await (const item of client.publicListCollectionItems({
-      collectionUrl: 'https://was.example/space/s/c'
+      collectionUrl: 'https://pws.example/space/s/c'
     })) {
       ids.push(item.id)
       break
     }
     expect(ids).toEqual(['a'])
     // Stopped during the first page, so the continuation was never fetched.
-    expect(requested).toEqual(['https://was.example/space/s/c/'])
+    expect(requested).toEqual(['https://pws.example/space/s/c/'])
   })
 })
 
 describe('Space.collections() pagination', () => {
   it('follows `next` across pages and aggregates, dropping `next`', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/': collectionsPage(
+      'https://pws.example/space/s/': collectionsPage(
         ['a', 'b'],
         '/space/s/?cursor=2'
       ),
-      'https://was.example/space/s/?cursor=2': collectionsPage(['c'])
+      'https://pws.example/space/s/?cursor=2': collectionsPage(['c'])
     })
     const result = await client.spaceAt(spaceUrlFor('s')).collections()
     expect(urls).toEqual([
-      'https://was.example/space/s/',
-      'https://was.example/space/s/?cursor=2'
+      'https://pws.example/space/s/',
+      'https://pws.example/space/s/?cursor=2'
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result?.next).toBeUndefined()
@@ -428,10 +428,10 @@ describe('Space.collections() pagination', () => {
 
   it('returns the single page with totalItems recomputed when there is no `next`', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/': collectionsPage(['a', 'b'])
+      'https://pws.example/space/s/': collectionsPage(['a', 'b'])
     })
     const result = await client.spaceAt(spaceUrlFor('s')).collections()
-    expect(urls).toEqual(['https://was.example/space/s/'])
+    expect(urls).toEqual(['https://pws.example/space/s/'])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b'])
     expect(result?.totalItems).toBe(2)
     expect(result?.next).toBeUndefined()
@@ -449,11 +449,11 @@ describe('Space.collections() pagination', () => {
 describe('Space.collectionsPages()', () => {
   it('yields each page lazily', async () => {
     const { client } = clientWithPages({
-      'https://was.example/space/s/': collectionsPage(
+      'https://pws.example/space/s/': collectionsPage(
         ['a', 'b'],
         '/space/s/?cursor=2'
       ),
-      'https://was.example/space/s/?cursor=2': collectionsPage(['c'])
+      'https://pws.example/space/s/?cursor=2': collectionsPage(['c'])
     })
     const sizes: number[] = []
     for await (const pageResult of client
@@ -466,11 +466,11 @@ describe('Space.collectionsPages()', () => {
 
   it('stops fetching when the consumer breaks early', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/': collectionsPage(
+      'https://pws.example/space/s/': collectionsPage(
         ['a', 'b'],
         '/space/s/?cursor=2'
       ),
-      'https://was.example/space/s/?cursor=2': collectionsPage(['c'])
+      'https://pws.example/space/s/?cursor=2': collectionsPage(['c'])
     })
     const ids: string[] = []
     for await (const pageResult of client
@@ -483,7 +483,7 @@ describe('Space.collectionsPages()', () => {
     }
     expect(ids).toEqual(['a', 'b'])
     // Broke during the first page, so the second page was never requested.
-    expect(urls).toEqual(['https://was.example/space/s/'])
+    expect(urls).toEqual(['https://pws.example/space/s/'])
   })
 
   it('yields nothing for a missing/unauthorized space', async () => {
@@ -500,19 +500,19 @@ describe('Space.collectionsPages()', () => {
   })
 })
 
-describe('WasClient.listSpaces() pagination', () => {
+describe('PwsClient.listSpaces() pagination', () => {
   it('follows `next` across pages and recomputes totalItems', async () => {
     const { client, urls } = clientWithPages({
       // A paginating server omits `totalItems` on the truncated first page.
-      'https://was.example/spaces/': spacesPage(['a', 'b'], {
+      'https://pws.example/spaces/': spacesPage(['a', 'b'], {
         next: '/spaces/?cursor=2'
       }),
-      'https://was.example/spaces/?cursor=2': spacesPage(['c'])
+      'https://pws.example/spaces/?cursor=2': spacesPage(['c'])
     })
     const result = await client.listSpaces()
     expect(urls).toEqual([
-      'https://was.example/spaces/',
-      'https://was.example/spaces/?cursor=2'
+      'https://pws.example/spaces/',
+      'https://pws.example/spaces/?cursor=2'
     ])
     expect(result.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
     expect(result.next).toBeUndefined()
@@ -522,10 +522,10 @@ describe('WasClient.listSpaces() pagination', () => {
 
   it('returns the single page with totalItems recomputed when there is no `next`', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/spaces/': spacesPage(['a', 'b'], { totalItems: 2 })
+      'https://pws.example/spaces/': spacesPage(['a', 'b'], { totalItems: 2 })
     })
     const result = await client.listSpaces()
-    expect(urls).toEqual(['https://was.example/spaces/'])
+    expect(urls).toEqual(['https://pws.example/spaces/'])
     expect(result.items.map(item => item.id)).toEqual(['a', 'b'])
     expect(result.next).toBeUndefined()
     expect(result.totalItems).toBe(2)
@@ -533,7 +533,7 @@ describe('WasClient.listSpaces() pagination', () => {
 })
 
 /**
- * Builds a `WasClient` whose unsigned public reads go through a stubbed global
+ * Builds a `PwsClient` whose unsigned public reads go through a stubbed global
  * `fetch` that returns each page in `pages` keyed by request URL, recording the
  * URLs it was asked for.
  *
@@ -541,7 +541,7 @@ describe('WasClient.listSpaces() pagination', () => {
  * @returns {object} { client, urls }
  */
 function publicClientWithPages(pages: Record<string, object>): {
-  client: WasClient
+  client: PwsClient
   urls: string[]
 } {
   const urls: string[] = []
@@ -553,8 +553,8 @@ function publicClientWithPages(pages: Record<string, object>): {
   })
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  const client = new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  const client = new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient
@@ -585,77 +585,77 @@ const LISTING_SURFACES: {
   firstUrl: string
   envelope: (next?: unknown) => object
   publicRead?: boolean
-  run: (client: WasClient) => Promise<unknown>
+  run: (client: PwsClient) => Promise<unknown>
 }[] = [
   {
-    name: 'WasClient.listSpaces()',
-    firstUrl: 'https://was.example/spaces/',
+    name: 'PwsClient.listSpaces()',
+    firstUrl: 'https://pws.example/spaces/',
     envelope: next => ({ ...spacesPage(['a']), next }),
     run: client => client.listSpaces()
   },
   {
     name: 'Space.collections()',
-    firstUrl: 'https://was.example/space/s/',
+    firstUrl: 'https://pws.example/space/s/',
     envelope: next => ({ ...collectionsPage(['a']), next }),
     run: client => client.spaceAt(spaceUrlFor('s')).collections()
   },
   {
     name: 'Space.collectionsPages()',
-    firstUrl: 'https://was.example/space/s/',
+    firstUrl: 'https://pws.example/space/s/',
     envelope: next => ({ ...collectionsPage(['a']), next }),
     run: client => drain(client.spaceAt(spaceUrlFor('s')).collectionsPages())
   },
   {
     name: 'Collection.list()',
-    firstUrl: 'https://was.example/space/s/c/',
+    firstUrl: 'https://pws.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
     run: client => client.spaceAt(spaceUrlFor('s')).collection('c').list()
   },
   {
     name: 'Collection.listPages()',
-    firstUrl: 'https://was.example/space/s/c/',
+    firstUrl: 'https://pws.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
     run: client =>
       drain(client.spaceAt(spaceUrlFor('s')).collection('c').listPages())
   },
   {
     name: 'Collection.listItems()',
-    firstUrl: 'https://was.example/space/s/c/',
+    firstUrl: 'https://pws.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
     run: client =>
       drain(client.spaceAt(spaceUrlFor('s')).collection('c').listItems())
   },
   {
-    name: 'WasClient.publicListCollection()',
-    firstUrl: 'https://was.example/space/s/c/',
+    name: 'PwsClient.publicListCollection()',
+    firstUrl: 'https://pws.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
     publicRead: true,
     run: client =>
       client.publicListCollection({
-        collectionUrl: 'https://was.example/space/s/c'
+        collectionUrl: 'https://pws.example/space/s/c'
       })
   },
   {
-    name: 'WasClient.publicListCollectionPages()',
-    firstUrl: 'https://was.example/space/s/c/',
+    name: 'PwsClient.publicListCollectionPages()',
+    firstUrl: 'https://pws.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
     publicRead: true,
     run: client =>
       drain(
         client.publicListCollectionPages({
-          collectionUrl: 'https://was.example/space/s/c'
+          collectionUrl: 'https://pws.example/space/s/c'
         })
       )
   },
   {
-    name: 'WasClient.publicListCollectionItems()',
-    firstUrl: 'https://was.example/space/s/c/',
+    name: 'PwsClient.publicListCollectionItems()',
+    firstUrl: 'https://pws.example/space/s/c/',
     envelope: next => ({ ...page(['a']), next }),
     publicRead: true,
     run: client =>
       drain(
         client.publicListCollectionItems({
-          collectionUrl: 'https://was.example/space/s/c'
+          collectionUrl: 'https://pws.example/space/s/c'
         })
       )
   }
@@ -670,7 +670,7 @@ const LISTING_SURFACES: {
 const HOSTILE_NEXTS: unknown[] = [
   'http://169.254.169.254/latest/meta-data/',
   '//evil.example/space/s/c/?cursor=2',
-  'http://was.example/space/s/c/?cursor=2',
+  'http://pws.example/space/s/c/?cursor=2',
   '/space/other/?cursor=2',
   '../../../other/?cursor=2',
   '\\\\evil.example/space/s/c/',
@@ -707,9 +707,9 @@ describe('walk trust boundary: a hostile `next` is never requested', () => {
           () => undefined,
           (err: unknown) => err
         )
-        expect(error).toBeInstanceOf(WasServerError)
-        expect((error as WasServerError).requestUrl).toBe(surface.firstUrl)
-        expect((error as WasServerError).message).toContain(surface.firstUrl)
+        expect(error).toBeInstanceOf(PwsServerError)
+        expect((error as PwsServerError).requestUrl).toBe(surface.firstUrl)
+        expect((error as PwsServerError).message).toContain(surface.firstUrl)
         // Only the first page was fetched; the hostile URL got no request.
         expect(urls).toEqual([surface.firstUrl])
       })
@@ -718,30 +718,30 @@ describe('walk trust boundary: a hostile `next` is never requested', () => {
 
   it('follows a `next` under the base path resolved against a later page', async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/c/': page(['a'], '?cursor=2'),
-      'https://was.example/space/s/c/?cursor=2': page(['b'], 'page/3'),
-      'https://was.example/space/s/c/page/3': page(['c'])
+      'https://pws.example/space/s/c/': page(['a'], '?cursor=2'),
+      'https://pws.example/space/s/c/?cursor=2': page(['b'], 'page/3'),
+      'https://pws.example/space/s/c/page/3': page(['c'])
     })
     const result = await client.spaceAt(spaceUrlFor('s')).collection('c').list()
     expect(urls).toEqual([
-      'https://was.example/space/s/c/',
-      'https://was.example/space/s/c/?cursor=2',
-      'https://was.example/space/s/c/page/3'
+      'https://pws.example/space/s/c/',
+      'https://pws.example/space/s/c/?cursor=2',
+      'https://pws.example/space/s/c/page/3'
     ])
     expect(result?.items.map(item => item.id)).toEqual(['a', 'b', 'c'])
   })
 
   it("checks a later page's `next` against the first page, not its own", async () => {
     const { client, urls } = clientWithPages({
-      'https://was.example/space/s/c/': page(['a'], 'page/2/'),
-      'https://was.example/space/s/c/page/2/': page(['b'], '../../../d/')
+      'https://pws.example/space/s/c/': page(['a'], 'page/2/'),
+      'https://pws.example/space/s/c/page/2/': page(['b'], '../../../d/')
     })
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').list()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
     expect(urls).toEqual([
-      'https://was.example/space/s/c/',
-      'https://was.example/space/s/c/page/2/'
+      'https://pws.example/space/s/c/',
+      'https://pws.example/space/s/c/page/2/'
     ])
   })
 
@@ -750,16 +750,16 @@ describe('walk trust boundary: a hostile `next` is never requested', () => {
     const pages = await drain(
       walkPages({
         first: page(['a'], '/spaces?cursor=2'),
-        firstUrl: 'https://was.example/spaces',
+        firstUrl: 'https://pws.example/spaces',
         fetchPage: async url => {
           fetched.push(url)
           return page(['b'], '/spaces-other/')
         }
       })
     ).catch((err: unknown) => err)
-    expect(pages).toBeInstanceOf(WasServerError)
+    expect(pages).toBeInstanceOf(PwsServerError)
     // `/spaces-other/` shares a string prefix with `/spaces` but is not under it.
-    expect(fetched).toEqual(['https://was.example/spaces?cursor=2'])
+    expect(fetched).toEqual(['https://pws.example/spaces?cursor=2'])
   })
 })
 
@@ -772,7 +772,7 @@ describe('walk page-count bound', () => {
       for await (const pageResult of walkPages(
         {
           first: page(['a'], '?cursor=1'),
-          firstUrl: 'https://was.example/space/s/c/',
+          firstUrl: 'https://pws.example/space/s/c/',
           fetchPage: async url => {
             fetched.push(url)
             return page(['b'], `?cursor=${fetched.length + 1}`)
@@ -787,9 +787,9 @@ describe('walk page-count bound', () => {
     }
     expect(yielded).toHaveLength(3)
     expect(fetched).toHaveLength(2)
-    expect(error).toBeInstanceOf(WasServerError)
-    expect((error as WasServerError).message).toContain(
-      'https://was.example/space/s/c/'
+    expect(error).toBeInstanceOf(PwsServerError)
+    expect((error as PwsServerError).message).toContain(
+      'https://pws.example/space/s/c/'
     )
   })
 
@@ -798,7 +798,7 @@ describe('walk page-count bound', () => {
       walkPages(
         {
           first: page(['a'], '?cursor=2'),
-          firstUrl: 'https://was.example/space/s/c/',
+          firstUrl: 'https://pws.example/space/s/c/',
           fetchPage: async () => page(['b'])
         },
         { maxPages: 2 }
@@ -823,7 +823,7 @@ describe('walk page-count bound', () => {
     })
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').list()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
     expect(urls).toHaveLength(DEFAULT_MAX_PAGES)
   })
 })

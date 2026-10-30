@@ -3,9 +3,9 @@
  */
 /**
  * The `err.name` predicates that classify the errors a replication path can
- * meet: the port's three wire signals (`WasSyncConflictError` /
- * `WasSyncNotFoundError` / `WasSyncCheckpointError`), its opt-in
- * revoked-access signal (`WasSyncAuthError`), the cipher's two no-key signals (the stale-descriptor
+ * meet: the port's three wire signals (`PwsSyncConflictError` /
+ * `PwsSyncNotFoundError` / `PwsSyncCheckpointError`), its opt-in
+ * revoked-access signal (`PwsSyncAuthError`), the cipher's two no-key signals (the stale-descriptor
  * `UnknownEpochError` and the not-a-recipient `KeyUnwrapError`), and its
  * tamper signal (`IntegrityError`).
  *
@@ -47,7 +47,7 @@ function nameOf(err: unknown): unknown {
 
 /**
  * Whether an error is the replication port's rejected-conditional-write signal
- * (`WasSyncConflictError`, HTTP 412): a lost-update `If-Match` mismatch, or a
+ * (`PwsSyncConflictError`, HTTP 412): a lost-update `If-Match` mismatch, or a
  * create-if-absent whose target already exists. The push loop's one settle-and-
  * reconcile branch; everything else propagates to the engine's backoff.
  *
@@ -55,12 +55,12 @@ function nameOf(err: unknown): unknown {
  * @returns {boolean}
  */
 export function isSyncConflictError(err: unknown): boolean {
-  return nameOf(err) === 'WasSyncConflictError'
+  return nameOf(err) === 'PwsSyncConflictError'
 }
 
 /**
  * Whether an error is the replication port's absent-target signal
- * (`WasSyncNotFoundError`, HTTP 404), raised by the default port's
+ * (`PwsSyncNotFoundError`, HTTP 404), raised by the default port's
  * `deleteContent` and `putMeta`. On a delete that is a settled outcome --
  * already gone, or the write never reached the server -- not a conflict. On a
  * metadata write it marks a race with a remote delete.
@@ -69,13 +69,13 @@ export function isSyncConflictError(err: unknown): boolean {
  * @returns {boolean}
  */
 export function isSyncNotFoundError(err: unknown): boolean {
-  return nameOf(err) === 'WasSyncNotFoundError'
+  return nameOf(err) === 'PwsSyncNotFoundError'
 }
 
 /**
  * Whether an error is the replication port's refused-authorization signal
- * (`WasSyncAuthError`), raised only by a port built with `mapAuthErrors`. It
- * covers `401`, `403`, and the `404` a WAS server returns when it masks an
+ * (`PwsSyncAuthError`), raised only by a port built with `mapAuthErrors`. It
+ * covers `401`, `403`, and the `404` a PWS server returns when it masks an
  * authorization failure as "not found", so a caller that needs the three apart
  * reads `status` off the matched value as a plain property.
  *
@@ -83,12 +83,12 @@ export function isSyncNotFoundError(err: unknown): boolean {
  * @returns {boolean}
  */
 export function isSyncAuthError(err: unknown): boolean {
-  return nameOf(err) === 'WasSyncAuthError'
+  return nameOf(err) === 'PwsSyncAuthError'
 }
 
 /**
  * Whether an error is the replication port's refused-checkpoint signal
- * (`WasSyncCheckpointError`, HTTP 400): the server did not issue the `changes`
+ * (`PwsSyncCheckpointError`, HTTP 400): the server did not issue the `changes`
  * checkpoint the pull presented, as for one stored against another server. The
  * pull loop's one restart branch: drop the checkpoint and pull from the
  * beginning. Every other 400 propagates.
@@ -97,7 +97,7 @@ export function isSyncAuthError(err: unknown): boolean {
  * @returns {boolean}
  */
 export function isSyncCheckpointError(err: unknown): boolean {
-  return nameOf(err) === 'WasSyncCheckpointError'
+  return nameOf(err) === 'PwsSyncCheckpointError'
 }
 
 /**
@@ -155,7 +155,7 @@ export function isIntegrityError(err: unknown): boolean {
  * every such gate builds the error through `unenforcedPreconditionError`, in
  * `log/logStore.ts`, `edv/logGovernedDescriptorStore.ts` and
  * `internal/cas.ts`. A cipher refuses a chunked envelope it was built with no
- * route to, in `edv/EdvCodec.ts` and `edv/WasTransport.ts`.
+ * route to, in `edv/EdvCodec.ts` and `edv/PwsTransport.ts`.
  *
  * Neither form arises on this subpath. Conditional writes are a baseline
  * server requirement, so the sync port passes `ifMatch` / `ifNoneMatch`

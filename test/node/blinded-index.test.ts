@@ -9,7 +9,7 @@
  * the same tokens a query blinds to -- the whole point of the scheme, since the
  * server compares them as opaque strings.
  *
- * The handle-level tests drive a `WasClient` over a small in-memory WAS stub
+ * The handle-level tests drive a `PwsClient` over a small in-memory PWS stub
  * that serves the Collection Metadata object at the Collection's `meta`
  * sub-resource (configuration and `custom` as one document under one
  * `metaVersion` ETag, so the declare path's compare-and-swap is exercised for
@@ -24,7 +24,7 @@ import type {
 import type { HttpResponse } from '@interop/http-client'
 
 import {
-  WasClient,
+  PwsClient,
   ValidationError,
   PreconditionFailedError
 } from '../../src/index.js'
@@ -223,7 +223,7 @@ describe('indexed emission at the content encrypt seam', () => {
 })
 
 /**
- * The mutable state of the in-memory WAS stub: the Collection Metadata object
+ * The mutable state of the in-memory PWS stub: the Collection Metadata object
  * (the stored document plus its `metaVersion` validator), the canned `/query`
  * answer, and a one-shot hook that fails the next metadata write with a 412 the
  * way a concurrent writer would.
@@ -260,7 +260,7 @@ function ok(data: unknown, etag?: string): HttpResponse {
 }
 
 /**
- * Builds a `WasClient` (with the EDV keystore) over an in-memory WAS stub for
+ * Builds a `PwsClient` (with the EDV keystore) over an in-memory PWS stub for
  * one encrypted collection: it serves the Collection Metadata object at `meta`
  * with a monotonic `metaVersion` ETag it enforces `If-Match` against, and the
  * `/query` endpoint.
@@ -268,7 +268,7 @@ function ok(data: unknown, etag?: string): HttpResponse {
  * @param options {object}
  * @param options.encryption {CollectionEncryption}
  * @param options.keys {object}
- * @returns {{ client: WasClient; state: ServerState; calls: RequestArgs[] }}
+ * @returns {{ client: PwsClient; state: ServerState; calls: RequestArgs[] }}
  */
 function serverFor({
   encryption,
@@ -277,7 +277,7 @@ function serverFor({
   encryption: CollectionEncryption
   keys: { keyAgreementKey: IKeyAgreementKey; keyResolver: IKeyResolver }
 }): {
-  client: WasClient
+  client: PwsClient
   state: ServerState
   calls: RequestArgs[]
   decodes: () => number
@@ -328,10 +328,10 @@ function serverFor({
       }
       throw { status: 404, response: { status: 404 } }
     }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
   const provider = createEdvEncryption({ resolveKeys: async () => keys })
   let decodes = 0
-  const client = new WasClient({
+  const client = new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,

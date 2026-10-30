@@ -2,13 +2,13 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/edv` subpath entry: encrypted (EDV-over-WAS) storage
- * support. Kept off the core `@interop/was-client` entry so plaintext consumers
+ * The `@interop/pws-client/edv` subpath entry: encrypted (EDV-over-PWS) storage
+ * support. Kept off the core `@interop/pws-client` entry so plaintext consumers
  * do not pull the `@interop/edv-client` / `@interop/minimal-cipher` crypto graph
  * unless they opt in by importing this subpath.
  *
  * This is the full encrypted surface, online and offline. It re-exports
- * `@interop/was-client/edv/core` -- the codec, the doc ciphers, the key
+ * `@interop/pws-client/edv/core` -- the codec, the doc ciphers, the key
  * epochs, the recipient operations, `resourceDescriptorStore`, the log-governed
  * descriptor stores and the blinding keys, none of which need a server -- and
  * adds the modules that do talk to one, `collectionDescriptorStore` among
@@ -19,12 +19,12 @@
  * Two integration levels:
  *
  * - `createEdvEncryption` -- the EDV keystore for the handle seam. Pass its
- *   result as `WasClient`'s `encryption` option; it supplies keys for the
+ *   result as `PwsClient`'s `encryption` option; it supplies keys for the
  *   collections declared encrypted (by their `encryption` descriptor or a
  *   per-handle override), so `collection.put`/`get` transparently
  *   encrypt/decrypt.
- * - `WasTransport` -- the standalone `@interop/edv-client`
- *   transport, for driving an `EdvClient` directly against WAS.
+ * - `PwsTransport` -- the standalone `@interop/edv-client`
+ *   transport, for driving an `EdvClient` directly against PWS.
  *
  * `collectionDescriptorStore` is the `EncryptionDescriptorStore` over a live
  * `Collection` handle's Collection Description, the default the recipient
@@ -37,12 +37,12 @@
  *
  * - `EncryptionDescriptorSource` / `EncryptionDescriptorCache` -- the narrow
  *   seams a host implements: one signed Collection Metadata read, and a
- *   client-local get/put pre-scoped to one Space. `wasDescriptorSource` is the
- *   source over a `WasClient` handle.
+ *   client-local get/put pre-scoped to one Space. `pwsDescriptorSource` is the
+ *   source over a `PwsClient` handle.
  * - `acquireDescriptor` / `acquireDescriptors` -- fetch + cache with the
  *   cached fallback whenever the fetch yields no descriptor, thrown or empty
  *   (offline, a collection keeps encrypting under its current epoch; an empty
- *   description is ambiguous, since WAS masks an unauthorized read as an
+ *   description is ambiguous, since PWS masks an unauthorized read as an
  *   absent one). No descriptor anywhere means a plaintext collection, or an
  *   encrypted one whose epoch[0] install has not landed -- which a caller that
  *   has declared the collection encrypted must refuse fail-closed. A
@@ -119,14 +119,14 @@ export type {
   EdvDocCipher
 } from './core.js'
 export { createEdvEncryption } from './encryption.js'
-export { wasTransportFactory } from './transportFactory.js'
-export { WasTransport } from './WasTransport.js'
-export type { ChunkListEntry, StoredDocument } from './WasTransport.js'
+export { pwsTransportFactory } from './transportFactory.js'
+export { PwsTransport } from './PwsTransport.js'
+export type { ChunkListEntry, StoredDocument } from './PwsTransport.js'
 export { collectionDescriptorStore } from './descriptorStore.js'
 export {
   acquireDescriptor,
   acquireDescriptors,
-  wasDescriptorSource
+  pwsDescriptorSource
 } from './acquire.js'
 export { UnverifiedDescriptorError } from '../errors.js'
 export type {

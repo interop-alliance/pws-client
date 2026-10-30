@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Content-addressed identifiers and Space-id derivation for cross-replica WAS
+ * Content-addressed identifiers and Space-id derivation for cross-replica PWS
  * synchronization.
  *
  * A content id (CID) is `base64url(SHA-256(utf8(JCS-canonicalized JSON)))`, no
@@ -49,7 +49,7 @@ export function cidFrom({ doc }: { doc: object }): string {
 /**
  * Derives a Space id from a controller DID: `base64url(SHA-256(utf8(did)))`, no
  * padding. Byte-identical across replicas, so the same controller lands on the
- * same WAS Space wherever it connects.
+ * same PWS Space wherever it connects.
  *
  * @param controllerDid {string}   the Space controller (e.g. a `did:key`)
  * @returns {string}   the unpadded base64url Space id

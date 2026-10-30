@@ -244,17 +244,17 @@ function responseFrom(body?: Uint8Array | Blob): HttpResponse {
 }
 
 /**
- * Parses the `was` binding out of an envelope object's JWE protected header.
+ * Parses the `pws` binding out of an envelope object's JWE protected header.
  *
  * @param envelope {unknown}
  * @returns {Record<string, unknown> | undefined}
  */
-function wasOf(envelope: unknown): Record<string, unknown> | undefined {
+function pwsOf(envelope: unknown): Record<string, unknown> | undefined {
   const { jwe } = envelope as { jwe: { protected: string } }
   const decoded = JSON.parse(
     new TextDecoder().decode(base64urlnopad.decode(jwe.protected))
   )
-  return decoded.was
+  return decoded.pws
 }
 
 describe('EdvCodec: JSON round trip', () => {
@@ -690,7 +690,7 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     })) as ChunkedWrite
     await planB.execute(backend.context)
 
-    // The server serves A's authentic envelope -- its sealed `was.resource`
+    // The server serves A's authentic envelope -- its sealed `pws.resource`
     // still names A, so the binding check passes -- with only the cleartext
     // top-level id swapped to B. B's chunks decrypt cleanly under the shared
     // epoch key, so addressing them by that cleartext id would silently return
@@ -713,7 +713,7 @@ describe('EdvCodec: chunked blob auto-routing', () => {
     ).toBe(false)
 
     // And served into B's own slot, the same envelope is refused outright by
-    // the `was.resource` binding check, before any chunk is fetched.
+    // the `pws.resource` binding check, before any chunk is fetched.
     await expect(
       codec.decode(swapped, planB.id, backend.context)
     ).rejects.toBeInstanceOf(IntegrityError)
@@ -1109,7 +1109,7 @@ describe('EdvCodec: caller-data collision (no in-band descriptor)', () => {
 describe('EdvCodec: malformed inner document', () => {
   /**
    * Encrypts an arbitrary `{ content, meta }` under a fresh collection's epoch
-   * key -- a well-formed envelope, `was` binding and all, that only its inner
+   * key -- a well-formed envelope, `pws` binding and all, that only its inner
    * shape is wrong -- and returns a `{ codec, response }` pair so `decode` can
    * be exercised against that deliberately malformed inner document.
    *
@@ -1147,7 +1147,7 @@ describe('EdvCodec: malformed inner document', () => {
       keyResolver: didKeyResolver,
       update: false,
       additionalProtectedParams: {
-        was: { v: EDV_SCHEME_VERSION, resource: docId, epoch: epochId }
+        pws: { v: EDV_SCHEME_VERSION, resource: docId, epoch: epochId }
       }
     })
     return {
@@ -1725,13 +1725,13 @@ describe('EdvCodec: metadata (encodeMeta / decodeMeta)', () => {
     ).rejects.toThrow(EncryptionError)
   })
 
-  it('encodeMeta in a resource slot binds `was.resource` and reports the write epoch', async () => {
+  it('encodeMeta in a resource slot binds `pws.resource` and reports the write epoch', async () => {
     const { codec, epochId } = await makeFixture()
     const { custom, epoch } = await codec.encodeMeta({
       custom: { name: 'Secret' },
       slot: { kind: 'resource', id: 'zResourceId' }
     })
-    expect(wasOf(custom)).toEqual({
+    expect(pwsOf(custom)).toEqual({
       v: 1,
       resource: 'zResourceId',
       epoch: epochId
@@ -1739,7 +1739,7 @@ describe('EdvCodec: metadata (encodeMeta / decodeMeta)', () => {
     expect(epoch).toBe(epochId)
   })
 
-  it('encodeMeta in the Collection slot binds `was.collection`, not `was.resource`', async () => {
+  it('encodeMeta in the Collection slot binds `pws.collection`, not `pws.resource`', async () => {
     const { codec, epochId } = await makeFixture()
     const { custom, epoch } = await codec.encodeMeta({
       custom: { name: 'Collection Label' },
@@ -1748,7 +1748,7 @@ describe('EdvCodec: metadata (encodeMeta / decodeMeta)', () => {
     // A Collection's metadata belongs to no resource, so instead of a resource
     // id the envelope binds the collection it was written for -- which is what
     // declares the slot positively.
-    expect(wasOf(custom)).toEqual({ v: 1, collection: 'c', epoch: epochId })
+    expect(pwsOf(custom)).toEqual({ v: 1, collection: 'c', epoch: epochId })
     // The epoch is surfaced so the Collection `/meta` PUT can stamp it in the
     // body (an omitted body member clears the server's stored stamp).
     expect(epoch).toBe(epochId)

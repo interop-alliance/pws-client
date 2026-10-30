@@ -75,7 +75,7 @@ Each work item follows this schema:
   (`high` / `medium` / `low`), `labels` (comma-separated), optional
   `discovered-from` (the item, review, or question the item came out of, with
   its date), optional `blocked-by` (other `WCL-N` ids, or an external id such as
-  `WAS-N`, `WASS-N` or `FW-N`), `blocks` (derived, written by the script), a
+  `WSS-N`, `WASS-N` or `FW-N`), `blocks` (derived, written by the script), a
   `touches:` list where it applies, and an `acceptance:` checklist.
 - `draft` marks items with no actionable done-state yet (blocked externally or
   parking records); a draft states _why_ instead of acceptance criteria and must

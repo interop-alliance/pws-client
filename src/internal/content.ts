@@ -15,7 +15,7 @@ import type { HttpResponse } from '@interop/http-client'
 import { isJsonContentType } from '@interop/storage-core'
 import type { DecodedStream, ResponseLike } from '../codec.js'
 import { blobText, bytesToStream } from './blob.js'
-import { ValidationError, WasServerError } from '../errors.js'
+import { ValidationError, PwsServerError } from '../errors.js'
 import type { Json, ResourceData } from '../types.js'
 
 const OCTET_STREAM = 'application/octet-stream'
@@ -317,7 +317,7 @@ export function prepareBody(
  * with the raw `Location` header it carried (if any). Prefers the response
  * body's `id`; for a body-less 2xx falls back to the last path segment of the
  * `Location` header (decoded, since the server emits a percent-encoded path).
- * Throws a `WasServerError` when the response carries neither -- a malformed
+ * Throws a `PwsServerError` when the response carries neither -- a malformed
  * create response -- rather than letting an absent body surface as a raw
  * `TypeError` on `data.id`.
  *
@@ -356,11 +356,11 @@ export function createdResource(response: HttpResponse | null): {
     // A stray or malformed percent escape in the segment (`100%discount`,
     // `%zz`) makes `decodeURIComponent` throw a raw `URIError`. That is a
     // malformed create response like any other, so it leaves here as the
-    // `WasServerError` this function exists to produce.
+    // `PwsServerError` this function exists to produce.
     try {
       return { id: decodeURIComponent(segment), location }
     } catch (err) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `Create response carried a malformed resource id: the \`Location\` ` +
           `header "${location}" ends in a segment ("${segment}") that is not ` +
           'valid percent-encoding.',
@@ -368,7 +368,7 @@ export function createdResource(response: HttpResponse | null): {
       )
     }
   }
-  throw new WasServerError(
+  throw new PwsServerError(
     'Create response carried no resource id: the body has no `id` and there ' +
       'is no `Location` header.'
   )

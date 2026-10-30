@@ -90,11 +90,11 @@ export async function sendEncodedWrite(
  * Builds the {@link CodecRequestContext} core hands a codec that drives its own
  * I/O: the signed-request primitive bound to this handle's capability. The
  * codec never sees the zcap machinery, and the raw `HttpResponse` it gets back
- * matches the `was.request()` escape hatch, which is what `WasTransport`
+ * matches the `pws.request()` escape hatch, which is what `PwsTransport`
  * consumes.
  *
  * Requests go through the same mapped `send` path the core write paths use, so
- * a codec-driven write fails with the typed `WasError` subclasses the calling
+ * a codec-driven write fails with the typed `PwsError` subclasses the calling
  * method documents (a document `PUT` that 404s is a `NotFoundError`, not a raw
  * ky/ezcap error). The typed errors carry the HTTP `status`, so a consumer that
  * dispatches on status keeps working.
@@ -228,7 +228,7 @@ export async function insertResource(
  *   itself. A plaintext codec needs no pre-read and defers to the caller's
  *   explicit precondition.
  * - The pre-read cannot distinguish "absent" from "unreadable with this
- *   capability" (WAS masks unauthorized reads as 404), so a conditional codec
+ *   capability" (PWS masks unauthorized reads as 404), so a conditional codec
  *   encodes a fresh insert (`If-None-Match: *`) in both cases. When the target
  *   in fact exists, the server rejects that insert with 412; that 412 is
  *   re-thrown here with a message naming the real cause, instead of surfacing
@@ -419,7 +419,7 @@ function maskedInsertRejected({
       'because a document now exists there. Re-read and retry. Either a ' +
       'concurrent writer created the document after the pre-read, or it ' +
       'already existed and its current version is not readable with this ' +
-      'capability (WAS masks unauthorized reads as 404); in that case a ' +
+      'capability (PWS masks unauthorized reads as 404); in that case a ' +
       'conditional codec (e.g. the EDV codec) needs read access to update ' +
       'it.',
     { status, type, title, details, requestUrl, cause: err }

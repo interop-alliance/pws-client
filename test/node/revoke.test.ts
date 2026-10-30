@@ -4,7 +4,7 @@
 /**
  * Unit tests for the revocation primitive. `submitRevocation` POSTs a delegated
  * capability to `{spaceUrl}zcaps/revocations/:capabilityId`, invoking that
- * URL's own root capability. `was.revoke` reads the Space off the
+ * URL's own root capability. `pws.revoke` reads the Space off the
  * capability's delegation chain, whose root capability id encodes the Space
  * URL. A stub `ZcapClient` captures the request args, so
  * no signer or server is involved; the live behavior is covered by
@@ -90,7 +90,7 @@ describe('space.revoke (revocation)', () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.spaceAt(SPACE_URL).revoke(delegatedZcap())
 
-    // The WAS route expects the HTTP verb, never ezcap's `read`/`write`.
+    // The PWS route expects the HTTP verb, never ezcap's `read`/`write`.
     expect(lastRequest()?.action).toBe('POST')
   })
 
@@ -146,7 +146,7 @@ describe('space.revoke (revocation)', () => {
   })
 })
 
-describe('was.revoke (space derived from the delegation chain)', () => {
+describe('pws.revoke (space derived from the delegation chain)', () => {
   const revocationUrl = `${SPACE_URL}zcaps/revocations/${encodeURIComponent(CAPABILITY_ID)}`
 
   it('reads the space off the first entry of proof.capabilityChain', async () => {
@@ -181,7 +181,7 @@ describe('was.revoke (space derived from the delegation chain)', () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.revoke(
       delegatedZcap({
-        rootId: rootCapabilityId('https://WAS.example:443/space/space-1')
+        rootId: rootCapabilityId('https://PWS.example:443/space/space-1')
       })
     )
 
@@ -199,7 +199,7 @@ describe('was.revoke (space derived from the delegation chain)', () => {
     )
 
     expect(lastRequest()?.url).toBe(
-      `https://was.example/space/a%2Fb/zcaps/revocations/` +
+      `https://pws.example/space/a%2Fb/zcaps/revocations/` +
         encodeURIComponent(CAPABILITY_ID)
     )
   })
@@ -223,7 +223,7 @@ describe('was.revoke (space derived from the delegation chain)', () => {
 
   it('keeps a path prefix the Space URL carries', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    const spaceUrl = 'https://host.example/was/space/space-1/'
+    const spaceUrl = 'https://host.example/pws/space/space-1/'
     await client.revoke(
       delegatedZcap({
         rootId: rootCapabilityId(spaceUrl),
@@ -232,7 +232,7 @@ describe('was.revoke (space derived from the delegation chain)', () => {
     )
 
     expect(lastRequest()?.url).toBe(
-      'https://host.example/was/space/space-1/zcaps/revocations/' +
+      'https://host.example/pws/space/space-1/zcaps/revocations/' +
         encodeURIComponent(CAPABILITY_ID)
     )
   })

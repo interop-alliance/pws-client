@@ -3,7 +3,7 @@
  */
 /**
  * A large encrypted binary written by id through the handle API, end to end
- * over an in-memory WAS server: `resource.put()` on a random-id encrypted
+ * over an in-memory PWS server: `resource.put()` on a random-id encrypted
  * handle routes an over-threshold payload to the chunked write at the
  * caller's id, a second create-if-absent `put()` at that id fails with a 412
  * so the caller can read the held copy, and a pending stub left by a torn

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Helpers for conditional writes (a baseline WAS server requirement):
+ * Helpers for conditional writes (a baseline PWS server requirement):
  * assembling a write's request headers from an optional content-type plus the
  * `If-Match` / `If-None-Match: *` preconditions, reading the `ETag` a write
  * response returns, checking a caller's precondition against the document a
@@ -177,7 +177,7 @@ export function writeHeaders({
  * with no `If-Match` at all. Every such gate builds its error here, so the
  * messages do not drift apart.
  *
- * A WAS server versions every resource, so a missing validator is a transport
+ * A PWS server versions every resource, so a missing validator is a transport
  * or deployment problem, not a server declining to version. Most often it is a
  * browser client whose CORS configuration does not expose `ETag` to script.
  *
@@ -194,7 +194,7 @@ export function unenforcedPreconditionError({
   return new NotSupportedError(
     `${operation}: the read it is pinned to returned no ETag validator, so ` +
       'the write would go out unconditionally, and a concurrent change could ' +
-      'be silently overwritten instead of failing with a 412. A WAS server ' +
+      'be silently overwritten instead of failing with a 412. A PWS server ' +
       'serves an ETag on every resource read; check that the response is not ' +
       'losing the header on the way (a browser client needs `ETag` in the ' +
       "server's `Access-Control-Expose-Headers`)."
@@ -203,7 +203,7 @@ export function unenforcedPreconditionError({
 
 /**
  * Reads the strong `ETag` validator a write/read response returned, or
- * `undefined` when none reached the client (a WAS server serves one on every
+ * `undefined` when none reached the client (a PWS server serves one on every
  * resource; a browser client can still be denied it by a CORS configuration
  * that does not expose the header).
  *
@@ -266,7 +266,7 @@ export function assertPreconditionAgainstPreRead({
     throw new PreconditionFailedError(
       `Cannot update the document at "${url}": an ifMatch validator was ` +
         'supplied, but no current document is readable there -- it was ' +
-        'deleted, or it is not readable with this capability (WAS masks ' +
+        'deleted, or it is not readable with this capability (PWS masks ' +
         'unauthorized reads as 404). Re-read the resource before retrying.',
       { status: 412 }
     )

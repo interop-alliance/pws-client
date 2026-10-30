@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Typed error hierarchy for the WAS client. A `WasError` base carries the
+ * Typed error hierarchy for the PWS client. A `PwsError` base carries the
  * server's `application/problem+json` fields (`status` / `title` / `problems` /
  * `details` / `requestUrl`). The translation of a thrown ky/ezcap error into
  * the appropriate subclass lives in `internal/mapError.ts`, kept apart so
@@ -11,10 +11,10 @@
 import type { Problem } from '@interop/storage-core'
 
 /**
- * Structured fields attached to a `WasError`, sourced from the server's
+ * Structured fields attached to a `PwsError`, sourced from the server's
  * `application/problem+json` response body.
  */
-export interface WasErrorOptions {
+export interface PwsErrorOptions {
   status?: number
   /**
    * The problem-kind URI from the response body's `type` (e.g.
@@ -39,7 +39,7 @@ export interface WasErrorOptions {
 /**
  * Base class for all errors thrown by the high-level client methods.
  */
-export class WasError extends Error {
+export class PwsError extends Error {
   status?: number
   type?: string
   title?: string
@@ -47,11 +47,11 @@ export class WasError extends Error {
   details?: string[]
   requestUrl?: string
 
-  constructor(message: string, options: WasErrorOptions = {}) {
+  constructor(message: string, options: PwsErrorOptions = {}) {
     const { status, type, title, problems, details, requestUrl, cause } =
       options
     super(message, cause !== undefined ? { cause } : undefined)
-    this.name = 'WasError'
+    this.name = 'PwsError'
     this.status = status
     this.type = type
     this.title = title
@@ -63,10 +63,10 @@ export class WasError extends Error {
 
 /**
  * The target was not found -- or it exists but is not visible to the caller.
- * WAS returns 404 for both not-found and unauthorized, so a `NotFoundError`
+ * PWS returns 404 for both not-found and unauthorized, so a `NotFoundError`
  * means "not visible to you" rather than strictly "does not exist".
  */
-export class NotFoundError extends WasError {
+export class NotFoundError extends PwsError {
   override name = 'NotFoundError'
 }
 
@@ -95,7 +95,7 @@ export class CapabilityExpiredError extends NotFoundError {
  * The request was malformed or rejected as invalid (HTTP 400), or well-formed
  * but unprocessable (HTTP 422, e.g. `encryption-scheme-mismatch`).
  */
-export class ValidationError extends WasError {
+export class ValidationError extends PwsError {
   override name = 'ValidationError'
 }
 
@@ -117,7 +117,7 @@ export class AlreadyRevokedError extends ValidationError {
  * the caller is authenticated but not permitted to act on the target (HTTP
  * 403).
  */
-export class AuthRequiredError extends WasError {
+export class AuthRequiredError extends PwsError {
   override name = 'AuthRequiredError'
 }
 
@@ -125,7 +125,7 @@ export class AuthRequiredError extends WasError {
  * The endpoint exists in the spec but is not yet implemented by the server
  * (HTTP 501).
  */
-export class NotImplementedError extends WasError {
+export class NotImplementedError extends PwsError {
   override name = 'NotImplementedError'
 }
 
@@ -133,26 +133,26 @@ export class NotImplementedError extends WasError {
  * A client-side, fail-closed affordance gate: the operation cannot be carried
  * out as asked (a guarded write whose read returned no `ETag` validator, a
  * `DocCipher` built with no route to a chunked document's chunk resources, a
- * transport method the EDV-over-WAS profile does not define). Raised before any
+ * transport method the EDV-over-PWS profile does not define). Raised before any
  * request is sent, so it carries no HTTP status. A server that does not
  * implement an optional part of the protocol answers `501`
  * (`NotImplementedError`) instead; this is the client refusing on its own.
  */
-export class NotSupportedError extends WasError {
+export class NotSupportedError extends PwsError {
   override name = 'NotSupportedError'
 }
 
 /**
- * The server speaks no version of the WAS specification this client
+ * The server speaks no version of the PWS specification this client
  * understands, so the client stops rather than guess a URL layout. Raised by
  * service discovery before the first signed request when the server's
  * responses carry no `rel="service"` link (a server that predates v0.5), when
  * the service description is not valid JSON or lacks `url` or `specs`, or
- * when no version entry under the WAS specification identifier names a
+ * when no version entry under the PWS specification identifier names a
  * version this client understands. Not a transient failure: retrying against
  * the same server gives the same answer.
  */
-export class IncompatibleServerError extends WasError {
+export class IncompatibleServerError extends PwsError {
   override name = 'IncompatibleServerError'
 }
 
@@ -165,7 +165,7 @@ export class IncompatibleServerError extends WasError {
  * `revisions-immutable`, `resource-immutable`, and `replica-refused`. The
  * specific kind is on the `type` URI.
  */
-export class ConflictError extends WasError {
+export class ConflictError extends PwsError {
   override name = 'ConflictError'
 }
 
@@ -177,7 +177,7 @@ export class ConflictError extends WasError {
  * Distinct from `ConflictError` (409), which is the header-less id/backend
  * conflict family.
  */
-export class PreconditionFailedError extends WasError {
+export class PreconditionFailedError extends PwsError {
   override name = 'PreconditionFailedError'
 }
 
@@ -186,7 +186,7 @@ export class PreconditionFailedError extends WasError {
  * (HTTP 413). Unlike `QuotaExceededError`, this is per-request -- a smaller
  * upload may still succeed.
  */
-export class PayloadTooLargeError extends WasError {
+export class PayloadTooLargeError extends PwsError {
   override name = 'PayloadTooLargeError'
 }
 
@@ -195,7 +195,7 @@ export class PayloadTooLargeError extends WasError {
  * (HTTP 507). This is a client-actionable storage-full condition, not a server
  * fault.
  */
-export class QuotaExceededError extends WasError {
+export class QuotaExceededError extends PwsError {
   override name = 'QuotaExceededError'
 }
 
@@ -208,7 +208,7 @@ export class QuotaExceededError extends WasError {
  * supplying the collection's keys (your keystore's `resolveKeys`, or a
  * per-handle `encryption` override). Never silently downgrades to plaintext.
  */
-export class EncryptionError extends WasError {
+export class EncryptionError extends PwsError {
   override name = 'EncryptionError'
 }
 
@@ -288,19 +288,19 @@ export class UnverifiedDescriptorError extends EncryptionError {
 /**
  * The replication-port signal for a rejected conditional write (HTTP 412): an
  * `ifMatch` ETag did not match (a lost-update conflict) or an `ifNoneMatch`
- * create-if-absent target already exists. Thrown by a `WasSyncPort`
- * (`@interop/was-client/sync`) so a push loop can catch exactly the conflict
+ * create-if-absent target already exists. Thrown by a `PwsSyncPort`
+ * (`@interop/pws-client/sync`) so a push loop can catch exactly the conflict
  * signal and re-read-and-reconcile, letting every other error propagate to its
  * backoff. A subtype of {@link PreconditionFailedError}, so a caller that
  * already handles 412 via `instanceof PreconditionFailedError` still catches it.
  */
-export class WasSyncConflictError extends PreconditionFailedError {
+export class PwsSyncConflictError extends PreconditionFailedError {
   constructor(
-    message = 'WAS conditional write precondition failed.',
-    options: WasErrorOptions = {}
+    message = 'PWS conditional write precondition failed.',
+    options: PwsErrorOptions = {}
   ) {
     super(message, { ...options, status: options.status ?? 412 })
-    this.name = 'WasSyncConflictError'
+    this.name = 'PwsSyncConflictError'
   }
 }
 
@@ -308,42 +308,42 @@ export class WasSyncConflictError extends PreconditionFailedError {
  * The replication-port signal for a delete or a metadata write whose target
  * resource is absent (HTTP 404). For a delete this is a settled outcome
  * (already gone, or the write never reached the server); for a metadata write
- * it is a race with a remote delete. Neither is a conflict, so a `WasSyncPort`
- * (`@interop/was-client/sync`) raises this distinct type rather than
- * {@link WasSyncConflictError}. A subtype of {@link NotFoundError}.
+ * it is a race with a remote delete. Neither is a conflict, so a `PwsSyncPort`
+ * (`@interop/pws-client/sync`) raises this distinct type rather than
+ * {@link PwsSyncConflictError}. A subtype of {@link NotFoundError}.
  */
-export class WasSyncNotFoundError extends NotFoundError {
+export class PwsSyncNotFoundError extends NotFoundError {
   constructor(
-    message = 'WAS resource not found.',
-    options: WasErrorOptions = {}
+    message = 'PWS resource not found.',
+    options: PwsErrorOptions = {}
   ) {
     super(message, { ...options, status: options.status ?? 404 })
-    this.name = 'WasSyncNotFoundError'
+    this.name = 'PwsSyncNotFoundError'
   }
 }
 
 /**
- * The replication-port signal for a request a WAS server refused on
+ * The replication-port signal for a request a PWS server refused on
  * authorization grounds: `401` (no verifiable invocation), `403` (authenticated
  * but not permitted), or the `404` a server returns when it MASKS an
  * authorization failure as "not found" so an unauthorized caller cannot probe
  * which resources exist. Carries the originating HTTP `status` so a caller can
  * tell the three apart.
  *
- * Opt-in: a `WasSyncPort` raises it only when built with `mapAuthErrors: true`
- * (`@interop/was-client/sync`), because the `404` reading is safe exactly when
+ * Opt-in: a `PwsSyncPort` raises it only when built with `mapAuthErrors: true`
+ * (`@interop/pws-client/sync`), because the `404` reading is safe exactly when
  * the invoked Space and Collection are known to exist -- then a `404` can only
  * mean the invocation itself was rejected, i.e. the grant expired or was
  * revoked. A subtype of {@link AuthRequiredError}, so a caller that already
  * handles 401/403 via `instanceof AuthRequiredError` still catches it.
  */
-export class WasSyncAuthError extends AuthRequiredError {
-  constructor(status: number, options: WasErrorOptions = {}) {
-    super(`WAS storage access denied (HTTP ${status}).`, {
+export class PwsSyncAuthError extends AuthRequiredError {
+  constructor(status: number, options: PwsErrorOptions = {}) {
+    super(`PWS storage access denied (HTTP ${status}).`, {
       ...options,
       status
     })
-    this.name = 'WasSyncAuthError'
+    this.name = 'PwsSyncAuthError'
   }
 }
 
@@ -351,26 +351,26 @@ export class WasSyncAuthError extends AuthRequiredError {
  * The replication-port signal for a `changes` pull whose checkpoint the server
  * did not issue (HTTP 400, `invalid-request-body` at `#/checkpoint`): a
  * checkpoint stored against another server, or one from a retired layout. A
- * `WasSyncPort` (`@interop/was-client/sync`) raises it from `query` so a pull
+ * `PwsSyncPort` (`@interop/pws-client/sync`) raises it from `query` so a pull
  * loop can restart the feed from the beginning rather than retry a request
  * the server will keep refusing. A 400 of the same kind that points elsewhere
  * stays a plain {@link ValidationError}, of which this is a subtype.
  */
-export class WasSyncCheckpointError extends ValidationError {
+export class PwsSyncCheckpointError extends ValidationError {
   constructor(
-    message = 'WAS changes checkpoint not issued by this server.',
-    options: WasErrorOptions = {}
+    message = 'PWS changes checkpoint not issued by this server.',
+    options: PwsErrorOptions = {}
   ) {
     super(message, { ...options, status: options.status ?? 400 })
-    this.name = 'WasSyncCheckpointError'
+    this.name = 'PwsSyncCheckpointError'
   }
 }
 
 /**
  * The server encountered an internal fault (HTTP 5xx).
  */
-export class WasServerError extends WasError {
-  override name = 'WasServerError'
+export class PwsServerError extends PwsError {
+  override name = 'PwsServerError'
 }
 
 /**
@@ -388,10 +388,10 @@ export class WasServerError extends WasError {
  * recipient of that epoch, or it was removed and the epoch rotated), decrypt
  * raises `KeyUnwrapError` instead -- the descriptor is current and re-reading
  * it cannot help. Raised client-side, so it carries no HTTP status; a subtype
- * of {@link WasError} so `mapError` passes it through unchanged and a
- * `catch (WasError)` sees it beside the rest.
+ * of {@link PwsError} so `mapError` passes it through unchanged and a
+ * `catch (PwsError)` sees it beside the rest.
  */
-export class UnknownEpochError extends WasError {
+export class UnknownEpochError extends PwsError {
   readonly collectionId: string
   readonly kids: string[]
 
@@ -454,7 +454,7 @@ export function httpStatus(err: unknown): number | undefined {
 
 /**
  * Whether an error is a denied invocation: a 401 or 403
- * ({@link AuthRequiredError}), or the 404 WAS answers an unauthorized caller
+ * ({@link AuthRequiredError}), or the 404 PWS answers an unauthorized caller
  * with ({@link NotFoundError}, including its named `CapabilityRevokedError`
  * and `CapabilityExpiredError` forms). A missing target and a denied one are
  * indistinguishable on the wire, so a caller for whom the difference matters
@@ -479,8 +479,8 @@ const DENIAL_ERROR_NAMES = new Set([
   'NotFoundError',
   'CapabilityRevokedError',
   'CapabilityExpiredError',
-  'WasSyncAuthError',
-  'WasSyncNotFoundError'
+  'PwsSyncAuthError',
+  'PwsSyncNotFoundError'
 ])
 
 /**

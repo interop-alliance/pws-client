@@ -5,21 +5,21 @@
  * Shared party fixtures for the live-server encryption suites: a
  * self-describing `did:key` X25519 key-agreement key, and a party built around
  * one -- an Ed25519 signer for authorization plus an encryption-capable
- * `WasClient` over both.
+ * `PwsClient` over both.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { EncryptionProvider } from '../../src/index.js'
 import { createEdvEncryption } from '../../src/edv/index.js'
 import { didKeyResolver } from '../../src/edv/epochCrypto.js'
 
 export interface Party {
-  was: WasClient
+  pws: PwsClient
   provider: EncryptionProvider
-  signer: Parameters<typeof WasClient.fromSigner>[0]['signer']
+  signer: Parameters<typeof PwsClient.fromSigner>[0]['signer']
   did: string
   kak: IKeyAgreementKey
   recipient: { id: string; publicKeyMultibase: string }
@@ -50,7 +50,7 @@ export async function makeDidKeyKak(): Promise<{
 
 /**
  * Builds a party: an Ed25519 signer (for authorization) plus a self-describing
- * `did:key` X25519 key-agreement key (for decryption), and a `WasClient` whose
+ * `did:key` X25519 key-agreement key (for decryption), and a `PwsClient` whose
  * encryption provider supplies that X25519 key.
  *
  * @param options {object}
@@ -72,7 +72,7 @@ export async function makeParty({
   })
   const signer = keyPair.didKeySigner()
   return {
-    was: WasClient.fromSigner({ baseServerUrl, signer, encryption: provider }),
+    pws: PwsClient.fromSigner({ baseServerUrl, signer, encryption: provider }),
     provider,
     signer,
     did: `did:key:${keyPair.fingerprint()}`,

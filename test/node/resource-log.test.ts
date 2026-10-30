@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Tests for the `/log` subpath: the WAS adapter of
+ * Tests for the `/log` subpath: the PWS adapter of
  * `@interop/vh-resource-log`'s store port (read-with-etag, CAS append,
  * guarded genesis create, and the 412-to-conflict-error translation) --
  * against an in-memory fake Resource and an in-memory fake Collection whose
@@ -47,7 +47,7 @@ function entryAt(n: number): ResourceLogEntry {
 }
 
 /**
- * An in-memory fake of the WAS Resource surface the log store drives:
+ * An in-memory fake of the PWS Resource surface the log store drives:
  * `getWithEtag({ as: 'text' })` serves the stored body as text with a
  * version-counter ETag, and `put` records its options and enforces the
  * `ifMatch` / `ifNoneMatch` preconditions like the server would.

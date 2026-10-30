@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: `collection.changes()` against a live WAS server. Proves the
+ * Integration test: `collection.changes()` against a live PWS server. Proves the
  * `changes` query profile round-trips through the client -- ordering, tombstones,
  * checkpoint resumption, the record kinds beside Resources, and the
  * server-managed `createdBy` provenance that must reach a replica without a
@@ -17,35 +17,35 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { isResourceChange } from '@interop/storage-core'
 
-import { NotFoundError, WasClient } from '../../src/index.js'
+import { NotFoundError, PwsClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
- * Builds a fresh did:key Ed25519 signer, a WAS client over it, and its DID.
+ * Builds a fresh did:key Ed25519 signer, a PWS client over it, and its DID.
  *
- * @returns {Promise<{ was: WasClient, did: string }>}
+ * @returns {Promise<{ pws: PwsClient, did: string }>}
  */
-async function freshWasClient(): Promise<{ was: WasClient; did: string }> {
+async function freshPwsClient(): Promise<{ pws: PwsClient; did: string }> {
   const keyPair = await Ed25519VerificationKey.generate()
-  const was = WasClient.fromSigner({
+  const pws = PwsClient.fromSigner({
     baseServerUrl: baseServerUrl!,
     signer: keyPair.didKeySigner()
   })
-  return { was, did: was.controllerDid }
+  return { pws, did: pws.controllerDid }
 }
 
 describeLive('collection.changes() (live server)', () => {
-  let was: WasClient
+  let pws: PwsClient
   let did: string
   let space: Space
   let notes: Collection
 
   beforeAll(async () => {
-    ;({ was, did } = await freshWasClient())
-    space = await was.createSpace({ name: 'Changes Integration' })
+    ;({ pws, did } = await freshPwsClient())
+    space = await pws.createSpace({ name: 'Changes Integration' })
     notes = await space.createCollection({ id: 'notes', name: 'Notes' })
     await notes.put('first', { message: 'one' })
     await notes.put('second', { message: 'two' })
@@ -133,7 +133,7 @@ describeLive('collection.changes() (live server)', () => {
   })
 
   it('reads the feed under a GET and HEAD grant, with no POST', async () => {
-    const { was: agent, did: agentDid } = await freshWasClient()
+    const { pws: agent, did: agentDid } = await freshPwsClient()
     const grant = await notes.grant({
       to: agentDid,
       actions: ['GET', 'HEAD'],
@@ -156,7 +156,7 @@ describeLive('collection.changes() (live server)', () => {
     expect(resumed.documents).toEqual([])
     expect(resumed.checkpoint).toBeNull()
 
-    // The same grant cannot run the `POST` form: WAS masks the refusal as
+    // The same grant cannot run the `POST` form: PWS masks the refusal as
     // 404, which `changes()` throws rather than reading as an empty feed.
     await expect(granted.changes({ method: 'POST' })).rejects.toThrow(
       NotFoundError

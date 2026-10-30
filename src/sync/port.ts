@@ -2,10 +2,10 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * `createWasSyncPort`: the {@link WasSyncPort} implementation over a signed
- * {@link WasClient}, bound to one Space + Collection.
+ * `createPwsSyncPort`: the {@link PwsSyncPort} implementation over a signed
+ * {@link PwsClient}, bound to one Space + Collection.
  *
- * Writes and single-resource reads ride the raw, signed `was.request()` escape
+ * Writes and single-resource reads ride the raw, signed `pws.request()` escape
  * hatch, which moves the stored body VERBATIM (bypassing the encryption codec).
  * The change feed already ships opaque stored bodies -- plaintext for a
  * plaintext collection, the EDV envelope for an encrypted one -- and push must
@@ -35,9 +35,9 @@
  * Bypassing the codec is not bypassing the error mapper. Every failure caught
  * here goes through the client's own `mapError` first, so the port's signals
  * carry the server's `problem+json` fields and a `cause`, and a status the
- * port has no signal for still leaves this subpath as a typed `WasError`.
+ * port has no signal for still leaves this subpath as a typed `PwsError`.
  */
-import type { WasClient } from '../WasClient.js'
+import type { PwsClient } from '../PwsClient.js'
 import type { HttpResponse } from '@interop/http-client'
 import {
   KEY_EPOCH_HEADER,
@@ -59,20 +59,20 @@ import type {
 import {
   NotFoundError,
   PreconditionFailedError,
-  WasSyncAuthError,
-  WasSyncCheckpointError,
-  WasSyncConflictError,
-  WasSyncNotFoundError,
-  WasServerError
+  PwsSyncAuthError,
+  PwsSyncCheckpointError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError,
+  PwsServerError
 } from '../errors.js'
-import type { WasError, WasErrorOptions } from '../errors.js'
+import type { PwsError, PwsErrorOptions } from '../errors.js'
 import { mapError } from '../internal/mapError.js'
 import type { IZcap } from '../types.js'
 import type {
   Json,
   MasterState,
   SyncPage,
-  WasSyncPort,
+  PwsSyncPort,
   WireDoc,
   WriteAck
 } from './types.js'
@@ -103,7 +103,7 @@ export { WRITER_ID_HEADER }
 const UNKNOWN_UPDATED_AT = new Date(0).toISOString()
 
 /**
- * The statuses a WAS server can return for an authorization failure: `401` (no
+ * The statuses a PWS server can return for an authorization failure: `401` (no
  * verifiable invocation), `403` (not permitted), and the `404` it returns when
  * it masks an authorization failure as "not found".
  *
@@ -121,10 +121,10 @@ function isAuthStatus(status: number | undefined): status is number {
  * classification `mapError` already made, so it must not lose what the server
  * said.
  *
- * @param mapped {WasError}   the classified error
- * @returns {WasErrorOptions}
+ * @param mapped {PwsError}   the classified error
+ * @returns {PwsErrorOptions}
  */
-function signalOptions(mapped: WasError): WasErrorOptions {
+function signalOptions(mapped: PwsError): PwsErrorOptions {
   return {
     status: mapped.status,
     type: mapped.type,
@@ -141,15 +141,15 @@ function signalOptions(mapped: WasError): WasErrorOptions {
  * nested port call (the write-ack re-read inside a write) can raise through a
  * write's catch block. Re-wrapping one would drop its cause for no gain.
  *
- * @param mapped {WasError}
+ * @param mapped {PwsError}
  * @returns {boolean}
  */
-function isPortSignal(mapped: WasError): boolean {
+function isPortSignal(mapped: PwsError): boolean {
   return (
-    mapped instanceof WasSyncConflictError ||
-    mapped instanceof WasSyncNotFoundError ||
-    mapped instanceof WasSyncCheckpointError ||
-    mapped instanceof WasSyncAuthError
+    mapped instanceof PwsSyncConflictError ||
+    mapped instanceof PwsSyncNotFoundError ||
+    mapped instanceof PwsSyncCheckpointError ||
+    mapped instanceof PwsSyncAuthError
   )
 }
 
@@ -159,10 +159,10 @@ function isPortSignal(mapped: WasError): boolean {
  * `#/checkpoint`. The same kind pointing elsewhere (an unaccepted `profile`)
  * is an ordinary validation failure.
  *
- * @param mapped {WasError}
+ * @param mapped {PwsError}
  * @returns {boolean}
  */
-function isRefusedCheckpoint(mapped: WasError): boolean {
+function isRefusedCheckpoint(mapped: PwsError): boolean {
   return (
     mapped.type === ProblemTypes.INVALID_REQUEST_BODY &&
     (mapped.problems ?? []).some(problem => problem.pointer === '#/checkpoint')
@@ -185,24 +185,24 @@ function toWireDoc(doc: ResourceChangeDocument): WireDoc {
 
 /**
  * Maps a caught write error onto the port's typed signals, rethrowing anything
- * else as the classified {@link WasError} the client's own `mapError` builds
+ * else as the classified {@link PwsError} the client's own `mapError` builds
  * (so a status outside this list -- a `500`, a `507` quota-exceeded -- still
  * leaves the sync subpath typed and carrying the server's problem details).
- * A rejected precondition becomes a {@link WasSyncConflictError} for every
+ * A rejected precondition becomes a {@link PwsSyncConflictError} for every
  * write. `notFound` opts in to the not-found mapping, which `deleteContent`
  * and `putMeta` perform on the default port (an already-gone target is a
  * settled outcome for a delete and a delete race for a metadata write, but a
  * hard error for a content write). `authErrors` is
  * the port's `mapAuthErrors` option: it maps `401` / `403` / the masked `404`
- * to a {@link WasSyncAuthError}. `notFound` is checked first, so a port that
+ * to a {@link PwsSyncAuthError}. `notFound` is checked first, so a port that
  * asked for both still gets the not-found signal.
  *
  * @param err {unknown}   the caught error
  * @param [options] {object}
  * @param [options.notFound] {boolean}   map a not-found to
- *   {@link WasSyncNotFoundError}
+ *   {@link PwsSyncNotFoundError}
  * @param [options.authErrors] {boolean}   map `401`/`403`/`404` to
- *   {@link WasSyncAuthError}
+ *   {@link PwsSyncAuthError}
  * @returns {never}   always throws
  */
 function mapWriteError(
@@ -217,23 +217,23 @@ function mapWriteError(
     throw mapped
   }
   if (notFound && mapped instanceof NotFoundError) {
-    throw new WasSyncNotFoundError(mapped.message, signalOptions(mapped))
+    throw new PwsSyncNotFoundError(mapped.message, signalOptions(mapped))
   }
   if (mapped instanceof PreconditionFailedError) {
-    throw new WasSyncConflictError(mapped.message, signalOptions(mapped))
+    throw new PwsSyncConflictError(mapped.message, signalOptions(mapped))
   }
   if (authErrors && isAuthStatus(mapped.status)) {
-    throw new WasSyncAuthError(mapped.status, signalOptions(mapped))
+    throw new PwsSyncAuthError(mapped.status, signalOptions(mapped))
   }
   throw mapped
 }
 
 /**
- * Builds a {@link WasSyncPort} bound to one Space + Collection, backed by the
- * caller's signed {@link WasClient}. With no `capability`, requests invoke the
+ * Builds a {@link PwsSyncPort} bound to one Space + Collection, backed by the
+ * caller's signed {@link PwsClient}. With no `capability`, requests invoke the
  * client's own root capability.
  *
- * `mapAuthErrors` exists because a WAS server MASKS an authorization failure as
+ * `mapAuthErrors` exists because a PWS server MASKS an authorization failure as
  * `404` ("not found or invalid authorization") rather than `403`, so an
  * unauthorized caller cannot probe which resources exist. A replica that
  * already synced its Space and Collection knows they exist, so on its sync
@@ -249,34 +249,34 @@ function mapWriteError(
  * depend on). A `putMeta` `404` is ambiguous by design: it is either the
  * masked authorization failure or a delete race (the resource was deleted by
  * another replica after this one read it), and the option maps it to a
- * {@link WasSyncAuthError} whose `status` a push loop can corroborate against
+ * {@link PwsSyncAuthError} whose `status` a push loop can corroborate against
  * a re-read. Revoked access still surfaces within one poll on `query` and on
  * the content/metadata writes.
  *
  * @param options {object}
- * @param options.was {WasClient}       the session client (holds the signer)
- * @param options.spaceUrl {string}     the WAS Space URL
- * @param options.collectionId {string}   the WAS collection id
+ * @param options.pws {PwsClient}       the session client (holds the signer)
+ * @param options.spaceUrl {string}     the PWS Space URL
+ * @param options.collectionId {string}   the PWS collection id
  * @param [options.capability] {IZcap}   a delegated capability to invoke on
  *   every request this port makes (pull, writes, and reads alike); omit to
  *   invoke the client's own root capability
  * @param [options.mapAuthErrors] {boolean}   map `401` / `403` / the masked
- *   `404` to {@link WasSyncAuthError} (default `false`)
- * @returns {WasSyncPort}
+ *   `404` to {@link PwsSyncAuthError} (default `false`)
+ * @returns {PwsSyncPort}
  */
-export function createWasSyncPort({
-  was,
+export function createPwsSyncPort({
+  pws,
   spaceUrl,
   collectionId,
   capability,
   mapAuthErrors = false
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceUrl: string
   collectionId: string
   capability?: IZcap
   mapAuthErrors?: boolean
-}): WasSyncPort {
+}): PwsSyncPort {
   // URLs come from the internal builders, so this port inherits the same
   // percent-encoding and reserved/dot-segment guards as the handle API.
   const contentUrl = (id: string) =>
@@ -287,7 +287,7 @@ export function createWasSyncPort({
   // Construction is I/O-free (the codec is a lazy thunk) and `changes()`
   // never resolves the codec, so it ships the stored bodies verbatim -- what
   // this codec-bypassing port requires.
-  const changesCollection = was
+  const changesCollection = pws
     .spaceAt(spaceUrl)
     .collection(collectionId, { capability })
 
@@ -295,7 +295,7 @@ export function createWasSyncPort({
   const readContent = async (id: string): Promise<MasterState | null> => {
     let response: HttpResponse
     try {
-      response = await was.request({
+      response = await pws.request({
         capability,
         url: contentUrl(id),
         method: 'GET'
@@ -309,7 +309,7 @@ export function createWasSyncPort({
         return null
       }
       if (mapAuthErrors && isAuthStatus(mapped.status)) {
-        throw new WasSyncAuthError(mapped.status, signalOptions(mapped))
+        throw new PwsSyncAuthError(mapped.status, signalOptions(mapped))
       }
       throw mapped
     }
@@ -321,7 +321,7 @@ export function createWasSyncPort({
     // content that is actually there. The port contract promises `Json`, so a
     // body it cannot deliver as `Json` is a fault, reported as one.
     if (response.data === undefined) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The resource "${id}" answered with a body this sync port cannot ` +
           `carry (content-type ` +
           `"${response.headers.get('content-type') ?? 'unknown'}"): the ` +
@@ -429,10 +429,10 @@ export function createWasSyncPort({
         // no benign reading once the collection is known to exist.
         const mapped = mapError(err)
         if (mapAuthErrors && isAuthStatus(mapped.status)) {
-          throw new WasSyncAuthError(mapped.status, signalOptions(mapped))
+          throw new PwsSyncAuthError(mapped.status, signalOptions(mapped))
         }
         if (isRefusedCheckpoint(mapped)) {
-          throw new WasSyncCheckpointError(
+          throw new PwsSyncCheckpointError(
             mapped.message,
             signalOptions(mapped)
           )
@@ -443,7 +443,7 @@ export function createWasSyncPort({
 
     async putContent({ id, data, ifMatch, ifNoneMatch, epoch, writerId }) {
       try {
-        const response = await was.request({
+        const response = await pws.request({
           capability,
           url: contentUrl(id),
           method: 'PUT',
@@ -462,7 +462,7 @@ export function createWasSyncPort({
 
     async deleteContent({ id, ifMatch, writerId }) {
       try {
-        const response = await was.request({
+        const response = await pws.request({
           capability,
           url: contentUrl(id),
           method: 'DELETE',
@@ -486,7 +486,7 @@ export function createWasSyncPort({
 
     async putMeta({ id, custom, ifMatch, ifNoneMatch }) {
       try {
-        const response = await was.request({
+        const response = await pws.request({
           capability,
           url: metaUrl(id),
           method: 'PUT',
@@ -519,7 +519,7 @@ export function createWasSyncPort({
       // together. The metadata read settles into a value (its rejection handler
       // is attached before any `await` that can throw, so an abandoned read can
       // never surface as an unhandled rejection).
-      const metaRead = was
+      const metaRead = pws
         .request({ capability, url: metaUrl(id), method: 'GET' })
         .then(
           response => ({ ok: true as const, response }),
@@ -547,7 +547,7 @@ export function createWasSyncPort({
           return master
         }
         if (mapAuthErrors && isAuthStatus(mapped.status)) {
-          throw new WasSyncAuthError(mapped.status, signalOptions(mapped))
+          throw new PwsSyncAuthError(mapped.status, signalOptions(mapped))
         }
         throw mapped
       }

@@ -44,8 +44,8 @@ of stored envelopes" recorded decision in ROADMAP.md.
 - priority: medium
 - labels: api, metadata, encryption
 - touches:
-  - portable-web-spaces-spec -- the endpoints must be specified first;
-    tracked as WASS-9 in that repo's ROADMAP (done, WASS-9 moved to archive)
+  - portable-web-spaces-spec -- the endpoints must be specified first; tracked
+    as WASS-9 in that repo's ROADMAP (done, WASS-9 moved to archive)
   - was-teaching-server -- resolved: WSS-55 shipped in was-teaching-server
     0.21.0, with conformance coverage in `@interop/was-conformance-suite` 0.5.0
   - was-client ARCHITECTURE.md + README.md -- resolved: the new handle surface
@@ -480,8 +480,8 @@ on the 0.36.0 npm publish -- both since shipped (see touches), closing the item
     `custom.indexSchema` (with the per-attribute addition marker recording that
     matches may be partial), and Security Considerations for the revocation
     asymmetry and the schema's own sensitivity
-  - portable-web-spaces-spec -- resolved: the `blinded-index` query profile
-    was already in the Query Profile Registry, and the schema's home, the
+  - portable-web-spaces-spec -- resolved: the `blinded-index` query profile was
+    already in the Query Profile Registry, and the schema's home, the
     Collection-level `/meta` endpoints, shipped as WASS-9 (archived in that
     repo's `_spec` roadmap)
   - was-teaching-server -- resolved: the schema home (Collection-level `/meta`,
@@ -1718,10 +1718,9 @@ relative `next` is unaffected. discovered-from: whole-codebase review,
 - blocked-by: nothing for the was-client half (the reference server serves the
   v0.5 route table as of was-teaching-server 0.31.0)
 - touches:
-  - portable-web-spaces-spec: shipped -- WASS-29 landed the spec text
-    2026-09-11 (decision
-    `_spec/decisions/0005-container-descriptions-live-at-meta.md`, with its two
-    2026-09-11 amendments)
+  - portable-web-spaces-spec: shipped -- WASS-29 landed the spec text 2026-09-11
+    (decision `_spec/decisions/0005-container-descriptions-live-at-meta.md`,
+    with its two 2026-09-11 amendments)
   - was-client: `src/internal/paths.ts`, `src/Collection.ts`, `src/Space.ts`,
     `src/internal/describe.ts`, `src/internal/meta.ts`, `src/internal/grant.ts`,
     `src/edv/descriptorStore.ts`, the `./paths` subpath export (`src/paths.ts` +
@@ -4058,8 +4057,8 @@ whole-codebase review, 2026-09-11.
     `grant({ actions: ['GET', 'HEAD'] })` did not typecheck; widened there
     (0.38.0, unpublished), WCL-136 drops the test's cast once it is published
     and bumped here
-  - portable-web-spaces-spec: WASS-51's GET form, cited; still `todo` there,
-    the profile text has yet to state the form
+  - portable-web-spaces-spec: WASS-51's GET form, cited; still `todo` there, the
+    profile text has yet to state the form
   - freewallet: FW-478 depends on this item; the e2e agent double reads an
     audience through it (nothing to file: the caller is `Collection.changes()`
     under the agent's bound grant, no new API)

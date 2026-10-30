@@ -3,7 +3,7 @@
  */
 /**
  * `createEdvDocCipher`: a per-collection encrypt/decrypt seam for an end-to-end
- * encrypted collection, wrapping the same EDV codec the `WasClient` handles use
+ * encrypted collection, wrapping the same EDV codec the `PwsClient` handles use
  * but pointed at a local replica. A write encrypts the document into an EDV
  * envelope (`{ id, sequence, jwe }`) whose id is content-derived (a hash of the
  * JWE ciphertext, `idDerivation: 'content'`) or a stable random id
@@ -134,7 +134,7 @@ export interface EdvDocCipher extends DocCipher {
   /**
    * {@link DocCipher.encrypt}, widened with `id`: seals a new document at a
    * resource id the caller chose, rather than one the cipher mints or
-   * derives. The envelope binds that id (`was.resource`) and starts at
+   * derives. The envelope binds that id (`pws.resource`) and starts at
    * `sequence: 0`, as a Collection handle's `put` of a new document does, so
    * a `decrypt` under any other id is refused. The id must be an EDV
    * document id; a human-readable one throws `ValidationError`, since it
@@ -157,7 +157,7 @@ export interface EdvDocCipher extends DocCipher {
    * with a `spaceUrl`) or from `chunkSource` (bytes the caller holds, on any
    * cipher). Passing both throws `ValidationError`. Passing neither throws
    * `EncryptionError` for a chunked envelope. A chunk the source does not hold
-   * throws `NotFoundError`, and a chunk whose `was` binding differs from the
+   * throws `NotFoundError`, and a chunk whose `pws` binding differs from the
    * envelope's throws `EncryptionError`.
    *
    * @param options {object}
@@ -245,11 +245,11 @@ export interface EdvDocCipher extends DocCipher {
  * @param options {object}
  * @param options.keyAgreementKey {IKeyAgreementKey}
  * @param options.keyResolver {IKeyResolver}
- * @param options.collectionId {string}   the collection's WAS id. It must be
+ * @param options.collectionId {string}   the collection's PWS id. It must be
  *   the real id, not a label: the collection's metadata envelope is
- *   AEAD-bound to it (`was.collection`), so `applyMeta` refuses an envelope
+ *   AEAD-bound to it (`pws.collection`), so `applyMeta` refuses an envelope
  *   bound elsewhere.
- * @param [options.spaceUrl] {string}   the URL of the WAS Space holding the
+ * @param [options.spaceUrl] {string}   the URL of the PWS Space holding the
  *   collection.
  *   It gives the codec a route to a chunked document's chunk resources, so a
  *   `decrypt` that also passes a request context reassembles a chunked
@@ -289,13 +289,13 @@ export async function createEdvDocCipher({
 }): Promise<EdvDocCipher> {
   // Only a cipher told which Space its collection lives in has a server to
   // address, and only the chunked-stream paths address one. Loading the
-  // factory here rather than at module scope keeps `WasTransport` out of an
+  // factory here rather than at module scope keeps `PwsTransport` out of an
   // offline caller's import graph: a `createEdvDocCipher` call with no
   // `spaceUrl` evaluates no transport module at all.
   let transportFactory: CodecTransportFactory | undefined
   if (spaceUrl !== undefined) {
-    const { wasTransportFactory } = await import('./transportFactory.js')
-    transportFactory = wasTransportFactory({
+    const { pwsTransportFactory } = await import('./transportFactory.js')
+    transportFactory = pwsTransportFactory({
       spaceUrl,
       collectionId,
       contentType: DEFAULT_CONTENT_TYPE
@@ -497,7 +497,7 @@ function docCipherOverCodec({
  * it into a read path is a bug this surfaces typed rather than as a key miss.
  *
  * The envelope shape is exactly the multi-recipient build's (same recipient
- * template, same epoch stamp and `was` binding), so a reader that IS a
+ * template, same epoch stamp and `pws` binding), so a reader that IS a
  * recipient opens the result with an ordinary `createEdvDocCipher`. This is
  * the build for a writer holding only a recipient's public half -- e.g.
  * re-sealing a keyring-style record to a recovery code's unlock key the

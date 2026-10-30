@@ -59,7 +59,9 @@ import type { EncryptionDescriptorStore } from './descriptorStore.js'
 
 /**
  * The state-document schema identifier an encryption descriptor carries in a
- * governed log entry, per the Encrypted Collections profile.
+ * governed log entry, per the Encrypted Collections profile. The value keeps
+ * the spec's old prefix: every entry ever written carries it, and a reader
+ * refuses a verified head of any other type.
  */
 export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
 

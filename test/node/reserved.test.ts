@@ -85,7 +85,7 @@ describe('assertNotReserved', () => {
       ).toThrow(ValidationError)
       expect(() =>
         collectionUrl({
-          spaceUrl: 'https://was.example/space/s/',
+          spaceUrl: 'https://pws.example/space/s/',
           collectionId: segment
         })
       ).toThrow(ValidationError)
@@ -118,7 +118,7 @@ describe('the ./paths subpath', () => {
     // The predicate and the builder agree: what one reports reserved is what
     // the other refuses, so a caller can ask before forming a URL out of a
     // value it did not choose.
-    const spaceUrl = 'https://was.example/space/space-1/'
+    const spaceUrl = 'https://pws.example/space/space-1/'
     expect(isReservedCollectionId('export')).toBe(true)
     expect(() => collectionUrl({ spaceUrl, collectionId: 'export' })).toThrow(
       ValidationError

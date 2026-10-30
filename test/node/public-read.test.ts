@@ -2,32 +2,32 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Unit tests for the unauthenticated public-read methods (`was.publicRead()` /
- * `was.publicListCollection()`), which read `PublicCanRead` resources with an
+ * Unit tests for the unauthenticated public-read methods (`pws.publicRead()` /
+ * `pws.publicListCollection()`), which read `PublicCanRead` resources with an
  * unsigned `@interop/http-client` request. A stubbed global `fetch` (which the
  * http client hands a `Request`) records the request and
  * returns canned `Response`s, so no server is involved.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
-import { WasClient, WasServerError } from '../../src/index.js'
+import { PwsClient, PwsServerError } from '../../src/index.js'
 import { unsignedRequest } from '../../src/internal/request.js'
 import { dataOrNull } from '../../src/internal/content.js'
 import { baseServerUrlFor, requestUrl } from '../helpers/stubClient.js'
 
 /**
- * Builds a `WasClient` over a minimal stub `ZcapClient`. The public-read
+ * Builds a `PwsClient` over a minimal stub `ZcapClient`. The public-read
  * methods never sign, so the signer is unused here.
  *
- * @returns {WasClient}
+ * @returns {PwsClient}
  */
-function publicClient(): WasClient {
+function publicClient(): PwsClient {
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
   // No `serviceDescription`: public reads do not wait on service discovery,
   // so a discovery attempt would hit the stubbed `fetch` and fail the test.
-  return new WasClient({ baseServerUrl: baseServerUrlFor(), zcapClient })
+  return new PwsClient({ baseServerUrl: baseServerUrlFor(), zcapClient })
 }
 
 /**
@@ -58,7 +58,7 @@ describe('unsignedRequest()', () => {
       })
     )
     const response = await unsignedRequest({
-      url: 'https://was.example/space/s/c/r',
+      url: 'https://pws.example/space/s/c/r',
       read: true
     })
     expect(response?.data).toEqual({ hello: 'world' })
@@ -72,7 +72,7 @@ describe('unsignedRequest()', () => {
       })
     )
     const response = await unsignedRequest({
-      url: 'https://was.example/space/s/c/note.txt',
+      url: 'https://pws.example/space/s/c/note.txt',
       read: true
     })
     expect(response?.data).toBeUndefined()
@@ -89,9 +89,9 @@ describe('publicRead()', () => {
       })
     )
     const result = await publicClient().publicRead({
-      resourceUrl: 'https://was.example/space/s/c/r'
+      resourceUrl: 'https://pws.example/space/s/c/r'
     })
-    expect(lastUrl()).toBe('https://was.example/space/s/c/r')
+    expect(lastUrl()).toBe('https://pws.example/space/s/c/r')
     expect(result).toEqual({ hello: 'world' })
   })
 
@@ -102,7 +102,7 @@ describe('publicRead()', () => {
       })
     )
     const result = await publicClient().publicRead({
-      resourceUrl: 'https://was.example/space/s/c/note.txt'
+      resourceUrl: 'https://pws.example/space/s/c/note.txt'
     })
     expect(result).toBeInstanceOf(Blob)
     expect(await (result as Blob).text()).toBe('plain text body')
@@ -111,7 +111,7 @@ describe('publicRead()', () => {
   it('returns null on a 404 (missing or not publicly readable)', async () => {
     stubFetch(new Response('', { status: 404 }))
     const result = await publicClient().publicRead({
-      resourceUrl: 'https://was.example/space/s/c/missing'
+      resourceUrl: 'https://pws.example/space/s/c/missing'
     })
     expect(result).toBeNull()
   })
@@ -120,7 +120,7 @@ describe('publicRead()', () => {
     for (const status of [401, 403]) {
       stubFetch(new Response('', { status }))
       const result = await publicClient().publicRead({
-        resourceUrl: 'https://was.example/space/s/c/private'
+        resourceUrl: 'https://pws.example/space/s/c/private'
       })
       expect(result).toBeNull()
     }
@@ -130,9 +130,9 @@ describe('publicRead()', () => {
     stubFetch(new Response('', { status: 500 }))
     await expect(
       publicClient().publicRead({
-        resourceUrl: 'https://was.example/space/s/c/boom'
+        resourceUrl: 'https://pws.example/space/s/c/boom'
       })
-    ).rejects.toBeInstanceOf(WasServerError)
+    ).rejects.toBeInstanceOf(PwsServerError)
   })
 })
 
@@ -151,9 +151,9 @@ describe('publicListCollection()', () => {
       })
     )
     const result = await publicClient().publicListCollection({
-      collectionUrl: 'https://was.example/space/s/c'
+      collectionUrl: 'https://pws.example/space/s/c'
     })
-    expect(lastUrl()).toBe('https://was.example/space/s/c/')
+    expect(lastUrl()).toBe('https://pws.example/space/s/c/')
     expect(result).toEqual(listing)
   })
 
@@ -164,15 +164,15 @@ describe('publicListCollection()', () => {
       })
     )
     await publicClient().publicListCollection({
-      collectionUrl: 'https://was.example/space/s/c/'
+      collectionUrl: 'https://pws.example/space/s/c/'
     })
-    expect(lastUrl()).toBe('https://was.example/space/s/c/')
+    expect(lastUrl()).toBe('https://pws.example/space/s/c/')
   })
 
   it('returns null on a 404', async () => {
     stubFetch(new Response('', { status: 404 }))
     const result = await publicClient().publicListCollection({
-      collectionUrl: 'https://was.example/space/s/c'
+      collectionUrl: 'https://pws.example/space/s/c'
     })
     expect(result).toBeNull()
   })

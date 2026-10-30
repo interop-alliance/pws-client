@@ -3,8 +3,8 @@
  */
 /**
  * Integration test: a handle rebuilt from a resource-scoped capability on an
- * encryption-capable client, end to end against a live WAS server. A
- * resource-scoped grant cannot read the Collection Metadata object (WAS masks
+ * encryption-capable client, end to end against a live PWS server. A
+ * resource-scoped grant cannot read the Collection Metadata object (PWS masks
  * the refusal as a 404), so the grantee's client cannot discover whether the
  * collection is encrypted and fails closed. `fromCapability(zcap, {
  * encryption })` is the way through: the grantee states the collection's
@@ -47,7 +47,7 @@ describeLive('fromCapability with an encryption override (live server)', () => {
    * @returns {Promise<IDelegatedZcap>}
    */
   async function grantResource(url: string): Promise<IDelegatedZcap> {
-    return owner.was.grant({
+    return owner.pws.grant({
       to: reader.did,
       actions: ['GET', 'PUT'],
       target: url,
@@ -59,7 +59,7 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   beforeAll(async () => {
     owner = await makeParty({ baseServerUrl: baseServerUrl! })
     reader = await makeParty({ baseServerUrl: baseServerUrl! })
-    space = await owner.was.createSpace({
+    space = await owner.pws.createSpace({
       name: 'Capability Handle Encryption'
     })
 
@@ -93,14 +93,14 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   })
 
   it('fails closed with no override, on either collection', async () => {
-    const vaultHandle = reader.was.fromCapability(vaultZcap) as Resource
+    const vaultHandle = reader.pws.fromCapability(vaultZcap) as Resource
     await expect(vaultHandle.get()).rejects.toThrow(EncryptionError)
-    const notesHandle = reader.was.fromCapability(notesZcap) as Resource
+    const notesHandle = reader.pws.fromCapability(notesZcap) as Resource
     await expect(notesHandle.get()).rejects.toThrow(EncryptionError)
   })
 
   it('reads and writes an encrypted resource given the descriptor', async () => {
-    const handle = reader.was.fromCapability(vaultZcap, {
+    const handle = reader.pws.fromCapability(vaultZcap, {
       encryption: descriptor
     }) as Resource
     expect(await handle.get()).toEqual({ note: 'encrypted', n: 1 })
@@ -112,7 +112,7 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   })
 
   it("reads and writes a plaintext resource given 'plaintext'", async () => {
-    const handle = reader.was.fromCapability(notesZcap, {
+    const handle = reader.pws.fromCapability(notesZcap, {
       encryption: 'plaintext'
     }) as Resource
     expect(await handle.get()).toEqual({ note: 'plain', n: 1 })

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: a Collection's governing history log against a live WAS
+ * Integration test: a Collection's governing history log against a live PWS
  * server (the encrypted-collections profile's `governed-history-logs`
  * feature). The `/log`
  * subpath's `resourceLogStore({ collection })` speaks the store port's three
@@ -27,7 +27,7 @@ import {
 } from '@interop/vh-resource-log'
 import type { ResourceLogStore } from '@interop/vh-resource-log'
 
-import { WasClient, ConflictError } from '../../src/index.js'
+import { PwsClient, ConflictError } from '../../src/index.js'
 import type {
   Collection,
   CollectionEncryption,
@@ -97,7 +97,7 @@ function entryAt(n: number, state: CollectionEncryption): ResourceLogEntry {
 }
 
 describeLive('governing history log (live server)', () => {
-  let owner: WasClient
+  let owner: PwsClient
   let space: Space
   let collection: Collection
   let store: ResourceLogStore
@@ -106,7 +106,7 @@ describeLive('governing history log (live server)', () => {
 
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
-    owner = WasClient.fromSigner({
+    owner = PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     })

@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Shared type definitions for the WAS client.
+ * Shared type definitions for the PWS client.
  *
- * The WAS wire model (containment descriptions, listing/result shapes, backend
+ * The PWS wire model (containment descriptions, listing/result shapes, backend
  * and quota shapes, the policy document, and the action vocabulary) now lives
  * in `@interop/storage-core`; this module re-exports it so the client's public
  * surface is unchanged for downstream consumers. It still declares the
@@ -28,7 +28,7 @@ import type {
 export type { IZcap, IDelegatedZcap, IRootZcap, IDID, ISigner }
 
 /**
- * Re-export the shared WAS wire model from `@interop/storage-core`. A
+ * Re-export the shared PWS wire model from `@interop/storage-core`. A
  * container's description is its Metadata object: `SpaceMetadata` for a Space
  * and `CollectionMetadata` for a Collection, the latter carrying the
  * configuration members beside `custom` and the timestamps under one
@@ -246,21 +246,21 @@ export interface FindPage {
  *   `scheme`) instead of the keystore.
  * - `'plaintext'` -- force plaintext even if a descriptor / keystore would encrypt.
  *
- * The non-`'plaintext'` forms require the `WasClient` to be constructed with an
+ * The non-`'plaintext'` forms require the `PwsClient` to be constructed with an
  * `encryption` provider (which turns a descriptor + keys into a codec).
  */
 export type EncryptionOverride =
   (CollectionEncryption & { keys?: unknown }) | 'plaintext'
 
 /**
- * What service discovery learned about the server (`was.service()`): the
- * service description as read, and the WAS version entry this client chose
+ * What service discovery learned about the server (`pws.service()`): the
+ * service description as read, and the PWS version entry this client chose
  * from it.
  *
  * - `description` -- the whole document, including `specs` entries for other
  *   specifications and the optional `instance` disclosure. The client gates no
  *   behavior on `instance`.
- * - `version` -- the chosen WAS specification version, such as `"0.5"`.
+ * - `version` -- the chosen PWS specification version, such as `"0.5"`.
  * - `entry` -- the chosen version entry.
  * - `spacesUrl` -- the absolute Spaces Repository URL from the entry's
  *   `spaces` member, the URL `createSpace` and `listSpaces` address. Absent
@@ -294,7 +294,7 @@ export interface HandleOptions {
 }
 
 /**
- * Options for the general delegation primitive (`was.grant()`) and the
+ * Options for the general delegation primitive (`pws.grant()`) and the
  * `space`/`collection` sugar.
  *
  * @property to              the delegate's controller DID
@@ -319,7 +319,7 @@ export interface GrantOptions {
 }
 
 /**
- * Input for the low-level `was.request()` escape hatch: an absolute `url`
+ * Input for the low-level `pws.request()` escape hatch: an absolute `url`
  * (every URL this client addresses is derived from a Space URL the server
  * named, so there is no server root to resolve a path against).
  */

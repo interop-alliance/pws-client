@@ -17,7 +17,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 
 import {
   ValidationError,
-  WasServerError,
+  PwsServerError,
   EncryptionError,
   EncryptOnlyCipherError,
   NotFoundError,
@@ -47,7 +47,7 @@ import {
 } from '../helpers/stubClient.js'
 
 describe('a Space whose URL carries a path prefix', () => {
-  const spaceUrl = 'https://host/was/v1/space/s/'
+  const spaceUrl = 'https://host/pws/v1/space/s/'
 
   /**
    * A stubbed client that records every request and answers each with an
@@ -90,10 +90,10 @@ describe('a Space whose URL carries a path prefix', () => {
     expect(space.id).toBe('s')
     const collection = space.collection('c')
     expect(collection.spaceUrl).toBe(spaceUrl)
-    expect(collection.url).toBe('https://host/was/v1/space/s/c/')
+    expect(collection.url).toBe('https://host/pws/v1/space/s/c/')
     const resource = collection.resource('r')
     expect(resource.spaceUrl).toBe(spaceUrl)
-    expect(resource.url).toBe('https://host/was/v1/space/s/c/r')
+    expect(resource.url).toBe('https://host/pws/v1/space/s/c/r')
   })
 
   it('keeps the prefix in every request URL', async () => {
@@ -106,37 +106,37 @@ describe('a Space whose URL carries a path prefix', () => {
       .resource('r')
       .meta()
     expect(urls).toEqual([
-      'https://host/was/v1/space/s/meta',
-      'https://host/was/v1/space/s/c/meta',
-      'https://host/was/v1/space/s/c/r/meta'
+      'https://host/pws/v1/space/s/meta',
+      'https://host/pws/v1/space/s/c/meta',
+      'https://host/pws/v1/space/s/c/r/meta'
     ])
   })
 
   it('derives a resource handle beneath the prefix', () => {
     const { client } = recordingClient()
     const handle = client.fromCapability(
-      zcapFor('https://host/was/v1/space/s/c/r')
+      zcapFor('https://host/pws/v1/space/s/c/r')
     )
     expect(handle).toBeInstanceOf(Resource)
     const resource = handle as Resource
     expect(resource.spaceUrl).toBe(spaceUrl)
     expect(resource.collectionId).toBe('c')
     expect(resource.id).toBe('r')
-    expect(resource.url).toBe('https://host/was/v1/space/s/c/r')
+    expect(resource.url).toBe('https://host/pws/v1/space/s/c/r')
   })
 
   it('derives a collection handle beneath the prefix', () => {
     const { client } = recordingClient()
     const handle = client.fromCapability(
-      zcapFor('https://host/was/v1/space/s/c')
+      zcapFor('https://host/pws/v1/space/s/c')
     )
     expect(handle).toBeInstanceOf(Collection)
-    expect((handle as Collection).url).toBe('https://host/was/v1/space/s/c/')
+    expect((handle as Collection).url).toBe('https://host/pws/v1/space/s/c/')
   })
 
   it('derives a space handle beneath the prefix', () => {
     const { client } = recordingClient()
-    const handle = client.fromCapability(zcapFor('https://host/was/v1/space/s'))
+    const handle = client.fromCapability(zcapFor('https://host/pws/v1/space/s'))
     expect(handle).toBeInstanceOf(Space)
     expect((handle as Space).id).toBe('s')
     expect((handle as Space).url).toBe(spaceUrl)
@@ -144,13 +144,13 @@ describe('a Space whose URL carries a path prefix', () => {
 
   it('rejects a target without the prefix or on another origin', () => {
     const { client } = recordingClient()
-    // Right origin, no `/was/v1/` prefix.
+    // Right origin, no `/pws/v1/` prefix.
     expect(() =>
       client.fromCapability(zcapFor('https://host/space/s/c/'))
     ).toThrow(ValidationError)
     // Different origin entirely.
     expect(() =>
-      client.fromCapability(zcapFor('https://other/was/v1/space/s/c/'))
+      client.fromCapability(zcapFor('https://other/pws/v1/space/s/c/'))
     ).toThrow(ValidationError)
   })
 })
@@ -405,7 +405,7 @@ describe('createdResource with a malformed Location', () => {
   it('reports a bad percent escape as a server fault, not a URIError', () => {
     const response = {
       headers: new Headers({ location: '/space/s/c/bad%zz' }),
-      url: 'https://was.example/space/s/c'
+      url: 'https://pws.example/space/s/c'
     } as unknown as Parameters<typeof createdResource>[0]
     let thrown: unknown
     try {
@@ -413,7 +413,7 @@ describe('createdResource with a malformed Location', () => {
     } catch (err) {
       thrown = err
     }
-    expect(thrown).toBeInstanceOf(WasServerError)
+    expect(thrown).toBeInstanceOf(PwsServerError)
     expect((thrown as Error).message).toContain('percent-encoding')
     expect((thrown as Error).cause).toBeInstanceOf(URIError)
   })
@@ -448,7 +448,7 @@ describe('DescriptorRefreshPolicy', () => {
 describe('listSpaces against a body that is not a listing', () => {
   it('reports a server fault rather than destructuring null', async () => {
     const client = clientWithStub(() => jsonResponse({ status: 200 }))
-    await expect(client.listSpaces()).rejects.toThrow(WasServerError)
+    await expect(client.listSpaces()).rejects.toThrow(PwsServerError)
   })
 })
 
@@ -459,18 +459,18 @@ describe('changes feed shape guards', () => {
     )
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').changes()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
   })
 
   it('refuses a page with a non-object entry in its documents array', async () => {
     // `[null]` passes the `Array.isArray` guard, so the per-entry check is
-    // what keeps this a `WasServerError` rather than a raw `TypeError`.
+    // what keeps this a `PwsServerError` rather than a raw `TypeError`.
     const client = clientWithStub(() =>
       jsonResponse({ data: { documents: [null], checkpoint: null } })
     )
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').changes()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
   })
 
   it('refuses an entry with no kind rather than skipping it', async () => {
@@ -486,7 +486,7 @@ describe('changes feed shape guards', () => {
     )
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').documents()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
   })
 
   it('treats an omitted checkpoint as the end of the walk', async () => {
@@ -512,7 +512,7 @@ describe('changes feed shape guards', () => {
 describe('Resource conditional writes', () => {
   /**
    * A plaintext collection that serves a validator on every read and ack. The
-   * `unreadable` variant answers the Collection Metadata read with the 404 WAS
+   * `unreadable` variant answers the Collection Metadata read with the 404 PWS
    * masks an unauthorized read as. Records every request's method, URL, and
    * `If-Match` header.
    *
@@ -557,7 +557,7 @@ describe('Resource conditional writes', () => {
     expect(calls.filter(call => call.method === 'PUT')).toEqual([
       {
         method: 'PUT',
-        url: 'https://was.example/space/s/c/r',
+        url: 'https://pws.example/space/s/c/r',
         ifMatch: '"g.1"'
       }
     ])
@@ -569,7 +569,7 @@ describe('Resource conditional writes', () => {
     expect(calls.filter(call => call.method === 'PUT')).toEqual([
       {
         method: 'PUT',
-        url: 'https://was.example/space/s/c/r',
+        url: 'https://pws.example/space/s/c/r',
         ifMatch: undefined
       }
     ])
@@ -582,12 +582,12 @@ describe('Resource conditional writes', () => {
     expect(calls.filter(call => call.method === 'DELETE')).toEqual([
       {
         method: 'DELETE',
-        url: 'https://was.example/space/s/c/r',
+        url: 'https://pws.example/space/s/c/r',
         ifMatch: '"g.1"'
       },
       {
         method: 'DELETE',
-        url: 'https://was.example/space/s/c/r',
+        url: 'https://pws.example/space/s/c/r',
         ifMatch: undefined
       }
     ])
@@ -599,7 +599,7 @@ describe('Resource conditional writes', () => {
     expect(calls.filter(call => call.method === 'PUT')).toEqual([
       {
         method: 'PUT',
-        url: 'https://was.example/space/s/c/r/meta',
+        url: 'https://pws.example/space/s/c/r/meta',
         ifMatch: '"m.1"'
       }
     ])
@@ -612,7 +612,7 @@ describe('Resource conditional writes', () => {
     expect(calls.filter(call => call.method === 'PUT')).toEqual([
       {
         method: 'PUT',
-        url: 'https://was.example/space/s/c/r/meta',
+        url: 'https://pws.example/space/s/c/r/meta',
         ifMatch: '"g.1"'
       }
     ])
@@ -637,7 +637,7 @@ describe('Resource conditional writes', () => {
       '@context': 'https://w3id.org/zcap/v1',
       id: 'urn:zcap:scoped',
       parentCapability: rootCapabilityId(spaceUrlFor('s')),
-      invocationTarget: 'https://was.example/space/s/c/r'
+      invocationTarget: 'https://pws.example/space/s/c/r'
     } as unknown as IZcap
     const resource = client.fromCapability(capability) as Resource
 
@@ -648,12 +648,12 @@ describe('Resource conditional writes', () => {
     ).toEqual([
       {
         method: 'PUT',
-        url: 'https://was.example/space/s/c/r',
+        url: 'https://pws.example/space/s/c/r',
         ifMatch: '"g.1"'
       },
       {
         method: 'DELETE',
-        url: 'https://was.example/space/s/c/r',
+        url: 'https://pws.example/space/s/c/r',
         ifMatch: '"g.1"'
       }
     ])

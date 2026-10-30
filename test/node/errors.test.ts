@@ -3,14 +3,14 @@
  */
 /**
  * Unit tests for `mapError`, which translates a thrown ky/ezcap error into the
- * appropriate `WasError` subclass and carries through the server's
+ * appropriate `PwsError` subclass and carries through the server's
  * `application/problem+json` fields.
  */
 import { describe, it, expect } from 'vitest'
 import { ProblemTypes } from '@interop/storage-core'
 
 import {
-  WasError,
+  PwsError,
   NotFoundError,
   CapabilityRevokedError,
   CapabilityExpiredError,
@@ -22,11 +22,11 @@ import {
   PreconditionFailedError,
   PayloadTooLargeError,
   QuotaExceededError,
-  WasServerError,
-  WasSyncAuthError,
-  WasSyncCheckpointError,
-  WasSyncConflictError,
-  WasSyncNotFoundError,
+  PwsServerError,
+  PwsSyncAuthError,
+  PwsSyncCheckpointError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError,
   UnknownEpochError,
   httpStatus,
   isDenialError
@@ -58,9 +58,9 @@ describe('mapError', () => {
     expect(mapError({ status: 501 })).toBeInstanceOf(NotImplementedError)
   })
 
-  it('maps any other 5xx to WasServerError', () => {
-    expect(mapError({ status: 500 })).toBeInstanceOf(WasServerError)
-    expect(mapError({ status: 503 })).toBeInstanceOf(WasServerError)
+  it('maps any other 5xx to PwsServerError', () => {
+    expect(mapError({ status: 500 })).toBeInstanceOf(PwsServerError)
+    expect(mapError({ status: 503 })).toBeInstanceOf(PwsServerError)
   })
 
   it('maps 409 to ConflictError', () => {
@@ -199,8 +199,8 @@ describe('mapError', () => {
       for (const type of Object.values(ProblemTypes)) {
         const withoutStatus = mapError({ data: { type } })
         const unmappedStatus = mapError({ status: 418, data: { type } })
-        expect(withoutStatus.constructor, type).not.toBe(WasError)
-        expect(unmappedStatus.constructor, type).not.toBe(WasError)
+        expect(withoutStatus.constructor, type).not.toBe(PwsError)
+        expect(unmappedStatus.constructor, type).not.toBe(PwsError)
       }
     })
 
@@ -250,7 +250,7 @@ describe('mapError', () => {
         data: { type: typeUri('encryption-scheme-mismatch') }
       })
       expect(mapped.message).toBe(
-        'WAS request failed (encryption-scheme-mismatch)'
+        'PWS request failed (encryption-scheme-mismatch)'
       )
     })
 
@@ -269,13 +269,13 @@ describe('mapError', () => {
     )
   })
 
-  it('falls back to the base WasError for an unrecognized status', () => {
+  it('falls back to the base PwsError for an unrecognized status', () => {
     const mapped = mapError({ status: 418 })
-    expect(mapped).toBeInstanceOf(WasError)
+    expect(mapped).toBeInstanceOf(PwsError)
     expect(mapped).not.toBeInstanceOf(NotFoundError)
   })
 
-  it('returns a WasError unchanged (idempotent)', () => {
+  it('returns a PwsError unchanged (idempotent)', () => {
     const original = new NotFoundError('already typed')
     expect(mapError(original)).toBe(original)
   })
@@ -283,7 +283,7 @@ describe('mapError', () => {
   it('carries through the problem+json fields', () => {
     const mapped = mapError({
       status: 400,
-      requestUrl: 'https://was.example/spaces/',
+      requestUrl: 'https://pws.example/spaces/',
       data: {
         title: 'Invalid space description',
         errors: [{ detail: 'name is required' }, { detail: 'bad controller' }]
@@ -292,7 +292,7 @@ describe('mapError', () => {
     expect(mapped.message).toBe('Invalid space description')
     expect(mapped.title).toBe('Invalid space description')
     expect(mapped.status).toBe(400)
-    expect(mapped.requestUrl).toBe('https://was.example/spaces/')
+    expect(mapped.requestUrl).toBe('https://pws.example/spaces/')
     expect(mapped.details).toEqual(['name is required', 'bad controller'])
     expect(mapped.problems).toEqual([
       { detail: 'name is required' },
@@ -425,14 +425,14 @@ describe('httpStatus', () => {
 
 describe('sync error constructors', () => {
   it('keep their default status when passed `status: undefined`', () => {
-    expect(new WasSyncConflictError('m', { status: undefined }).status).toBe(
+    expect(new PwsSyncConflictError('m', { status: undefined }).status).toBe(
       412
     )
-    expect(new WasSyncNotFoundError('m', { status: undefined }).status).toBe(
+    expect(new PwsSyncNotFoundError('m', { status: undefined }).status).toBe(
       404
     )
-    expect(new WasSyncAuthError(403, { status: undefined }).status).toBe(403)
-    expect(new WasSyncCheckpointError('m', { status: undefined }).status).toBe(
+    expect(new PwsSyncAuthError(403, { status: undefined }).status).toBe(403)
+    expect(new PwsSyncCheckpointError('m', { status: undefined }).status).toBe(
       400
     )
   })
@@ -444,7 +444,7 @@ describe('isDenialError', () => {
     expect(isDenialError(new NotFoundError('m'))).toBe(true)
     expect(isDenialError(new CapabilityRevokedError('m'))).toBe(true)
     expect(isDenialError(new CapabilityExpiredError('m'))).toBe(true)
-    expect(isDenialError(new WasSyncAuthError(403))).toBe(true)
+    expect(isDenialError(new PwsSyncAuthError(403))).toBe(true)
   })
 
   it('matches by name, for an error from another copy of the package', () => {
@@ -454,7 +454,7 @@ describe('isDenialError', () => {
 
   it('does not match other errors or non-errors', () => {
     expect(isDenialError(new ValidationError('m'))).toBe(false)
-    expect(isDenialError(new WasServerError('m'))).toBe(false)
+    expect(isDenialError(new PwsServerError('m'))).toBe(false)
     expect(isDenialError(new Error('m'))).toBe(false)
     expect(isDenialError(undefined)).toBe(false)
   })
@@ -480,14 +480,14 @@ describe('UnknownEpochError', () => {
     expect(err.message).not.toContain('k'.repeat(1025))
   })
 
-  it('is a WasError carrying collectionId and kids as own properties', () => {
+  it('is a PwsError carrying collectionId and kids as own properties', () => {
     const cause = new Error('unwrap failed')
     const err = new UnknownEpochError({
       collectionId: 'notes',
       kids: ['did:key:zEpoch#k'],
       cause
     })
-    expect(err).toBeInstanceOf(WasError)
+    expect(err).toBeInstanceOf(PwsError)
     expect(err.name).toBe('UnknownEpochError')
     expect(err.collectionId).toBe('notes')
     expect(err.kids).toEqual(['did:key:zEpoch#k'])
@@ -507,13 +507,13 @@ describe('UnknownEpochError', () => {
   })
 })
 
-describe('structuredClone of a WasError', () => {
+describe('structuredClone of a PwsError', () => {
   // The structured-clone algorithm copies an Error as name, message and stack
   // only, and keeps the name only for the native error names. This pins what
   // decisions/0001 says a worker boundary has to carry by hand.
   it('keeps only the message; the name and the own fields are lost', () => {
     const cloned = structuredClone(
-      new WasSyncConflictError('conflict', { status: 412, requestUrl: 'u' })
+      new PwsSyncConflictError('conflict', { status: 412, requestUrl: 'u' })
     )
     expect(cloned.message).toBe('conflict')
     expect(cloned.name).toBe('Error')

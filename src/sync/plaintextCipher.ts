@@ -6,7 +6,7 @@
  * addressed collection: the stored "envelope" IS the document, and the resource
  * id is the document's content id, so the content id is also the only
  * integrity check a read has: `decrypt` recomputes it and refuses a document
- * stored under an id it does not hash to. Kept free of the `@interop/was-client/edv`
+ * stored under an id it does not hash to. Kept free of the `@interop/pws-client/edv`
  * crypto graph so a plaintext-only consumer imports nothing it does not need.
  */
 import { IntegrityError, requireResourceId } from '../errors.js'

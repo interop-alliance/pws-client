@@ -25,7 +25,7 @@
  * not this client's own URLs: they are the `invocationTarget` strings of
  * delegated capabilities a third party minted, and those name containers in
  * either form. Reading one as the Collection or Resource it addresses is what
- * `WasClient.fromCapability` does; refusing the bare form there would reject
+ * `PwsClient.fromCapability` does; refusing the bare form there would reject
  * valid capabilities over a form this client does not control.
  *
  * The zcap `invocationTarget` is derived from the request URL, so these
@@ -601,7 +601,7 @@ export type ParsedSpacePath =
  * Classifies an absolute `target` URL by where it sits beneath `spaceUrl`:
  * the Space itself, one of its Collections, a Resource, or a reserved
  * sub-endpoint. The inverse of the builders above, kept next to them so the
- * grammar is owned in one place: `WasClient.fromCapability` reads a
+ * grammar is owned in one place: `PwsClient.fromCapability` reads a
  * capability's `invocationTarget` through it, and the builders stay in
  * lockstep.
  *

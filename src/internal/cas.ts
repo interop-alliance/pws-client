@@ -67,8 +67,8 @@ export interface CasStore<T> {
  * Whether `err` is the compare-and-swap conflict a store raises
  * (`PreconditionFailedError`, 412). Matched by `name` as well as `instanceof`:
  * a store implemented by a consumer (wallet-core's log-governed store) mints
- * the conflict from its own `@interop/was-client` import, and in a tree that
- * resolves was-client twice that class is a different object from ours, so an
+ * the conflict from its own `@interop/pws-client` import, and in a tree that
+ * resolves pws-client twice that class is a different object from ours, so an
  * `instanceof`-only check would turn every lost race into a hard failure
  * instead of a rebase.
  *
@@ -217,7 +217,7 @@ export async function compareAndSwap<T>({
  * `compose` decides whether proceeding from it is safe; a refusal it throws
  * propagates unchanged. A `null` baseline is the loop's create path: there is
  * no version to pin to, so `write` is called with `ifNoneMatch: true`, the
- * guarded create-if-absent. An object that exists but was unreadable (WAS
+ * guarded create-if-absent. An object that exists but was unreadable (PWS
  * masks an unauthorized read as 404) then fails the precondition instead of
  * being overwritten. `compose` runs once per attempt, so a caller that needs
  * what was merged reads it from the value `write` resolves, which is the last

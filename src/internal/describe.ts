@@ -16,13 +16,13 @@
  * supplies, beside `carriedForward`, the rule for the stored members a
  * full-replacement write re-sends unchanged.
  *
- * This module also owns the masked-404 fail-closed policy: WAS returns 404 for
+ * This module also owns the masked-404 fail-closed policy: PWS returns 404 for
  * both not-found and unauthorized, so a `null` read is ambiguous and an
  * operation that must know the current state fails closed via
  * `unreadableDescriptionError` rather than guessing.
  */
 import { ValidationError } from '../errors.js'
-import type { WasError } from '../errors.js'
+import type { PwsError } from '../errors.js'
 import type {
   CollectionEncryption,
   CollectionMetadata,
@@ -253,7 +253,7 @@ export function carriedForward(
 /**
  * Builds the fail-closed error for an operation that needs a Collection
  * Metadata object it could not read. The one owner of the masked-404 policy
- * statement ("WAS returns 404 for both not-found and unauthorized, so a null
+ * statement ("PWS returns 404 for both not-found and unauthorized, so a null
  * read is ambiguous -- fail closed"); callers supply the operation, its
  * consequence, and the recovery advice.
  *
@@ -262,10 +262,10 @@ export function carriedForward(
  * @param [options.consequence] {string}   what proceeding could silently do,
  *   continuing "..., so "
  * @param [options.advice] {string}        recovery guidance, appended verbatim
- * @param [options.ErrorClass] {Function}  the `WasError` subclass to build
+ * @param [options.ErrorClass] {Function}  the `PwsError` subclass to build
  *   (defaults to `ValidationError`; the codec resolver passes
  *   `EncryptionError` so fail-closed encryption handling still catches it)
- * @returns {WasError}
+ * @returns {PwsError}
  */
 export function unreadableDescriptionError({
   operation,
@@ -276,11 +276,11 @@ export function unreadableDescriptionError({
   operation: string
   consequence?: string
   advice?: string
-  ErrorClass?: new (message: string) => WasError
-}): WasError {
+  ErrorClass?: new (message: string) => PwsError
+}): PwsError {
   return new ErrorClass(
     `Cannot ${operation}: the current description is not readable with this ` +
-      'capability (WAS returns 404 for both not-found and unauthorized)' +
+      'capability (PWS returns 404 for both not-found and unauthorized)' +
       (consequence !== undefined ? `, so ${consequence}` : '') +
       '.' +
       (advice !== undefined ? ` ${advice}` : '')

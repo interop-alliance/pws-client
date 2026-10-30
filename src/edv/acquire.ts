@@ -7,7 +7,7 @@
  * Description, caching each success, and falling back to the cached copy
  * whenever the description yields no descriptor -- whether it could not be
  * fetched at all (offline, a collection must keep encrypting under its current
- * epoch) or came back empty (WAS masks an unauthorized read as an absent one,
+ * epoch) or came back empty (PWS masks an unauthorized read as an absent one,
  * so an empty description is ambiguous, never an authoritative "no
  * encryption"). `undefined` therefore means only this: nothing, fetched or
  * cached, describes this collection's encryption -- a plaintext collection, or
@@ -54,12 +54,12 @@ import { isResourceLogRefusal } from '@interop/vh-resource-log'
 import { UnverifiedDescriptorError } from '../errors.js'
 import { isGovernedDescriptor } from '../internal/describe.js'
 import type { CollectionEncryption } from '../types.js'
-import type { WasClient } from '../WasClient.js'
+import type { PwsClient } from '../PwsClient.js'
 
 /**
  * Where descriptors come from: one signed read of the collection's
  * Description. Resolves `undefined` when the description carries no encryption
- * member -- which a WAS host also serves for a read this client is not
+ * member -- which a PWS host also serves for a read this client is not
  * authorized to make, so the absence is ambiguous and callers fall back to a
  * cached copy just as they do for a thrown fetch. Network errors throw through
  * (callers treat the fetch as best-effort).
@@ -93,26 +93,26 @@ export interface EncryptionDescriptorCache {
 }
 
 /**
- * The {@link EncryptionDescriptorSource} over a was-client handle: reads the
+ * The {@link EncryptionDescriptorSource} over a pws-client handle: reads the
  * collection's Description in the given Space and returns its `encryption`
  * descriptor. It does not verify a governing log, so a log-governed
  * collection's descriptor read through it is refused by acquisition.
  *
  * @param options {object}
- * @param options.was {WasClient}   a client whose signer can read the Space
+ * @param options.pws {PwsClient}   a client whose signer can read the Space
  * @param options.spaceUrl {string}
  * @returns {EncryptionDescriptorSource}
  */
-export function wasDescriptorSource({
-  was,
+export function pwsDescriptorSource({
+  pws,
   spaceUrl
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceUrl: string
 }): EncryptionDescriptorSource {
   return {
     async collectionEncryption({ collectionId }) {
-      const description = await was
+      const description = await pws
         .spaceAt(spaceUrl)
         .collection(collectionId)
         .describe()

@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import type { HttpResponse } from '@interop/http-client'
 
 import {
-  WasClient,
+  PwsClient,
   NotFoundError,
   PreconditionFailedError,
   ValidationError
@@ -34,7 +34,7 @@ import {
 } from '../helpers/stubClient.js'
 
 /**
- * Builds a `WasClient` whose stub answers each request through `handler`,
+ * Builds a `PwsClient` whose stub answers each request through `handler`,
  * recording every call.
  *
  * @param handler {function}   the canned answer for one request
@@ -45,7 +45,7 @@ import {
 function clientWith(
   handler: (args: RequestArgs) => HttpResponse,
   encryption?: EncryptionProvider
-): { client: WasClient; calls: RequestArgs[] } {
+): { client: PwsClient; calls: RequestArgs[] } {
   const calls: RequestArgs[] = []
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' },
@@ -55,8 +55,8 @@ function clientWith(
       calls.push(args)
       return handler(args)
     }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  const client = new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  const client = new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
@@ -547,8 +547,8 @@ describe('members this client does not model', () => {
             {
               id: 'c',
               type: ['Collection'],
-              url: 'https://was.example/space/s/c/',
-              linkset: 'https://was.example/space/s/c/linkset',
+              url: 'https://pws.example/space/s/c/',
+              linkset: 'https://pws.example/space/s/c/linkset',
               createdAt: '2026-01-01T00:00:00Z',
               updatedAt: '2026-01-02T00:00:00Z',
               createdBy: 'did:example:alice',

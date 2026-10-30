@@ -14,13 +14,13 @@ import type { HttpResponse } from '@interop/http-client'
 
 import type { SpaceMetadata, CollectionMetadata } from '../../src/index.js'
 import {
-  WasClient,
+  PwsClient,
   ValidationError,
   ConflictError,
   NotFoundError,
   NotSupportedError,
   PreconditionFailedError,
-  WasServerError
+  PwsServerError
 } from '../../src/index.js'
 import type { RequestArgs } from '../helpers/stubClient.js'
 import {
@@ -33,7 +33,7 @@ import { installFileReader, rnBlob } from '../helpers/rnBlob.js'
 
 /**
  * The shared request spy, serving an `ETag` on every response by default (a
- * WAS server versions every resource), so a compare-and-swap write always has
+ * PWS server versions every resource), so a compare-and-swap write always has
  * something to pin `If-Match` to. Pass `etag: undefined` explicitly to serve
  * none, for the one test covering that refusal.
  *
@@ -53,7 +53,7 @@ describe('space.backends()', () => {
     ]
     const { client, calls } = storageClient({ data: backends })
     const result = await client.spaceAt(spaceUrlFor('s')).backends()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/backends')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/backends')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(backends)
   })
@@ -82,7 +82,7 @@ describe('space.registerBackend()', () => {
     const result = await client
       .spaceAt(spaceUrlFor('s'))
       .registerBackend(registration)
-    expect(calls[0]?.url).toBe('https://was.example/space/s/backends')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/backends')
     expect(calls[0]?.method).toBe('POST')
     expect(calls[0]?.json).toEqual(registration)
     expect(result).toEqual(descriptor)
@@ -95,14 +95,14 @@ describe('space.registerBackend()', () => {
     ).rejects.toBeInstanceOf(ConflictError)
   })
 
-  it('throws WasServerError naming the content type on a 2xx with no JSON body', async () => {
+  it('throws PwsServerError naming the content type on a 2xx with no JSON body', async () => {
     const client = clientWithStub(() =>
       jsonResponse({ status: 201, headers: { 'content-type': 'text/plain' } })
     )
     const attempt = client
       .spaceAt(spaceUrlFor('s'))
       .registerBackend(registration)
-    await expect(attempt).rejects.toBeInstanceOf(WasServerError)
+    await expect(attempt).rejects.toBeInstanceOf(PwsServerError)
     await expect(attempt).rejects.toThrow(/text\/plain/)
   })
 })
@@ -115,18 +115,18 @@ describe('space.import()', () => {
       .spaceAt(spaceUrlFor('s'))
       .import(new Uint8Array([1, 2, 3]))
     expect(calls[0]?.method).toBe('POST')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/import')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/import')
     expect(result).toEqual(stats)
   })
 
-  it('throws WasServerError naming the content type on a 2xx with no JSON body', async () => {
+  it('throws PwsServerError naming the content type on a 2xx with no JSON body', async () => {
     const client = clientWithStub(() =>
       jsonResponse({ status: 200, headers: { 'content-type': 'text/html' } })
     )
     const attempt = client
       .spaceAt(spaceUrlFor('s'))
       .import(new Uint8Array([1, 2, 3]))
-    await expect(attempt).rejects.toBeInstanceOf(WasServerError)
+    await expect(attempt).rejects.toBeInstanceOf(PwsServerError)
     await expect(attempt).rejects.toThrow(/text\/html/)
   })
 })
@@ -150,7 +150,7 @@ describe('space.updateBackend()', () => {
       .spaceAt(spaceUrlFor('s'))
       .updateBackend(registration)
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/backends/gdrive-personal'
+      'https://pws.example/space/s/backends/gdrive-personal'
     )
     expect(calls[0]?.method).toBe('PUT')
     expect(calls[0]?.json).toEqual(registration)
@@ -171,7 +171,7 @@ describe('space.deregisterBackend()', () => {
     const { client, calls } = storageClient()
     await client.spaceAt(spaceUrlFor('s')).deregisterBackend('gdrive-personal')
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/backends/gdrive-personal'
+      'https://pws.example/space/s/backends/gdrive-personal'
     )
     expect(calls[0]?.method).toBe('DELETE')
   })
@@ -189,7 +189,7 @@ describe('space.quotas()', () => {
     const report = { respondedAt: '2026-06-12T13:25:00Z', backends: [] }
     const { client, calls } = storageClient({ data: report })
     const result = await client.spaceAt(spaceUrlFor('s')).quotas()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/quotas')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/quotas')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(report)
   })
@@ -199,7 +199,7 @@ describe('space.quotas()', () => {
     const { client, calls } = storageClient({ data: report })
     await client.spaceAt(spaceUrlFor('s')).quotas({ includeCollections: true })
     expect(calls[0]?.url).toBe(
-      'https://was.example/space/s/quotas?include=collections'
+      'https://pws.example/space/s/quotas?include=collections'
     )
     expect(calls[0]?.method).toBe('GET')
   })
@@ -222,7 +222,7 @@ describe('collection.backend()', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .backend()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/backend')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/backend')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(backend)
   })
@@ -251,7 +251,7 @@ describe('collection.quota()', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .quota()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/quota')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/quota')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(usage)
   })
@@ -277,9 +277,9 @@ describe('resource.meta()', () => {
       .collection('c')
       .resource('r')
       .meta()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/r/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/r/meta')
     expect(calls[0]?.method).toBe('GET')
-    // A WAS server serves an ETag on every read, so the metadata carries one.
+    // A PWS server serves an ETag on every read, so the metadata carries one.
     expect(result).toEqual({ ...meta, etag: '"g.1"' })
   })
 
@@ -293,7 +293,7 @@ describe('resource.meta()', () => {
     expect(result).toBeNull()
   })
 
-  it('throws a WasServerError on a 200 with no JSON body (not a raw TypeError)', async () => {
+  it('throws a PwsServerError on a 200 with no JSON body (not a raw TypeError)', async () => {
     // `@interop/http-client` leaves `.data` undefined for a non-JSON or empty
     // 200 body; a metadata document always carries its server-managed fields as
     // JSON, so an absent body is a malformed response -- surfaced as a typed
@@ -302,7 +302,7 @@ describe('resource.meta()', () => {
     const { client } = storageClient({ data: undefined })
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').resource('r').meta()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
   })
 })
 
@@ -314,7 +314,7 @@ describe('resource.setMeta()', () => {
       .collection('c')
       .resource('r')
       .setMeta({ custom: { name: 'Hi', tags: { project: 'demo' } } })
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/r/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/r/meta')
     expect(calls[0]?.method).toBe('PUT')
     expect(calls[0]?.json).toEqual({
       custom: { name: 'Hi', tags: { project: 'demo' } }
@@ -342,9 +342,9 @@ describe('collection.meta()', () => {
     }
     const { client, calls } = storageClient({ data: meta })
     const result = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/meta')
     expect(calls[0]?.method).toBe('GET')
-    // A WAS server serves an ETag on every read, so the metadata carries one.
+    // A PWS server serves an ETag on every read, so the metadata carries one.
     expect(result).toEqual({ ...meta, etag: '"g.1"' })
   })
 
@@ -365,11 +365,11 @@ describe('collection.meta()', () => {
     ).toBeNull()
   })
 
-  it('throws a WasServerError on a 200 with no JSON body (not a raw TypeError)', async () => {
+  it('throws a PwsServerError on a 200 with no JSON body (not a raw TypeError)', async () => {
     const { client } = storageClient({ data: undefined })
     await expect(
       client.spaceAt(spaceUrlFor('s')).collection('c').meta()
-    ).rejects.toThrow(WasServerError)
+    ).rejects.toThrow(PwsServerError)
   })
 
   it('carries the metaVersion etag when the backend versions metadata', async () => {
@@ -401,7 +401,7 @@ describe('collection.describe() / meta(): one path, one validator', () => {
     const withEtag = await collection.describeWithEtag()
     const meta = await collection.meta()
     for (const call of calls) {
-      expect(call.url).toBe('https://was.example/space/s/c/meta')
+      expect(call.url).toBe('https://pws.example/space/s/c/meta')
       expect(call.method).toBe('GET')
     }
     // The configuration members and the annotations are one object under one
@@ -433,9 +433,9 @@ describe('collection.setMeta()', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .setMeta({ custom: { name: 'Notes', tags: { project: 'demo' } } })
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/meta')
     expect(calls[0]?.method).toBe('GET')
-    expect(calls[1]?.url).toBe('https://was.example/space/s/c/meta')
+    expect(calls[1]?.url).toBe('https://pws.example/space/s/c/meta')
     expect(calls[1]?.method).toBe('PUT')
     expect(calls[1]?.json).toEqual({
       id: 'c',
@@ -499,7 +499,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .getHistoryLog()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta/log')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/meta/log')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual({ body, etag: '"g.1"' })
   })
@@ -546,7 +546,7 @@ describe('collection.getHistoryLog() / putHistoryLog()', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
       .putHistoryLog(body, { ifNoneMatch: true })
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/meta/log')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/meta/log')
     expect(calls[0]?.method).toBe('PUT')
     expect(calls[0]?.headers?.['content-type']).toBe('text/jsonl')
     expect(calls[0]?.headers?.['if-none-match']).toBe('*')
@@ -768,7 +768,7 @@ describe('resource.setName() / setTags()', () => {
 
   it('refuses the write when the metadata read resolves to null (404)', async () => {
     // A 404 on the `/meta` GET is either a missing resource or one this
-    // capability cannot read (WAS masks both). Neither is a create: the
+    // capability cannot read (PWS masks both). Neither is a create: the
     // read-modify-write has no merge base and no validator, so it refuses
     // before any write goes out instead of replacing `custom` bare.
     const { client, calls } = storageClient({ fail: 404 })
@@ -784,7 +784,7 @@ describe('resource.setName() / setTags()', () => {
   })
 
   it('refuses the write when a written metadata read carries no ETag validator', async () => {
-    // A WAS server serves an ETag on every written `/meta` read; a read that
+    // A PWS server serves an ETag on every written `/meta` read; a read that
     // carries the `meta` stamp but no validator (e.g. a browser client whose
     // CORS configuration hides the header) leaves the read-modify-write with
     // nothing to pin `If-Match` to. It is refused before any write goes out
@@ -808,7 +808,7 @@ describe('resource.setName() / setTags()', () => {
   })
 })
 
-describe('was.listSpaces()', () => {
+describe('pws.listSpaces()', () => {
   it('GETs the spaces repository and returns the listing', async () => {
     const listing = {
       url: '/spaces/',
@@ -824,7 +824,7 @@ describe('was.listSpaces()', () => {
     }
     const { client, calls } = storageClient({ data: listing })
     const result = await client.listSpaces()
-    expect(calls[0]?.url).toBe('https://was.example/spaces/')
+    expect(calls[0]?.url).toBe('https://pws.example/spaces/')
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(listing)
   })
@@ -978,7 +978,7 @@ describe('space.createCollection() request body', () => {
       generator: { id: 'did:key:zApp', origin: 'https://app.example' }
     })
     expect(calls[0]?.method).toBe('POST')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/')
     expect(calls[0]?.json).toEqual({
       id: 'notes',
       name: 'Notes',
@@ -990,7 +990,7 @@ describe('space.createCollection() request body', () => {
 
 describe('Collection.configure() unreadable-description guard', () => {
   it('fails closed when describe() is masked and backend/encryption omitted', async () => {
-    // A PUT-only capability cannot read the current description (WAS masks
+    // A PUT-only capability cannot read the current description (PWS masks
     // unauthorized reads as 404), so the merge would send a body without
     // `backend`/`encryption` -- silently dropping them on a replace-semantics
     // server. That is exactly the clobber the merge exists to prevent.
@@ -1113,7 +1113,7 @@ describe('Collection.configure() unreadable-description guard', () => {
 
 describe('Space.configure() unreadable-description guard', () => {
   it('fails closed when describe() is masked and a full description is not given', async () => {
-    // A write-capable but not read-capable caller: WAS masks the unreadable
+    // A write-capable but not read-capable caller: PWS masks the unreadable
     // current description as 404, so `configure({ name })` would merge forward
     // from a `null` current -- silently defaulting `controller` (a stealth
     // ownership change) and dropping the existing name. The guard blocks that.
@@ -1132,7 +1132,7 @@ describe('Space.configure() unreadable-description guard', () => {
    *
    * @returns {object} { client, calls }
    */
-  function guardedClient(): { client: WasClient; calls: RequestArgs[] } {
+  function guardedClient(): { client: PwsClient; calls: RequestArgs[] } {
     const calls: RequestArgs[] = []
     const client = clientWithStub(async args => {
       calls.push(args)
@@ -1225,7 +1225,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
       etag: '"7"'
     })
     const read = await client.spaceAt(spaceUrlFor('s')).describeWithEtag()
-    expect(calls[0]?.url).toBe('https://was.example/space/s/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/meta')
     expect(calls[0]?.method).toBe('GET')
     expect(read).toEqual({ description: current, etag: '"7"' })
   })
@@ -1245,7 +1245,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
       )
     expect(calls).toHaveLength(1)
     expect(calls[0]?.method).toBe('PUT')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/meta')
     expect(calls[0]?.json).toEqual({
       id: 's',
       name: 'Renamed',
@@ -1303,7 +1303,7 @@ describe('Space.describeWithEtag() / replaceDescription()', () => {
     // A description read from another Space, handed back with one change.
     const other = { ...current, id: 'other', name: 'Renamed' }
     await client.spaceAt(spaceUrlFor('s')).replaceDescription(other)
-    expect(calls[0]?.url).toBe('https://was.example/space/s/meta')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/meta')
     expect(calls[0]?.json).toMatchObject({ id: 's', name: 'Renamed' })
   })
 
@@ -1606,9 +1606,9 @@ describe('resource.getText() / getBytes() on a JSON-typed resource', () => {
    * JSON content-type (it reads the stream into `.data` with no `clone()`).
    *
    * @param data {unknown}   the pre-parsed JSON body
-   * @returns {WasClient}
+   * @returns {PwsClient}
    */
-  function clientWithConsumedJsonBody(data: unknown): WasClient {
+  function clientWithConsumedJsonBody(data: unknown): PwsClient {
     return clientWithStub(async () => {
       return {
         status: 200,
@@ -1678,9 +1678,9 @@ describe("resource.getWithEtag({ as: 'text' })", () => {
    *
    * @param response {object}   the response body surface (`headers`, `data`,
    *   `text` / `blob` / `json` as the content type needs)
-   * @returns {WasClient}
+   * @returns {PwsClient}
    */
-  function clientWith(response: Record<string, unknown>): WasClient {
+  function clientWith(response: Record<string, unknown>): PwsClient {
     return clientWithStub(async () => {
       return { status: 200, ...response } as unknown as HttpResponse
     })
@@ -1748,9 +1748,9 @@ describe('collection.add() Location resolution', () => {
    * and no body (so the id comes from the header).
    *
    * @param location {string}   the `Location` header value
-   * @returns {WasClient}
+   * @returns {PwsClient}
    */
-  function clientWithLocation(location: string): WasClient {
+  function clientWithLocation(location: string): PwsClient {
     return clientWithStub(async () => {
       return {
         status: 201,
@@ -1766,10 +1766,10 @@ describe('collection.add() Location resolution', () => {
   /**
    * Runs a plaintext `add()` through the given client.
    *
-   * @param client {WasClient}
+   * @param client {PwsClient}
    * @returns {Promise<object>}   the `AddResult`
    */
-  async function addThrough(client: WasClient) {
+  async function addThrough(client: PwsClient) {
     return client
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
@@ -1778,11 +1778,11 @@ describe('collection.add() Location resolution', () => {
 
   it('resolves a relative Location header to an absolute AddResult.url', async () => {
     // RFC 9110 permits a relative `Location`; consumers of `AddResult.url`
-    // (e.g. `was.publicRead({ resourceUrl })`) are documented to receive an
+    // (e.g. `pws.publicRead({ resourceUrl })`) are documented to receive an
     // absolute URL.
     const result = await addThrough(clientWithLocation('/space/s/c/r1'))
     expect(result.id).toBe('r1')
-    expect(result.url).toBe('https://was.example/space/s/c/r1')
+    expect(result.url).toBe('https://pws.example/space/s/c/r1')
   })
 
   it('passes an absolute Location through unchanged', async () => {

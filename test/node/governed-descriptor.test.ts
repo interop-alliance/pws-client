@@ -31,7 +31,7 @@ describe('isGovernedDescriptor', () => {
       isGovernedDescriptor(
         withHistory({
           method: 'resource-log:1.0',
-          resource: 'https://was.example/space/s/c/meta/log'
+          resource: 'https://pws.example/space/s/c/meta/log'
         })
       )
     ).toBe(true)
@@ -43,10 +43,10 @@ describe('isGovernedDescriptor', () => {
 
   it.each([
     ['null', null],
-    ['a string', 'https://was.example/space/s/c/meta/log'],
+    ['a string', 'https://pws.example/space/s/c/meta/log'],
     ['an array', ['resource-log:1.0']],
     ['an object missing resource', { method: 'resource-log:1.0' }],
-    ['an object missing method', { resource: 'https://was.example/log' }],
+    ['an object missing method', { resource: 'https://pws.example/log' }],
     ['non-string members', { method: 1, resource: 2 }]
   ])('refuses a history of %s with ValidationError', (_label, history) => {
     expect(() => isGovernedDescriptor(withHistory(history))).toThrow(

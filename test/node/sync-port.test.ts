@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Unit tests for `createWasSyncPort` and its ETag/status helpers. A fake
- * `WasClient` records the raw `was.request()` calls (and serves the
+ * Unit tests for `createPwsSyncPort` and its ETag/status helpers. A fake
+ * `PwsClient` records the raw `pws.request()` calls (and serves the
  * `Collection.changes()` feed), so these assert the exact request shapes -- URL,
  * method, JSON body, conditional-write headers, and the `Key-Epoch` stamp --
  * plus the 412-conflict and 404-not-found error mapping and the write-ack
@@ -11,25 +11,25 @@
  *
  * The port classifies through the client's own `mapError`, so the signals it
  * raises carry the server's `problem+json` fields and every other status
- * leaves the subpath as a typed `WasError` rather than a raw ky error.
+ * leaves the subpath as a typed `PwsError` rather than a raw ky error.
  */
 import { describe, it, expect, vi } from 'vitest'
 
-import { createWasSyncPort } from '../../src/sync/index.js'
+import { createPwsSyncPort } from '../../src/sync/index.js'
 import { errorStatus } from '../../src/sync/index.js'
 import { errorMessage } from '../../src/sync/index.js'
 import {
-  WasSyncAuthError,
-  WasSyncCheckpointError,
-  WasSyncConflictError,
-  WasSyncNotFoundError,
+  PwsSyncAuthError,
+  PwsSyncCheckpointError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError,
   AuthRequiredError,
   PreconditionFailedError,
   NotFoundError,
   QuotaExceededError,
   ValidationError,
-  WasError,
-  WasServerError
+  PwsError,
+  PwsServerError
 } from '../../src/index.js'
 import type { IZcap } from '../../src/index.js'
 import { DEFAULT_MAX_PAGES } from '../../src/internal/pagination.js'
@@ -57,12 +57,12 @@ function httpError(status: number): Error & { status: number } {
 
 /**
  * A thrown ky/ezcap non-2xx carrying an `application/problem+json` body, the
- * shape a real WAS server answers a refused write with.
+ * shape a real PWS server answers a refused write with.
  */
 function problemError(status: number, type: string) {
   return Object.assign(new Error(`HTTP ${status}`), {
     status,
-    requestUrl: 'https://was.example/space/space-abc/private-credentials/res-1',
+    requestUrl: 'https://pws.example/space/space-abc/private-credentials/res-1',
     data: {
       type,
       title: 'The write was refused.',
@@ -75,10 +75,10 @@ const SPACE = 'space-abc'
 const COLL = 'private-credentials'
 
 /**
- * Builds a fake `WasClient` whose `request` is a spy driven by a per-test
+ * Builds a fake `PwsClient` whose `request` is a spy driven by a per-test
  * handler, and whose `spaceAt().collection().changes()` is a separate spy.
  */
-function makeWas(options: {
+function makePws(options: {
   onRequest?: (opts: RequestOptions) => unknown
   onChanges?: () => unknown
   changesResult?: unknown
@@ -93,7 +93,7 @@ function makeWas(options: {
     const result = options.onRequest?.(opts)
     return result
   })
-  const was = {
+  const pws = {
     request,
     spaceAt: () => ({
       collection: (_collectionId: string, handleOptions?: unknown) => {
@@ -109,10 +109,10 @@ function makeWas(options: {
     })
   }
   // The port only touches `request` and the collection's feed walk.
-  return { was: was as never, request, changes, collectionOptions }
+  return { pws: pws as never, request, changes, collectionOptions }
 }
 
-describe('createWasSyncPort helpers', () => {
+describe('createPwsSyncPort helpers', () => {
   it('errorStatus reads flat and nested shapes', () => {
     expect(errorStatus({ status: 412 })).toBe(412)
     expect(errorStatus({ response: { status: 404 } })).toBe(404)
@@ -132,16 +132,16 @@ function metaEntry(checkpoint: string) {
   })
 }
 
-describe('createWasSyncPort.query', () => {
+describe('createPwsSyncPort.query', () => {
   it('rides the changes() feed and returns documents + checkpoint', async () => {
     const entry = feedEntry({ id: 'a', checkpoint: 'c1', data: { n: 1 } })
     const page = {
       documents: [{ ...entry, writerId: 'writer-a' }],
       checkpoint: 'c1'
     }
-    const { was, changes } = makeWas({ changesResult: page })
-    const port = createWasSyncPort({
-      was,
+    const { pws, changes } = makePws({ changesResult: page })
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -160,14 +160,14 @@ describe('createWasSyncPort.query', () => {
   })
 
   it('maps a tombstone to _deleted: true', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       changesResult: {
         documents: [feedEntry({ id: 'gone', checkpoint: 'c1', deleted: true })],
         checkpoint: 'c1'
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -180,7 +180,7 @@ describe('createWasSyncPort.query', () => {
   })
 
   it('skips non-Resource kinds and non-JSON Resources, keeping the page checkpoint', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       changesResult: {
         documents: [
           metaEntry('c1'),
@@ -211,8 +211,8 @@ describe('createWasSyncPort.query', () => {
         checkpoint: 'c7'
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -243,13 +243,13 @@ describe('createWasSyncPort.query', () => {
         checkpoint: 'c4'
       }
     }
-    const { was, changes } = makeWas({})
+    const { pws, changes } = makePws({})
     changes.mockImplementation(
       (async ({ checkpoint }: { checkpoint: string }) =>
         pages[checkpoint]) as never
     )
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -265,14 +265,14 @@ describe('createWasSyncPort.query', () => {
   })
 
   it('returns an empty end page when the feed ends on skipped entries', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       changesResult: {
         documents: [metaEntry('c1')],
         checkpoint: null
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -284,14 +284,14 @@ describe('createWasSyncPort.query', () => {
   })
 
   it('fails on a server that repeats a checkpoint over skipped entries', async () => {
-    const { was, changes } = makeWas({
+    const { pws, changes } = makePws({
       changesResult: {
         documents: [metaEntry('c1')],
         checkpoint: 'c1'
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -299,14 +299,14 @@ describe('createWasSyncPort.query', () => {
     const err = await port
       .query({ limit: 50 })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('repeated checkpoint')
     expect(changes).toHaveBeenCalledTimes(2)
   })
 
   it('fails on a server that advances the checkpoint over skipped entries forever', async () => {
     let served = 0
-    const { was, changes } = makeWas({
+    const { pws, changes } = makePws({
       onChanges: () => {
         served += 1
         return {
@@ -315,8 +315,8 @@ describe('createWasSyncPort.query', () => {
         }
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -324,12 +324,12 @@ describe('createWasSyncPort.query', () => {
     const err = await port
       .query({ limit: 50 })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('did not end within')
     expect(changes).toHaveBeenCalledTimes(DEFAULT_MAX_PAGES)
   })
 
-  it('maps a refused checkpoint to WasSyncCheckpointError, carrying the problems', async () => {
+  it('maps a refused checkpoint to PwsSyncCheckpointError, carrying the problems', async () => {
     const refusal = Object.assign(new Error('HTTP 400'), {
       status: 400,
       data: {
@@ -343,13 +343,13 @@ describe('createWasSyncPort.query', () => {
         ]
       }
     })
-    const { was } = makeWas({
+    const { pws } = makePws({
       onChanges: () => {
         throw refusal
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -357,11 +357,11 @@ describe('createWasSyncPort.query', () => {
     const err = await port
       .query({ checkpoint: 'issued-elsewhere', limit: 50 })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasSyncCheckpointError)
+    expect(err).toBeInstanceOf(PwsSyncCheckpointError)
     expect(err).toBeInstanceOf(ValidationError)
-    expect((err as WasSyncCheckpointError).name).toBe('WasSyncCheckpointError')
-    expect((err as WasSyncCheckpointError).status).toBe(400)
-    expect((err as WasSyncCheckpointError).problems).toEqual([
+    expect((err as PwsSyncCheckpointError).name).toBe('PwsSyncCheckpointError')
+    expect((err as PwsSyncCheckpointError).status).toBe(400)
+    expect((err as PwsSyncCheckpointError).problems).toEqual([
       {
         detail: 'The checkpoint was not issued by this server.',
         pointer: '#/checkpoint'
@@ -370,7 +370,7 @@ describe('createWasSyncPort.query', () => {
   })
 
   it('leaves an invalid-request-body 400 that points elsewhere a plain ValidationError', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onChanges: () => {
         throw Object.assign(new Error('HTTP 400'), {
           status: 400,
@@ -381,8 +381,8 @@ describe('createWasSyncPort.query', () => {
         })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -391,21 +391,21 @@ describe('createWasSyncPort.query', () => {
       .query({ checkpoint: 'c0', limit: 50 })
       .catch((caught: unknown) => caught)
     expect(err).toBeInstanceOf(ValidationError)
-    expect(err).not.toBeInstanceOf(WasSyncCheckpointError)
+    expect(err).not.toBeInstanceOf(PwsSyncCheckpointError)
   })
 })
 
-describe('createWasSyncPort.putContent', () => {
+describe('createPwsSyncPort.putContent', () => {
   it('PUTs the body verbatim with if-none-match and returns the acked write', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g1.1"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -420,7 +420,7 @@ describe('createWasSyncPort.putContent', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe('PUT')
     expect(calls[0]!.url).toBe(
-      `https://was.example/space/${SPACE}/${COLL}/res-1`
+      `https://pws.example/space/${SPACE}/${COLL}/res-1`
     )
     expect(calls[0]!.json).toEqual({ hello: 'world' })
     expect(calls[0]!.headers).toMatchObject({ 'if-none-match': '*' })
@@ -428,14 +428,14 @@ describe('createWasSyncPort.putContent', () => {
 
   it('sends if-match and the Key-Epoch header when given', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g.5"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -455,14 +455,14 @@ describe('createWasSyncPort.putContent', () => {
 
   it('sends the Writer-Id header when given', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g.5"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -474,14 +474,14 @@ describe('createWasSyncPort.putContent', () => {
 
   it('sends no Writer-Id header when writerId is omitted', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g.5"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -492,11 +492,11 @@ describe('createWasSyncPort.putContent', () => {
   })
 
   it('refuses an empty writerId before sending the request', async () => {
-    const { was, request } = makeWas({
+    const { pws, request } = makePws({
       onRequest: () => response(null, { etag: '"g.1"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -509,14 +509,14 @@ describe('createWasSyncPort.putContent', () => {
 
   it('acks neither etag nor version, and does not re-read, when the write response carries no ETag', async () => {
     const methods: Array<string | undefined> = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         methods.push(opts.method)
         return response(null) // no etag on the write
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -534,14 +534,14 @@ describe('createWasSyncPort.putContent', () => {
   ]) {
     it(`round-trips the opaque validator ${opaque} verbatim`, async () => {
       const calls: RequestOptions[] = []
-      const { was } = makeWas({
+      const { pws } = makePws({
         onRequest: opts => {
           calls.push(opts)
           return response(null, { etag: opaque })
         }
       })
-      const port = createWasSyncPort({
-        was,
+      const port = createPwsSyncPort({
+        pws,
         spaceUrl: spaceUrlFor(SPACE),
         collectionId: COLL
       })
@@ -558,14 +558,14 @@ describe('createWasSyncPort.putContent', () => {
     })
   }
 
-  it('maps a 412 to WasSyncConflictError (a PreconditionFailedError)', async () => {
-    const { was } = makeWas({
+  it('maps a 412 to PwsSyncConflictError (a PreconditionFailedError)', async () => {
+    const { pws } = makePws({
       onRequest: () => {
         throw httpError(412)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -573,40 +573,40 @@ describe('createWasSyncPort.putContent', () => {
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 }, ifNoneMatch: true })
       .catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(WasSyncConflictError)
+    expect(err).toBeInstanceOf(PwsSyncConflictError)
     expect(err).toBeInstanceOf(PreconditionFailedError)
   })
 
-  it('propagates a non-412 write error as a typed WasError', async () => {
-    const { was } = makeWas({
+  it('propagates a non-412 write error as a typed PwsError', async () => {
+    const { pws } = makePws({
       onRequest: () => {
         throw httpError(500)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 } })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect(err).toMatchObject({ status: 500 })
   })
 })
 
-describe('createWasSyncPort.deleteContent', () => {
+describe('createPwsSyncPort.deleteContent', () => {
   it('DELETEs with if-match and returns the tombstone write ack', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g2.2"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -615,21 +615,21 @@ describe('createWasSyncPort.deleteContent', () => {
     expect(ack).toEqual({ etag: '"g2.2"' })
     expect(calls[0]!.method).toBe('DELETE')
     expect(calls[0]!.url).toBe(
-      `https://was.example/space/${SPACE}/${COLL}/res-1`
+      `https://pws.example/space/${SPACE}/${COLL}/res-1`
     )
     expect(calls[0]!.headers).toMatchObject({ 'if-match': '"1"' })
   })
 
   it('sends the Writer-Id header when given, and none when omitted', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g2.2"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -642,11 +642,11 @@ describe('createWasSyncPort.deleteContent', () => {
   })
 
   it('refuses an empty writerId before sending the request', async () => {
-    const { was, request } = makeWas({
+    const { pws, request } = makePws({
       onRequest: () => response(null, { etag: '"g.1"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -657,52 +657,52 @@ describe('createWasSyncPort.deleteContent', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('maps a 404 to WasSyncNotFoundError (a NotFoundError)', async () => {
-    const { was } = makeWas({
+  it('maps a 404 to PwsSyncNotFoundError (a NotFoundError)', async () => {
+    const { pws } = makePws({
       onRequest: () => {
         throw httpError(404)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
     const err = await port
       .deleteContent({ id: 'res-1' })
       .catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(WasSyncNotFoundError)
+    expect(err).toBeInstanceOf(PwsSyncNotFoundError)
     expect(err).toBeInstanceOf(NotFoundError)
   })
 
-  it('maps a 412 to WasSyncConflictError', async () => {
-    const { was } = makeWas({
+  it('maps a 412 to PwsSyncConflictError', async () => {
+    const { pws } = makePws({
       onRequest: () => {
         throw httpError(412)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
     await expect(
       port.deleteContent({ id: 'res-1', ifMatch: '"1"' })
-    ).rejects.toBeInstanceOf(WasSyncConflictError)
+    ).rejects.toBeInstanceOf(PwsSyncConflictError)
   })
 })
 
-describe('createWasSyncPort.putMeta', () => {
+describe('createPwsSyncPort.putMeta', () => {
   it('PUTs { custom } to the /meta sub-resource', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -710,21 +710,21 @@ describe('createWasSyncPort.putMeta', () => {
     await port.putMeta({ id: 'res-1', custom: { name: 'Alice' } })
     expect(calls[0]!.method).toBe('PUT')
     expect(calls[0]!.url).toBe(
-      `https://was.example/space/${SPACE}/${COLL}/res-1/meta`
+      `https://pws.example/space/${SPACE}/${COLL}/res-1/meta`
     )
     expect(calls[0]!.json).toEqual({ custom: { name: 'Alice' } })
   })
 
   it('never writes a writerId member into the /meta body', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -738,13 +738,13 @@ describe('createWasSyncPort.putMeta', () => {
   })
 })
 
-describe('createWasSyncPort guarded writes', () => {
+describe('createPwsSyncPort guarded writes', () => {
   // Conditional writes are a baseline server requirement, so the port sends a
   // precondition-bearing write as given and lets the server answer it.
   const setup = (onRequest: (opts: RequestOptions) => unknown) => {
-    const { was } = makeWas({ onRequest })
-    return createWasSyncPort({
-      was,
+    const { pws } = makePws({ onRequest })
+    return createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -782,13 +782,13 @@ describe('createWasSyncPort guarded writes', () => {
     })
     await expect(
       port.deleteContent({ id: 'res-1', ifMatch: '"g.1"' })
-    ).rejects.toBeInstanceOf(WasSyncNotFoundError)
+    ).rejects.toBeInstanceOf(PwsSyncNotFoundError)
   })
 })
 
-describe('createWasSyncPort.get', () => {
+describe('createPwsSyncPort.get', () => {
   it('assembles content + /meta into a MasterState', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           return response(
@@ -816,8 +816,8 @@ describe('createWasSyncPort.get', () => {
         )
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -844,7 +844,7 @@ describe('createWasSyncPort.get', () => {
   })
 
   it('drops a partial write stamp instead of tearing it', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           // No `updatedAt`, so the counter and origin have no stamp to
@@ -865,8 +865,8 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 }, { etag: '"c"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -881,7 +881,7 @@ describe('createWasSyncPort.get', () => {
   })
 
   it('keeps the placeholder updatedAt when /meta serves a bare updatedAt', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           return response(
@@ -892,8 +892,8 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 }, { etag: '"c"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -909,7 +909,7 @@ describe('createWasSyncPort.get', () => {
   })
 
   it('returns a placeholder updatedAt when the resource has no /meta yet', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
@@ -917,8 +917,8 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 }, { etag: '"g.4"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -930,7 +930,7 @@ describe('createWasSyncPort.get', () => {
   })
 
   it('reports an opaque validator as the etag with no version', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
@@ -938,8 +938,8 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 }, { etag: '"a1b2c3"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -950,7 +950,7 @@ describe('createWasSyncPort.get', () => {
   })
 
   it('reports neither etag nor version when the read carries no ETag', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
@@ -958,8 +958,8 @@ describe('createWasSyncPort.get', () => {
         return response({ a: 1 })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -975,7 +975,7 @@ describe('createWasSyncPort.get', () => {
     // a resource stored as `text/jsonl` (or any opaque bytes) arrives with a
     // real `version`/`etag` and no body. Reporting that as live-but-empty
     // state would have a replica push an empty document over real content.
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
@@ -986,22 +986,22 @@ describe('createWasSyncPort.get', () => {
         })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
-    await expect(port.get({ id: 'res-1' })).rejects.toThrow(WasServerError)
+    await expect(port.get({ id: 'res-1' })).rejects.toThrow(PwsServerError)
   })
 
   it('returns null when the content is absent (404)', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => {
         throw httpError(404)
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1015,13 +1015,13 @@ describe('createWasSyncPort.get', () => {
  */
 const CAPABILITY = {
   id: 'urn:uuid:cap-1',
-  invocationTarget: `https://was.example/space/${SPACE}/${COLL}`
+  invocationTarget: `https://pws.example/space/${SPACE}/${COLL}`
 } as unknown as IZcap
 
-describe('createWasSyncPort capability threading', () => {
+describe('createPwsSyncPort capability threading', () => {
   it('attaches the capability to the changes feed and to every request', async () => {
     const calls: RequestOptions[] = []
-    const { was, collectionOptions } = makeWas({
+    const { pws, collectionOptions } = makePws({
       changesResult: { documents: [], checkpoint: null },
       onRequest: opts => {
         calls.push(opts)
@@ -1031,8 +1031,8 @@ describe('createWasSyncPort capability threading', () => {
         return response({ a: 1 }, { etag: '"g.1"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       capability: CAPABILITY
@@ -1055,14 +1055,14 @@ describe('createWasSyncPort capability threading', () => {
 
   it('attaches no capability by default', async () => {
     const calls: RequestOptions[] = []
-    const { was, collectionOptions } = makeWas({
+    const { pws, collectionOptions } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g.1"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1074,17 +1074,17 @@ describe('createWasSyncPort capability threading', () => {
   })
 })
 
-describe('createWasSyncPort.putMeta clear + write ack', () => {
+describe('createPwsSyncPort.putMeta clear + write ack', () => {
   it('writes {} when custom is omitted (the cleared state)', async () => {
     const calls: RequestOptions[] = []
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         calls.push(opts)
         return response(null, { etag: '"g3.3"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1099,11 +1099,11 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
   })
 
   it('returns the new write ack parsed from the response ETag', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => response(null, { etag: '"g3.3"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1114,11 +1114,11 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
   })
 
   it('acks an opaque validator with no version', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => response(null, { etag: '"a1b2c3"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1129,9 +1129,9 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
   })
 
   it('returns undefined when the response carries neither ETag nor body', async () => {
-    const { was } = makeWas({ onRequest: () => response(null) })
-    const port = createWasSyncPort({
-      was,
+    const { pws } = makePws({ onRequest: () => response(null) })
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1142,7 +1142,7 @@ describe('createWasSyncPort.putMeta clear + write ack', () => {
   })
 })
 
-describe('createWasSyncPort write ack body', () => {
+describe('createPwsSyncPort write ack body', () => {
   const stamp = {
     updatedAt: '2026-10-04T12:00:00.000Z',
     updatedAtCounter: 0,
@@ -1158,11 +1158,11 @@ describe('createWasSyncPort write ack body', () => {
   }
 
   it('acks the stamp and createdBy from a 201 body beside the etag', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => response(created, { etag: '"g.1"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1181,12 +1181,12 @@ describe('createWasSyncPort write ack body', () => {
 
   it('acks the stamp alone from a 200 body (no provenance on an update)', async () => {
     const { contentType, size } = created
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () =>
         response({ contentType, size, ...stamp }, { etag: '"g.2"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1197,15 +1197,15 @@ describe('createWasSyncPort write ack body', () => {
 
   it('acks the /meta stamp under meta on a metadata write', async () => {
     const { contentType, size } = created
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () =>
         response(
           { contentType, size, ...stamp, meta: metaStamp },
           { etag: '"m.1"' }
         )
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1217,12 +1217,12 @@ describe('createWasSyncPort write ack body', () => {
 
   it('returns a /meta ack with no validator when only the body reached the client', async () => {
     const { contentType, size } = created
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () =>
         response({ contentType, size, ...stamp, meta: metaStamp })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1234,7 +1234,7 @@ describe('createWasSyncPort write ack body', () => {
 
   it('copies a stamp whole or not at all', async () => {
     const { contentType, size } = created
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () =>
         response(
           {
@@ -1246,8 +1246,8 @@ describe('createWasSyncPort write ack body', () => {
           { etag: '"g.3"' }
         )
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1257,11 +1257,11 @@ describe('createWasSyncPort write ack body', () => {
   })
 
   it('ignores a body that is not the Resource Metadata shape', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => response({ a: 1, ...stamp }, { etag: '"g.4"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1271,12 +1271,12 @@ describe('createWasSyncPort write ack body', () => {
   })
 
   it('ignores a non-string createdBy', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () =>
         response({ ...created, createdBy: 42 }, { etag: '"g.5"' })
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1286,10 +1286,10 @@ describe('createWasSyncPort write ack body', () => {
   })
 })
 
-describe('createWasSyncPort mapAuthErrors', () => {
+describe('createPwsSyncPort mapAuthErrors', () => {
   /** Builds a port whose every request (and `changes()`) throws `status`. */
   function failingPort(status: number, mapAuthErrors: boolean) {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => {
         throw httpError(status)
       },
@@ -1297,8 +1297,8 @@ describe('createWasSyncPort mapAuthErrors', () => {
         throw httpError(status)
       }
     })
-    return createWasSyncPort({
-      was,
+    return createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       mapAuthErrors
@@ -1314,7 +1314,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
         () => port.putMeta({ id: 'res-1', custom: { a: 1 } })
       ]) {
         const err = await attempt().catch((caught: unknown) => caught)
-        expect(err).toBeInstanceOf(WasSyncAuthError)
+        expect(err).toBeInstanceOf(PwsSyncAuthError)
         expect(err).toBeInstanceOf(AuthRequiredError)
         expect(err).toMatchObject({ status })
       }
@@ -1327,7 +1327,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
       const err = await port
         .deleteContent({ id: 'res-1' })
         .catch((caught: unknown) => caught)
-      expect(err).toBeInstanceOf(WasSyncAuthError)
+      expect(err).toBeInstanceOf(PwsSyncAuthError)
       expect(err).toMatchObject({ status })
     })
   }
@@ -1337,11 +1337,11 @@ describe('createWasSyncPort mapAuthErrors', () => {
     expect(await port.deleteContent({ id: 'res-1' })).toBeUndefined()
   })
 
-  it('still maps 412 to WasSyncConflictError when on', async () => {
+  it('still maps 412 to PwsSyncConflictError when on', async () => {
     const port = failingPort(412, true)
     await expect(
       port.putContent({ id: 'res-1', data: { a: 1 } })
-    ).rejects.toBeInstanceOf(WasSyncConflictError)
+    ).rejects.toBeInstanceOf(PwsSyncConflictError)
   })
 
   it('leaves a get 404 as null when on (absent or tombstoned)', async () => {
@@ -1350,7 +1350,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
   })
 
   it('leaves a missing /meta benign when on', async () => {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           throw httpError(404)
@@ -1358,8 +1358,8 @@ describe('createWasSyncPort mapAuthErrors', () => {
         return response({ a: 1 }, { etag: '"g.4"' })
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       mapAuthErrors: true
@@ -1376,17 +1376,17 @@ describe('createWasSyncPort mapAuthErrors', () => {
         custom: { a: 1 }
       })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasSyncNotFoundError)
+    expect(err).toBeInstanceOf(PwsSyncNotFoundError)
     expect(err).toBeInstanceOf(NotFoundError)
-    expect(err).not.toBeInstanceOf(WasSyncAuthError)
-    expect(err).toMatchObject({ name: 'WasSyncNotFoundError', status: 404 })
+    expect(err).not.toBeInstanceOf(PwsSyncAuthError)
+    expect(err).toMatchObject({ name: 'PwsSyncNotFoundError', status: 404 })
   })
 
   it('preserves today behavior when off', async () => {
     // 404 keeps the delete-specific not-found signal ...
     await expect(
       failingPort(404, false).deleteContent({ id: 'res-1' })
-    ).rejects.toBeInstanceOf(WasSyncNotFoundError)
+    ).rejects.toBeInstanceOf(PwsSyncNotFoundError)
     // ... and 401 / 403 / 404 stay their ordinary typed class everywhere
     // else, never the auth signal.
     for (const status of [401, 403, 404]) {
@@ -1397,7 +1397,7 @@ describe('createWasSyncPort mapAuthErrors', () => {
         () => port.putMeta({ id: 'res-1', custom: { a: 1 } })
       ]) {
         const err = await attempt().catch((caught: unknown) => caught)
-        expect(err).not.toBeInstanceOf(WasSyncAuthError)
+        expect(err).not.toBeInstanceOf(PwsSyncAuthError)
         expect(err).toMatchObject({ status })
       }
     }
@@ -1412,19 +1412,19 @@ describe('errorMessage', () => {
   })
 })
 
-describe('createWasSyncPort error classification', () => {
+describe('createPwsSyncPort error classification', () => {
   const PRECONDITION_FAILED = 'https://w3id.org/pws#precondition-failed'
   const QUOTA_EXCEEDED = 'https://w3id.org/pws#quota-exceeded'
 
   /** A port whose every request fails with the given problem response. */
   function refusingPort(status: number, type: string) {
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => {
         throw problemError(status, type)
       }
     })
-    return createWasSyncPort({
-      was,
+    return createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1432,13 +1432,13 @@ describe('createWasSyncPort error classification', () => {
 
   it('carries the problem fields and a cause onto a write conflict', async () => {
     const raw = problemError(412, PRECONDITION_FAILED)
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => {
         throw raw
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1446,7 +1446,7 @@ describe('createWasSyncPort error classification', () => {
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 }, ifMatch: '"1"' })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasSyncConflictError)
+    expect(err).toBeInstanceOf(PwsSyncConflictError)
     expect(err).toMatchObject({
       status: 412,
       type: PRECONDITION_FAILED,
@@ -1459,13 +1459,13 @@ describe('createWasSyncPort error classification', () => {
 
   it('carries the problem fields and a cause onto a delete not-found', async () => {
     const raw = problemError(404, 'https://w3id.org/pws#not-found')
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => {
         throw raw
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL
     })
@@ -1473,7 +1473,7 @@ describe('createWasSyncPort error classification', () => {
     const err = await port
       .deleteContent({ id: 'res-1', ifMatch: '"1"' })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasSyncNotFoundError)
+    expect(err).toBeInstanceOf(PwsSyncNotFoundError)
     expect(err).toMatchObject({
       status: 404,
       type: 'https://w3id.org/pws#not-found',
@@ -1496,19 +1496,19 @@ describe('createWasSyncPort error classification', () => {
     const err = await refusingPort(500, 'https://w3id.org/pws#storage')
       .get({ id: 'res-1' })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasError)
+    expect(err).toBeInstanceOf(PwsError)
     expect(err).toMatchObject({ status: 500 })
   })
 
   it('carries the problem fields onto the auth signal', async () => {
     const raw = problemError(403, 'https://w3id.org/pws#not-authorized')
-    const { was } = makeWas({
+    const { pws } = makePws({
       onRequest: () => {
         throw raw
       }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: spaceUrlFor(SPACE),
       collectionId: COLL,
       mapAuthErrors: true
@@ -1517,7 +1517,7 @@ describe('createWasSyncPort error classification', () => {
     const err = await port
       .putContent({ id: 'res-1', data: { a: 1 } })
       .catch((caught: unknown) => caught)
-    expect(err).toBeInstanceOf(WasSyncAuthError)
+    expect(err).toBeInstanceOf(PwsSyncAuthError)
     expect(err).toMatchObject({ status: 403, requestUrl: raw.requestUrl })
     expect((err as Error).cause).toBe(raw)
   })

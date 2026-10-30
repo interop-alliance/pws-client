@@ -2,17 +2,17 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/sync` subpath entry: cross-replica synchronization
- * support over WAS. Kept off the core entry so a consumer opts in.
+ * The `@interop/pws-client/sync` subpath entry: cross-replica synchronization
+ * support over PWS. Kept off the core entry so a consumer opts in.
  *
- * - `createWasSyncPort` -- the `WasSyncPort` over `was.request()` + the
+ * - `createPwsSyncPort` -- the `PwsSyncPort` over `pws.request()` + the
  *   `changes` feed, moving stored bodies verbatim (no codec) for one Space +
  *   Collection.
  * - `contentCid` / `cidFrom` / `deriveSpaceId` -- content-addressed ids and
  *   Space-id derivation, byte-identical across replicas.
  * - `createPlaintextDocCipher` / `isEncryptedEnvelope` -- the identity cipher
  *   for a plaintext content-addressed collection, and the envelope predicate,
- *   both free of the `@interop/was-client/edv` crypto graph.
+ *   both free of the `@interop/pws-client/edv` crypto graph.
  * - `requireResourceId` -- the guard both built-in ciphers run first, exported
  *   so a consumer writing its own `DocCipher` refuses a missing resource id
  *   the same way instead of hand-rolling the check. It raises a
@@ -31,9 +31,9 @@
  *   same way, so the rule has no exceptions. Reading a property off the
  *   matched value, such as `status` on an auth error, is the intended shape.
  *
- * The 412 conflict / 404 not-found port signals (`WasSyncConflictError` /
- * `WasSyncNotFoundError`), and the opt-in revoked-access signal
- * (`WasSyncAuthError`, raised only under `mapAuthErrors`), live in the client's
+ * The 412 conflict / 404 not-found port signals (`PwsSyncConflictError` /
+ * `PwsSyncNotFoundError`), and the opt-in revoked-access signal
+ * (`PwsSyncAuthError`, raised only under `mapAuthErrors`), live in the client's
  * typed error hierarchy and are re-exported here for convenience -- as are the
  * two decrypt-routing signals, so a crypto-free sync consumer can classify them
  * without importing the `/edv` entry that throws them: the stale-descriptor
@@ -58,7 +58,7 @@
  * (`decisions/0001-cross-package-errors-match-by-name.md`).
  */
 export {
-  createWasSyncPort,
+  createPwsSyncPort,
   KEY_EPOCH_HEADER,
   WRITER_ID_HEADER
 } from './port.js'
@@ -90,10 +90,10 @@ export {
   KeyUnwrapError,
   NotSupportedError,
   UnknownEpochError,
-  WasSyncAuthError,
-  WasSyncCheckpointError,
-  WasSyncConflictError,
-  WasSyncNotFoundError
+  PwsSyncAuthError,
+  PwsSyncCheckpointError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError
 } from '../errors.js'
 
 export type {
@@ -104,7 +104,7 @@ export type {
   MasterState,
   WriteAck,
   SyncStatus,
-  WasSyncPort,
+  PwsSyncPort,
   DocCipher
 } from './types.js'
 

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: `space.revoke()` / `was.revoke()` against a live WAS server.
+ * Integration test: `space.revoke()` / `pws.revoke()` against a live PWS server.
  * The assertion that carries the feature is not the 204 -- it is a capability
  * that worked before the call and fails after it.
  *
@@ -21,38 +21,38 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient, NotFoundError, ValidationError } from '../../src/index.js'
+import { PwsClient, NotFoundError, ValidationError } from '../../src/index.js'
 import type { IDelegatedZcap, Space } from '../../src/index.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
- * Builds a fresh did:key Ed25519 signer, a WAS client over it, and its DID.
+ * Builds a fresh did:key Ed25519 signer, a PWS client over it, and its DID.
  *
- * @returns {Promise<{ was: WasClient, did: string }>}
+ * @returns {Promise<{ pws: PwsClient, did: string }>}
  */
-async function freshWasClient(): Promise<{ was: WasClient; did: string }> {
+async function freshPwsClient(): Promise<{ pws: PwsClient; did: string }> {
   const keyPair = await Ed25519VerificationKey.generate()
-  const was = WasClient.fromSigner({
+  const pws = PwsClient.fromSigner({
     baseServerUrl: baseServerUrl!,
     signer: keyPair.didKeySigner()
   })
-  return { was, did: was.controllerDid }
+  return { pws, did: pws.controllerDid }
 }
 
 describeLive('space.revoke() (live server)', () => {
-  let alice: WasClient
-  let app: WasClient
+  let alice: PwsClient
+  let app: PwsClient
   let appDid: string
-  let stranger: WasClient
+  let stranger: PwsClient
   let space: Space
   let spaceUrl: string
 
   beforeAll(async () => {
-    ;({ was: alice } = await freshWasClient())
-    ;({ was: app, did: appDid } = await freshWasClient())
-    ;({ was: stranger } = await freshWasClient())
+    ;({ pws: alice } = await freshPwsClient())
+    ;({ pws: app, did: appDid } = await freshPwsClient())
+    ;({ pws: stranger } = await freshPwsClient())
 
     space = await alice.createSpace({ name: 'Revocation Integration' })
     spaceUrl = space.url
@@ -96,7 +96,7 @@ describeLive('space.revoke() (live server)', () => {
 
     await alice.spaceAt(spaceUrl).revoke(zcap)
 
-    // ...and is dead after it. WAS masks unauthorized as 404.
+    // ...and is dead after it. PWS masks unauthorized as 404.
     expect(await granted.get('doc-1')).toBeNull()
     await expect(granted.put('doc-2', { escape: true })).rejects.toThrow(
       NotFoundError
@@ -131,7 +131,7 @@ describeLive('space.revoke() (live server)', () => {
     expect(await granted.get('doc-1')).toBeNull()
   })
 
-  it('was.revoke() derives the space from the capability', async () => {
+  it('pws.revoke() derives the space from the capability', async () => {
     const zcap = await grantToApp()
     const granted = app
       .spaceAt(spaceUrl)
