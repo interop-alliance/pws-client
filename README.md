@@ -143,8 +143,9 @@ A client is built from the server's base server URL. The spec's Server Layout
 places the server-level endpoints under it: `{base}service` is the service
 description, `{base}spaces/` is the Spaces Repository, and
 `{base}space/{space_id}/` is a Space. The base must be an absolute `http(s)` URL
-with no query or fragment. A missing trailing slash is supplied. Anything else
-is refused with `ValidationError`. The result is exposed as `was.baseServerUrl`.
+with no query, fragment, or userinfo. A missing trailing slash is supplied.
+Anything else is refused with `ValidationError`. The result is exposed as
+`was.baseServerUrl`.
 
 `was.space(spaceId)` opens a handle on `{base}space/{spaceId}/`, with no I/O.
 `was.spaceAt(spaceUrl)` opens a handle on a Space URL you hold, such as the

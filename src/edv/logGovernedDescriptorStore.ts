@@ -99,6 +99,10 @@ export function toEpochConfigurationState(
  *   pin for this log
  * @param options.logId {string}   the pin-slot key for this log, from
  *   `resourceLogPinId`
+ * @param [options.previous] {VerifiedResourceLog}   the caller's own earlier
+ *   `verified` from this helper: when the served log extends it and the view
+ *   resolved now carries the version it was verified under, the read verifies
+ *   only the entries added since (the library checks both)
  * @returns {Promise<{ verified: VerifiedResourceLog; descriptor: CollectionEncryption; controller: ResourceLogController; etag?: string } | null>}
  *   the verified log, its head state as the descriptor, the controller view
  *   it was verified under, and the log's validator
@@ -107,12 +111,14 @@ export async function readGovernedEpochConfiguration({
   store,
   resolveController,
   pinStore,
-  logId
+  logId,
+  previous
 }: {
   store: ResourceLogStore
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
   logId: string
+  previous?: VerifiedResourceLog | null
 }): Promise<{
   verified: VerifiedResourceLog
   descriptor: CollectionEncryption
@@ -125,7 +131,8 @@ export async function readGovernedEpochConfiguration({
     controller,
     expectedMethod: RESOURCE_LOG_METHOD,
     pinStore,
-    logId
+    logId,
+    previous
   })
   if (current === null) {
     return null
@@ -193,6 +200,33 @@ function asDescriptorStoreConflict(err: unknown): unknown {
 }
 
 /**
+ * Whether an earlier controller view is a prefix of this one, so a record
+ * verified under the earlier one may be indexed against this one: the
+ * library's pre-write pass and its sealing shortcut both take the record's
+ * head controller version as an index into the view's version list. The
+ * controller log is append-only, so the earlier head sitting at its own index
+ * in this list is enough; an unversioned earlier view has no head to carry.
+ *
+ * @param options {object}
+ * @param options.earlier {ResourceLogController}
+ * @param options.controller {ResourceLogController}
+ * @returns {boolean}
+ */
+function viewCarriesHeadOf({
+  earlier,
+  controller
+}: {
+  earlier: ResourceLogController
+  controller: ResourceLogController
+}): boolean {
+  const headIndex = earlier.versionIds.length - 1
+  return (
+    headIndex < 0 ||
+    controller.versionIds[headIndex] === earlier.versionIds[headIndex]
+  )
+}
+
+/**
  * Builds the generic log-governed `EncryptionDescriptorStore` over a resource
  * log's transport seam. Because the seam is the same one the edv recipient
  * primitives (`initRecipients` / `addRecipient` / `removeRecipient`, with
@@ -236,12 +270,14 @@ export function logGovernedDescriptorStore({
   signer?: ResourceLogSigner
 }): LogGovernedDescriptorStore {
   // The verified log observed by the most recent read or confirmed append on
-  // this store instance, and the controller view it was verified under: the
-  // library's pre-write pass reads the head's controller version as an index
-  // into THAT view's version list, so a replace may only run it against a
-  // view this one is a prefix of.
-  let lastVerified: VerifiedResourceLog | null = null
-  let lastVerifiedView: ResourceLogController | null = null
+  // this store instance, and the controller view it was verified under
+  // (see viewCarriesHeadOf for why the view is kept). A resumed read needs
+  // no such gate: the library checks the view for itself and falls back to
+  // a full pass.
+  let held: {
+    verified: VerifiedResourceLog
+    view: ResourceLogController
+  } | null = null
 
   function requireSigner(operation: string): ResourceLogSigner {
     if (signer === undefined) {
@@ -261,32 +297,35 @@ export function logGovernedDescriptorStore({
     controller: ResourceLogController
   }): Promise<void> {
     const readBack = await confirmAppend({ store: log, entry })
+    // The read-back extends the head the entry was built on, so only the
+    // appended entry is verified.
     const confirmed = await verifyResourceLog({
       entries: readBack.entries,
       controller,
       expectedMethod: RESOURCE_LOG_METHOD,
-      pin: await pinStore.read({ logId })
+      pin: await pinStore.read({ logId }),
+      previous: held?.verified ?? null
     })
     await pinStore.write({ logId, pin: confirmed.pin })
-    lastVerified = confirmed
-    lastVerifiedView = controller
+    held = { verified: confirmed, view: controller }
   }
 
   const store: LogGovernedDescriptorStore = {
     async read() {
+      // A repeat read resumes from the log this instance last verified:
+      // only the entries added since are verified.
       const current = await readGovernedEpochConfiguration({
         store: log,
         resolveController,
         pinStore,
-        logId
+        logId,
+        previous: held?.verified ?? null
       })
       if (current === null) {
-        lastVerified = null
-        lastVerifiedView = null
+        held = null
         return null
       }
-      lastVerified = current.verified
-      lastVerifiedView = current.controller
+      held = { verified: current.verified, view: current.controller }
       return {
         descriptor: current.descriptor,
         verified: current.verified,
@@ -308,47 +347,42 @@ export function logGovernedDescriptorStore({
        * head now. The caller's validator still guards the append, so a seed
        * behind the served log loses the compare-and-swap as it would anywhere.
        */
-      if (lastVerified === null) {
+      if (held === null) {
         await store.read()
       }
-      if (lastVerified === null) {
+      if (held === null) {
         throw new ValidationError(
           'Cannot replace the governed descriptor: the log is absent.'
         )
       }
-      if (lastVerified.terminal) {
-        throw new ResourceLogClosedError({ nextLog: lastVerified.terminal })
+      const { verified, view } = held
+      if (verified.terminal) {
+        throw new ResourceLogClosedError({ nextLog: verified.terminal })
       }
       const controller = await resolveController()
       /**
        * The pre-write pass's precondition, enforced rather than assumed: the
-       * view that verified `lastVerified` must be a prefix of this one (the
-       * controller log is append-only, so carrying its head version is
-       * enough). A resolver that regressed is reported as the port's conflict
-       * class, so the edv machinery re-reads under the current view and
-       * rebases instead of the pass refusing on a bound that indexes another
-       * list.
+       * view that verified the held log must be a prefix of this one. A
+       * resolver that regressed is reported as the port's conflict class, so
+       * the edv machinery re-reads under the current view and rebases
+       * instead of the pass refusing on a bound that indexes another list.
        */
-      const verifiedHead =
-        lastVerifiedView?.versionIds[lastVerifiedView.versionIds.length - 1]
-      if (
-        verifiedHead !== undefined &&
-        !controller.versionIds.includes(verifiedHead)
-      ) {
+      if (!viewCarriesHeadOf({ earlier: view, controller })) {
         throw new PreconditionFailedError(
           'Cannot replace the governed descriptor: the controller view ' +
-            `resolved for this write does not carry version "${verifiedHead}", ` +
-            'which the preceding read verified against; re-read and retry.',
+            'resolved for this write does not extend the one the preceding ' +
+            `read verified against (its head version "${view.versionIds.at(-1)}" ` +
+            'is not at the same index); re-read and retry.',
           { status: 412 }
         )
       }
       const entry = await buildResourceLogEntry({
-        head: lastVerified.head,
+        head: verified.head,
         state: toEpochConfigurationState(descriptor),
         controller,
         signer: logSigner
       })
-      await verifyResourceLogAppend({ entry, controller, head: lastVerified })
+      await verifyResourceLogAppend({ entry, controller, head: verified })
       try {
         await log.append(entry, { ifMatch })
       } catch (err) {
@@ -365,8 +399,11 @@ export function logGovernedDescriptorStore({
        * store instance verified: a rotation that just appended carries a
        * version past the removal, so the sweep resolves noop with no
        * re-fetch, and a stale view is safe (sealResourceLog's append path
-       * re-reads before writing). The hint carries no validator here, since a
-       * confirmed append returns none, so the append path reads for itself.
+       * re-reads before writing, resuming from the hint). The hint carries
+       * no validator here, since a confirmed append returns none, so the
+       * append path reads for itself. The hint is withheld when the view it
+       * was verified under is not a prefix of this one (see
+       * viewCarriesHeadOf).
        */
       const { sealed, verified } = await sealResourceLog({
         store: log,
@@ -375,16 +412,16 @@ export function logGovernedDescriptorStore({
         pinStore,
         logId,
         signer: logSigner,
-        ...(lastVerified === null
-          ? {}
-          : { current: { verified: lastVerified } })
+        ...(held !== null &&
+        viewCarriesHeadOf({ earlier: held.view, controller })
+          ? { current: { verified: held.verified } }
+          : {})
       })
       // The sweep hands back the caller's own view untouched when it had
       // nothing to write; only a log it read or appended was verified under
       // this call's controller view.
-      if (verified !== null && verified !== lastVerified) {
-        lastVerified = verified
-        lastVerifiedView = controller
+      if (verified !== null && verified !== held?.verified) {
+        held = { verified, view: controller }
       }
       return sealed ? 'sealed' : 'noop'
     }
@@ -413,8 +450,7 @@ export function logGovernedDescriptorStore({
         signer: logSigner,
         state: toEpochConfigurationState(descriptor)
       })
-      lastVerified = verified
-      lastVerifiedView = controller
+      held = { verified, view: controller }
       if (!created) {
         throw new PreconditionFailedError(
           'The resource log create lost its guarded-create race: a log is ' +

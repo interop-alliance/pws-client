@@ -130,15 +130,35 @@ export function parseAbsoluteHttpUrl(url: string): URL | null {
 }
 
 /**
- * {@link parseAbsoluteHttpUrl} narrowed to a URL with no query or fragment:
- * the rule for which URLs may name a container.
+ * Whether a parsed URL carries userinfo (a username or password). The one
+ * rule for it, shared by the container URL canonicalizer and the listing
+ * pager's `next` link check.
+ *
+ * @param url {URL}
+ * @returns {boolean}
+ */
+export function hasUserinfo(url: URL): boolean {
+  return url.username !== '' || url.password !== ''
+}
+
+/**
+ * {@link parseAbsoluteHttpUrl} narrowed to a URL with no query, no fragment
+ * (a bare `?` or `#` counts), and no userinfo: the rule for which URLs may
+ * name a container.
  *
  * @param url {string}
  * @returns {URL | null}
  */
 function parseContainerUrl(url: string): URL | null {
+  // The input is checked for the markers rather than `search` / `hash`,
+  // which are both '' for a bare trailing `?` or `#`; those still mark a
+  // query or fragment. Userinfo is not part of the origin and so would be
+  // dropped from the canonical form; refuse it rather than rewrite the value.
+  if (url.includes('?') || url.includes('#')) {
+    return null
+  }
   const parsed = parseAbsoluteHttpUrl(url)
-  if (parsed === null || parsed.search !== '' || parsed.hash !== '') {
+  if (parsed === null || hasUserinfo(parsed)) {
     return null
   }
   return parsed
@@ -168,8 +188,8 @@ function canonicalContainer({
   const parsed = parseContainerUrl(url)
   if (parsed === null) {
     throw new ValidationError(
-      `"${url}" is not a ${what}: an absolute http(s) URL with no query or ` +
-        'fragment is required.'
+      `"${url}" is not a ${what}: an absolute http(s) URL with no query, ` +
+        'fragment, or userinfo is required.'
     )
   }
   const pathname = parsed.pathname.replace(/\/+$/, '')
@@ -197,14 +217,14 @@ export function isOriginRoot(canonical: string): boolean {
 /**
  * The base server URL in canonical form: the URL under which a server lays
  * out `service`, `spaces/` and `space/{space_id}/`. An absolute `http(s)` URL
- * with no query or fragment; a missing trailing slash is supplied rather than
- * refused, since `https://h/pws` and `https://h/pws/` can only mean the same
- * mount.
+ * with no query, fragment, or userinfo; a missing trailing slash is supplied
+ * rather than refused, since `https://h/pws` and `https://h/pws/` can only
+ * mean the same mount.
  *
  * @param baseServerUrl {string}
  * @returns {string}
  * @throws {ValidationError}   when the value is not an absolute `http(s)` URL,
- *   or carries a query or fragment
+ *   carries a query, fragment, or userinfo, or has an empty path segment
  */
 export function canonicalBaseServerUrl(baseServerUrl: string): string {
   return canonicalContainer({ url: baseServerUrl, what: 'base server URL' })
@@ -359,7 +379,7 @@ export function splitCollectionUrl(collectionUrl: string): {
  *   caller stored it
  * @returns {string}
  * @throws {ValidationError}   when `spaceUrl` is not an absolute `http(s)`
- *   URL, carries a query or fragment, or has an empty path segment
+ *   URL, carries a query, fragment, or userinfo, or has an empty path segment
  */
 export function canonicalSpaceUrl(spaceUrl: string): string {
   const canonical = canonicalContainer({ url: spaceUrl, what: 'Space URL' })

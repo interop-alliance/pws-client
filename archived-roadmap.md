@@ -4765,3 +4765,90 @@ record envelope started importing `canonicalSpaceUrl` from the entry.
 wallet-backup's dist probe, which fails on any evaluated transport module,
 caught it under was-client 0.100.1. The grammar and the submission are
 separable: nothing in the grammar sends.
+
+### WCL-119: [M] Governed descriptor reads re-verify the whole log on every acquisition
+
+- status: done
+- done: 2026-10-29
+- priority: medium
+- labels: encryption, log, performance
+- touches:
+  - vh-resource-log: shipped (0.10.0) -- `verifyResourceLog` and
+    `readResourceLog` take `previous`, the caller's earlier result, and verify
+    only the entries past its head; `appendResourceLog` resumes its reads and
+    read-back from the latest verification it holds; ARCHITECTURE.md invariant 2
+  - was-client (this repo): shipped -- `readGovernedEpochConfiguration` takes
+    `previous` (verified log plus the view it was verified under, resumed only
+    when the resolved view carries that view's head version), and
+    `logGovernedDescriptorStore` threads its last verified view through
+    `read()`, the replace read-back, and the seal hint;
+    `scripts/bench-log-verify.mjs`; CHANGELOG 0.102.0
+  - wallet-core: WC-310 (`logGovernedDescriptorSource`, the wallet stack's
+    acquisition path, keeps its last verified log per collection and passes it
+    as `previous`)
+  - freewallet: FW-696 (draft: a persisted verified-log snapshot beside the
+    descriptor cache for warm starts; the pin stores are in memory on both
+    persistence variants, so a session's first read stays full)
+  - portable-web-spaces-spec: WASS-63 (draft: a tail read of `meta/log`);
+    was-teaching-server: WAS-241 (draft, blocked on WASS-63); WAS-102 shipped
+- acceptance:
+  - [x] A repeat acquisition verifies only the entries after the held pin, plus
+        the chain link to it (on one store instance; the wallet stack's source
+        is WC-310)
+  - [x] Verification cost is measured (entries x roster size, desktop and a
+        low-end phone) before and after: desktop numbers below from
+        `scripts/bench-log-verify.mjs`; the phone run uses the same script and
+        is still to be taken
+  - [x] Every bounding option below is either done or filed where it lives
+
+Measured 2026-10-29 (desktop, Node, mean of 3): a full pass costs about 0.9 to
+1.1 ms per entry, nearly flat in roster size (10 entries x 1 recipient 15.7 ms,
+300 x 1 269 ms, 300 x 10 285 ms, 300 x 50 329 ms; the 300 x 50 log serializes to
+6.3 MB). A resumed pass with one new entry costs about 1 ms whatever the log
+length; with no new entry, under 0.02 ms. Options 1 (incremental from the held
+record) and 4 (WAS-102) are done; 2 is WASS-63 / WAS-241; 3 is FW-696.
+
+With WCL-118's `requireGoverned` on, every encrypted collection in the wallet
+stack reads its descriptor from its governing log. Current costs:
+
+- Reads. `ResourceLogStore.read()` fetches the full JSONL body, and
+  `verifyResourceLog` re-runs every check on every entry on every call. The pin
+  is only a rollback check afterwards and never skips already-verified entries.
+  Per entry, that is JCS canonicalization plus SHA-256 for the chain, the same
+  again per proof, and one Ed25519 verify per proof. The only cache is a
+  hash-value memo in did-method-webvh.
+- Growth. Each rotation and each recipient add or remove appends a full
+  descriptor snapshot, wrapped keys for every recipient included, and a seal
+  appends one more entry. There is no compaction or checkpoint, so a log grows
+  roughly as changes x roster size.
+- Frequency. Acquisition runs at cipher build and at most once more per cipher
+  on `UnknownEpochError`, never per document read or write. freewallet acquires
+  5 collections concurrently at session start. The controller log is memoized
+  per session (freewallet's `verifiedAccountLog`), and a did:key controller
+  costs nothing.
+- Writes. A governed append is 2 log GETs and 1 PUT (read and re-verify, sign,
+  pre-verify, CAS, then read back and re-verify), with up to 3 attempts on
+  conflict. A point-state write is 1 PUT. Writes happen only on rotations and
+  recipient changes.
+- Server. The teaching server re-parses the whole log on every Collection
+  Metadata read to derive the projection (WAS-102).
+
+No benchmark exists yet. A rough estimate: tens of entries verify in single- to
+double-digit milliseconds, and the body fetch dominates. A long-lived shared
+collection with hundreds of rotations and a large roster could mean megabytes
+per acquisition, for each collection at every session start.
+
+Bounding options, from most to least effective:
+
+1. Incremental verification from the pin. Remember the verified head, verify
+   only new entries and their link to it. No wire change. This alone makes
+   repeat reads proportional to the entries added since the last session.
+2. Read only the tail. Fetch entries after a known `versionId` via a range or
+   query on `meta/log`. A new WAS wire contract, so it needs a maintainer
+   decision first.
+3. Keep a local snapshot of the verified log beside the cached descriptor, so a
+   warm start fetches only the delta. Pairs with 1.
+4. Close WAS-102 on the server: cache the derived projection, or read only the
+   head line.
+
+discovered-from: WCL-118.

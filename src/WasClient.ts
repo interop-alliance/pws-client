@@ -112,10 +112,10 @@ export class WasClient {
   /**
    * @param options {object}
    * @param options.baseServerUrl {string}   the server's base server URL: an
-   *   absolute http(s) URL with no query or fragment, under which the server
-   *   serves `service`, `spaces/` and `space/{space_id}/`. A missing trailing
-   *   slash is supplied. For a server that is one fixed Space with no base,
-   *   use {@link WasClient.forSpace} instead
+   *   absolute http(s) URL with no query, fragment, or userinfo, under which
+   *   the server serves `service`, `spaces/` and `space/{space_id}/`. A
+   *   missing trailing slash is supplied. For a server that is one fixed
+   *   Space with no base, use {@link WasClient.forSpace} instead
    * @param options.zcapClient {ZcapClient}   an ezcap client holding the signer
    * @param [options.encryption] {EncryptionProvider}   the keystore that
    *   supplies keys for collections declared encrypted (by their `encryption`
@@ -132,7 +132,7 @@ export class WasClient {
    *   URL) if it describes another server (see {@link service}).
    *   `service({ refresh: true })` discards it and discovers afresh.
    * @throws {ValidationError}   when `baseServerUrl` is not an absolute
-   *   http(s) URL, or carries a query or fragment
+   *   http(s) URL, or carries a query, fragment, or userinfo
    */
   constructor(
     options: {

@@ -324,6 +324,17 @@ describe('canonicalSpaceUrl', () => {
     )
   })
 
+  it('refuses a bare query or fragment marker and userinfo', () => {
+    for (const url of [
+      'https://was.example/space/home/?',
+      'https://was.example/space/home/#',
+      'https://user:pw@was.example/space/home/',
+      'https://user@was.example/space/home/'
+    ]) {
+      expect(() => canonicalSpaceUrl(url)).toThrow(ValidationError)
+    }
+  })
+
   it('adds a missing trailing slash and collapses a run of them', () => {
     expect(canonicalSpaceUrl('https://was.example/space/home')).toBe(SPACE_URL)
     expect(canonicalSpaceUrl('https://was.example/space/home//')).toBe(
@@ -785,7 +796,17 @@ describe('the server layout under a base server URL', () => {
   it('canonicalBaseServerUrl supplies the trailing slash and normalizes', () => {
     expect(canonicalBaseServerUrl('https://h/pws')).toBe('https://h/pws/')
     expect(canonicalBaseServerUrl('https://H:443')).toBe('https://h/')
-    for (const url of ['nope', 'ftp://h/', 'https://h/?q=1', 'https://h/#f']) {
+    for (const url of [
+      'nope',
+      'ftp://h/',
+      'https://h/?q=1',
+      'https://h/#f',
+      'https://h/?',
+      'https://h/#',
+      'https://user:pw@h/',
+      'https://user@h/pws',
+      'https://h/a//b'
+    ]) {
       expect(() => canonicalBaseServerUrl(url)).toThrow(ValidationError)
     }
   })

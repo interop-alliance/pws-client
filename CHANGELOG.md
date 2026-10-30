@@ -1,5 +1,25 @@
 # @interop/was-client Changelog
 
+## 0.102.0 - TBD
+
+### Changed
+
+- A governed descriptor read verifies only the entries added since the log the
+  same store instance last verified. `readGovernedEpochConfiguration` takes an
+  optional `previous` (its own earlier `verified`); the library resumes from it
+  when the served log extends it under a controller view that still carries its
+  head version, and verifies in full otherwise. `logGovernedDescriptorStore`
+  threads its last verified log through `read()`, the replace read-back (which
+  now verifies the one entry it appended), and the seal hint. The seal hint is
+  withheld, and a replace reports the port's 412 naming the missing version,
+  when the controller view it was verified under is not a prefix of the one
+  resolved now. Needs `@interop/vh-resource-log` 0.10.0.
+- `scripts/bench-log-verify.mjs` measures a full pass against a resumed one over
+  a log of N entries with R wrapped recipients each.
+- `canonicalBaseServerUrl` and `canonicalSpaceUrl` refuse a bare trailing `?` or
+  `#` (previously accepted and the marker dropped) and a URL carrying userinfo
+  (previously rewritten to its origin).
+
 ## 0.101.0 - 2026-10-29
 
 ### Added

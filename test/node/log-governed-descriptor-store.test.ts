@@ -215,6 +215,28 @@ function fakeGovernedCollection(
  *
  * @returns {Promise<object>}
  */
+/**
+ * A controller view that counts its document dereferences. The verifier
+ * dereferences the controller document once per entry it checks proofs on,
+ * so the count is the number of entries verified.
+ */
+function countingController(view: ResourceLogController): {
+  controller: ResourceLogController
+  calls: number
+} {
+  const counted = {
+    calls: 0,
+    controller: {
+      ...view,
+      async documentAt(versionId?: string) {
+        counted.calls++
+        return view.documentAt(versionId)
+      }
+    }
+  }
+  return counted
+}
+
 async function governedFixture() {
   const reader = await makeReader()
   const writer = await makeWriter()
@@ -642,6 +664,89 @@ describe('logGovernedDescriptorStore over any resource log', () => {
     })
     // Nothing to seal against a one-version controller.
     expect(await store.seal()).toBe('noop')
+  })
+
+  it('resumes a repeat read and a read-back from the last verified view', async () => {
+    const { reader, writer, options } = await genericFixture()
+    const counted = countingController(writer.controller)
+    const store = logGovernedDescriptorStore({
+      ...options,
+      resolveController: async () => counted.controller,
+      signer: writer.signer
+    })
+    await initRecipients({ store, recipients: [reader.recipient] })
+    // The genesis: verified pre-write and on read-back.
+    expect(counted.calls).toBe(2)
+    await store.read()
+    // The served log is the verified one: nothing to verify.
+    expect(counted.calls).toBe(2)
+    const other = await makeReader()
+    await addRecipient({
+      store,
+      recipient: other.recipient,
+      owner: { keyAgreementKey: reader.kak }
+    })
+    // The recipient add reads (nothing new), then appends: the candidate
+    // pre-write and the read-back, one entry each.
+    expect(counted.calls).toBe(4)
+    const fresh = logGovernedDescriptorStore({
+      ...options,
+      resolveController: async () => counted.controller,
+      signer: writer.signer
+    })
+    const current = await fresh.read()
+    // A fresh instance holds no view and verifies the two entries in full.
+    expect(counted.calls).toBe(6)
+    expect(current?.verified?.entries).toHaveLength(2)
+  })
+
+  it('verifies in full, and refuses a replace, under a view the held one is not a prefix of', async () => {
+    const { reader, writer } = await genericFixture()
+    const { keyMultibase } = writer.signer
+    const versions = [
+      { versionId: '1-a', keys: [keyMultibase] },
+      { versionId: '2-b', keys: [keyMultibase] }
+    ]
+    const held = countingController(fakeController({ versions }))
+    // A rewritten history: the held view's head version is still listed, but
+    // no longer at its own index, so an index taken under the held view
+    // names another version here.
+    const shifted = countingController(
+      fakeController({
+        versions: [{ versionId: '0-z', keys: [keyMultibase] }, ...versions]
+      })
+    )
+    let resolved = held
+    const store = logGovernedDescriptorStore({
+      log: memoryLogStore(),
+      resolveController: async () => resolved.controller,
+      pinStore: memoryResourceLogPinStore(),
+      logId: 'space/s1/key-map/vault.jsonl',
+      signer: writer.signer
+    })
+    const descriptor = await initRecipients({
+      store,
+      recipients: [reader.recipient]
+    })
+    const other = await makeReader()
+    await addRecipient({
+      store,
+      recipient: other.recipient,
+      owner: { keyAgreementKey: reader.kak }
+    })
+    resolved = shifted
+    const current = await store.read()
+    // The library declines to resume and verifies both entries in full.
+    expect(shifted.calls).toBe(2)
+    // The read verified under the shifted view, so a replace against it is
+    // admitted; one against the held view is the port's conflict.
+    resolved = held
+    await expect(
+      store.replace(descriptor, { ifMatch: current!.etag! })
+    ).rejects.toThrow(PreconditionFailedError)
+    await expect(
+      store.replace(descriptor, { ifMatch: current!.etag! })
+    ).rejects.toThrow('"2-b"')
   })
 
   it('refuses an unconditional replace', async () => {

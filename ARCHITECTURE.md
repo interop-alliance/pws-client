@@ -676,31 +676,39 @@ the log's verified head state, `replace` / `create` are signed appends
 (verified-head build, the library's pre-write pass, compare-and-swap with the
 conflict translated to the port's `PreconditionFailedError`, read-back and pin),
 and `seal()` is the library's sealing sweep over the log this instance last
-verified; wallet-core's user key roster store wraps it. The pointer-following
-one, `logGovernedCollectionDescriptorStore`, reads the Collection Metadata
-object and dispatches on its `encryption` member: no `history` is the plain
-adapter's behavior; `history` present means the served descriptor is a
-projection of the Collection's `/meta/log` history log, and the read refuses a
-`history.method` other than the profile's format identifier or a
-`history.resource` other than `collection.historyLogUrl` before any fetch, then
-verifies the log through `@interop/vh-resource-log` (`readResourceLog` under a
-caller-supplied controller port and pin store, wrapped by
-`readGovernedEpochConfiguration`, which also refuses a head whose `state.type`
-is not `WasEpochConfiguration`) and refuses a projection that does not JCS-equal
-the verified head's `state` after stripping `history`. The Collection Metadata
-object and the log are two reads, so a projection equal to an earlier entry's
-state (a concurrent append landed between them) is the port's
-`PreconditionFailedError` and the CAS loop rebases; only a projection matching
-no entry is an integrity refusal. Writes on a governed Collection are the
-generic store's appends (`toEpochConfigurationState` strips `history` and stamps
-`type`), and `seal()` is forwarded to the generic store. The controller port is
-injected: this package does no DID-method resolution. The hosting collection may
-be plaintext or encrypted; an encrypted host must be created under an id the
-codec mints. A `mutate` resolving `null` means "the store already reflects the
-desired state" and ends the loop without a write; `initRecipients` uses it to
-adopt the winner's descriptor after losing the first-create race, while still
-refusing (`ValidationError`) a descriptor that already carried epochs on its
-first read.
+verified; wallet-core's user key roster store wraps it. The instance keeps the
+log it last verified and the controller view it verified it under. Every later
+read on it (`read()`, the replace read-back, the seal hint) resumes the
+library's verification from that head, so only the entries added since are
+verified. The library falls back to a full pass when the served log does not
+extend the held one or the resolved controller view does not carry its head
+version at the same index. The seal hint and the replace pre-write pass index
+that head version into the resolved view directly, so both are withheld unless
+the held view is a prefix of the resolved one; a replace reports the mismatch as
+the port's 412. The pointer-following one,
+`logGovernedCollectionDescriptorStore`, reads the Collection Metadata object and
+dispatches on its `encryption` member: no `history` is the plain adapter's
+behavior; `history` present means the served descriptor is a projection of the
+Collection's `/meta/log` history log, and the read refuses a `history.method`
+other than the profile's format identifier or a `history.resource` other than
+`collection.historyLogUrl` before any fetch, then verifies the log through
+`@interop/vh-resource-log` (`readResourceLog` under a caller-supplied controller
+port and pin store, wrapped by `readGovernedEpochConfiguration`, which also
+refuses a head whose `state.type` is not `WasEpochConfiguration`) and refuses a
+projection that does not JCS-equal the verified head's `state` after stripping
+`history`. The Collection Metadata object and the log are two reads, so a
+projection equal to an earlier entry's state (a concurrent append landed between
+them) is the port's `PreconditionFailedError` and the CAS loop rebases; only a
+projection matching no entry is an integrity refusal. Writes on a governed
+Collection are the generic store's appends (`toEpochConfigurationState` strips
+`history` and stamps `type`), and `seal()` is forwarded to the generic store.
+The controller port is injected: this package does no DID-method resolution. The
+hosting collection may be plaintext or encrypted; an encrypted host must be
+created under an id the codec mints. A `mutate` resolving `null` means "the
+store already reflects the desired state" and ends the loop without a write;
+`initRecipients` uses it to adopt the winner's descriptor after losing the
+first-create race, while still refusing (`ValidationError`) a descriptor that
+already carried epochs on its first read.
 
 Tamper resistance: each write binds an AEAD-authenticated `was` parameter
 (scheme version, resource id, epoch) into the JWE protected header, verified on
@@ -1135,8 +1143,8 @@ it, and otherwise cover the client-side concepts this file names.
   shares by reference (`src/internal/request.ts`). It holds no base server URL.
   See The handle model.
 - **Base server URL** -- the absolute `http(s)` URL, with a trailing slash and
-  no query or fragment, under which the spec's Server Layout places the
-  server-level endpoints. The client is built from it and exposes it as
+  no query, fragment, or userinfo, under which the spec's Server Layout places
+  the server-level endpoints. The client is built from it and exposes it as
   `was.baseServerUrl`. Avoid: `serverUrl`, `baseUrl`, host, server root. See
   Service discovery.
 - **Space URL** -- the absolute URL of one Space, in canonical form (trailing

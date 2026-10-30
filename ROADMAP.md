@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 146
+nextAvailableId: 149
 
 <!-- roadmap-order:index:start -->
 
@@ -52,6 +52,10 @@ Ready:
   unreachable on every read
 - WCL-89 [M] A mid-walk 404 truncates a listing, and the walk throws untyped
   errors
+- WCL-147 [M] The controller-view prefix gate is a client-side copy of a library
+  precondition
+- WCL-148 [M] `viewCarriesHeadOf` compares the held view's tail, not the held
+  head's controller version
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -72,6 +76,8 @@ Ready:
 
 Ready:
 
+- WCL-146 [M] Check for the Portable Wallet Profile entry in the service
+  description
 - WCL-131 [M] The Resource `/meta` validator's relation to content writes is
   unstated in the spec
 - WCL-107 [M] Require an authorization profile entry in the service description
@@ -98,8 +104,6 @@ Ready:
 
 Ready:
 
-- WCL-119 [M] Governed descriptor reads re-verify the whole log on every
-  acquisition
 - WCL-61 [L] EDV key housekeeping -- unbounded resolver memo, duplicated
   first-epoch install
 
@@ -822,6 +826,72 @@ page.
 
 discovered-from: whole-codebase review, 2026-09-11.
 
+### WCL-147: [M] The controller-view prefix gate is a client-side copy of a library precondition
+
+- status: todo
+- priority: medium
+- labels: encryption, resource-log, correctness
+- discovered-from: review of the resumed-verification change, 2026-10-30
+- touches:
+  - "@interop/vh-resource-log": `sealResourceLog` and `verifyResourceLogAppend`
+    guard their own `current` / `head` arguments against the view they are
+    given, and the view predicate is exported
+- acceptance:
+  - [ ] `sealResourceLog` discards a `current` hint whose head controller
+        version does not resolve at its index in the view it was given, and
+        falls back to its own read, the way `verifyResourceLog` already does
+        for `previous`
+  - [ ] `verifyResourceLogAppend` refuses a `head` whose controller version
+        index does not resolve in `controller` with a distinct typed error,
+        which `replace` maps to `PreconditionFailedError`
+  - [ ] The predicate the library uses for `previous` is exported, and
+        `viewCarriesHeadOf` in `src/edv/logGovernedDescriptorStore.ts` is
+        removed along with the held controller view
+  - [ ] The two tests in `test/node/log-governed-descriptor-store.test.ts`
+        that count verified entries under a shifted view keep passing
+
+`logGovernedDescriptorStore` keeps the controller view each read or append was
+verified under, and gates `replace` and the `seal` hint on
+`viewCarriesHeadOf`: both library entry points take the held record's head
+controller version as an index into the view's version list, and neither
+checks the view for itself. The library already performs that check for
+`previous` on a resumed read (its private `resumeFrom` compares the head
+proof's actual controller version at its index and falls back to a full pass),
+so the client-side gate exists only because `current` and `head` lack the same
+guard. The client's copy is also looser than the library's (WCL-148). Moving the
+check upstream makes the mismatch impossible to hand in and deletes the held
+view from the client.
+
+### WCL-148: [M] `viewCarriesHeadOf` compares the held view's tail, not the held head's controller version
+
+- status: todo
+- priority: medium
+- labels: encryption, resource-log, correctness
+- discovered-from: review of the resumed-verification change, 2026-10-30
+- acceptance:
+  - [ ] The gate in `src/edv/logGovernedDescriptorStore.ts` takes the held
+        record's `headControllerVersionIndex` and checks that the version id
+        at that index in the held view is the version id at the same index in
+        the view resolved now
+  - [ ] A test where the controller advanced between the head's proof and the
+        held view (the held view lists versions past the head's) shows the
+        gate admitting a view that carries the head's version and refusing one
+        that does not, independent of the held view's tail
+  - [ ] The two existing shifted-view tests keep passing
+
+The library's pre-write pass and sealing shortcut index the held record's
+`headControllerVersionIndex` into the resolved view's version list. The
+client's gate approximates that by checking the held view's last version id at
+its own index. The two agree only while the head's index is the held view's
+last index. Once the controller advanced between the head's proof and the view
+the read verified under, the held view's tail sits past the head, and the gate
+checks an index the library never reads: it can refuse a view that carries the
+head's version, or admit one that does not. The library's own resume check
+for `previous` compares the head proof's version at `headControllerVersionIndex`,
+which the verified record already exposes, so the client can compare the same
+thing with no upstream change. WCL-147 removes the gate altogether once the
+library guards its own arguments; this item makes it correct until then.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1079,9 +1149,6 @@ without this upstream fix.
 
 ## Spec and protocol
 
-Conformance gaps against the spec, and wire-contract changes the client adopts
-once the spec or the server has settled them.
-
 ### WCL-140: [H] [after WASS-60] Construct from a base server URL under a fixed server layout; open a fixed Space by its own URL
 
 - status: in-progress
@@ -1151,6 +1218,60 @@ peers under one base server URL, the client is built from it, and a server that
 is a single fixed Space with no id is opened from its own URL through a separate
 entry point. discovered-from: the dcw /simplify pass of 2026-10-27, the spec
 reading that followed, and the wallet-core port of 2026-10-29.
+
+### WCL-146: [M] Check for the Portable Wallet Profile entry in the service description
+
+- status: todo
+- priority: medium
+- labels: service-description, wallet-profile, spec-alignment
+- discovered-from: portable-wallet-profile-spec PWP-1 (archived 2026-10-30)
+- touches:
+  - portable-wallet-profile-spec: PWP-1. SHIPPED (2026-09-16): the profile's
+    persistent identifier is `https://w3id.org/pws/wallet-profile`, its version
+    is `0.1`, and its entry carries exactly `version` (required) and `url`
+    (optional), no `features`. The entry is a shorthand for the required tokens
+    under the `https://w3id.org/pws` `0.5` entry (`listing`,
+    `collection-management`, `space-management`, `policy`, `export`,
+    `encryption`, `changes-query`) and the
+    `https://w3id.org/pws/encrypted-collections` `0.1` entry
+    (`blinded-index-query`, `governed-history-logs`); see
+    `https://interop-alliance.github.io/portable-wallet-profile-spec/#entry-as-shorthand`
+  - was-teaching-server: WAS-243 lists the entry; this item's tests need a
+    server past that item (the pair rule of LEARNINGS.md applies)
+  - was-conformance-suite: PWSCS-33 is the server-side counterpart and does not
+    gate this item
+  - wallet-core: the caller that decides whether a server can host an account;
+    today it checks tokens one by one, and gains the one-call check this item
+    adds. Verify and name the call site, or waive
+- acceptance:
+  - [ ] A `WALLET_PROFILE_ID` constant beside `PWS_SPEC_ID` and
+        `AUTHZ_PROFILE_ID` in `src/internal/service.ts`
+  - [ ] `ServiceInfo` exposes whether a `https://w3id.org/pws/wallet-profile`
+        entry with `version` `0.1` is present. An entry carrying any member
+        other than `version` and `url` is treated as absent (the profile's
+        fail-closed rule)
+  - [ ] A helper (name to be signed off under the ask-first rule) answers "does
+        this server satisfy the wallet profile" by the entry when present, and
+        otherwise by the per-token checks over the PWS and PWS-EC entries. When
+        the entry is present the helper also audits the parts and answers no on
+        a mismatch, per `#entry-as-shorthand`
+  - [ ] The absence of the entry is never by itself a refusal: a server whose
+        PWS and PWS-EC entries carry every required token is accepted
+  - [ ] `test/node/service.test.ts` gains fixtures for: entry present and parts
+        consistent; entry present and a required token missing; entry absent and
+        all tokens present; entry absent and a token missing; entry with a stray
+        member
+  - [ ] README.md and ARCHITECTURE.md (the Service description glossary entry)
+        name the third `specs` key the client reads and cite the profile
+  - [ ] CHANGELOG entry
+
+Filed 2026-10-30 from portable-wallet-profile-spec PWP-1, whose spec text
+shipped 2026-09-16; this is the client half it named. The check is sugar over
+the per-token checks the client already makes, so no existing behavior changes;
+the item adds one name for the set so wallet callers stop re-listing the tokens.
+
+Conformance gaps against the spec, and wire-contract changes the client adopts
+once the spec or the server has settled them.
 
 ### WCL-131: [M] The Resource `/meta` validator's relation to content writes is unstated in the spec
 
@@ -1413,69 +1534,6 @@ call directly. discovered-from: WCL-123.
 ## Performance
 
 Request or memory cost on a path that already answers correctly.
-
-### WCL-119: [M] Governed descriptor reads re-verify the whole log on every acquisition
-
-- status: todo
-- priority: medium
-- labels: encryption, log, performance
-- touches:
-  - vh-resource-log: incremental verification from a held pin lives in the
-    verifier
-  - portable-web-spaces-spec, was-teaching-server: a tail read of `meta/log` is
-    a new wire contract; WAS-102 already covers the server re-parsing the log on
-    every Collection Metadata read
-- acceptance:
-  - [ ] A repeat acquisition verifies only the entries after the held pin, plus
-        the chain link to it
-  - [ ] Verification cost is measured (entries x roster size, desktop and a
-        low-end phone) before and after
-  - [ ] Every bounding option below is either done or filed where it lives
-
-With WCL-118's `requireGoverned` on, every encrypted collection in the wallet
-stack reads its descriptor from its governing log. Current costs:
-
-- Reads. `ResourceLogStore.read()` fetches the full JSONL body, and
-  `verifyResourceLog` re-runs every check on every entry on every call. The pin
-  is only a rollback check afterwards and never skips already-verified entries.
-  Per entry, that is JCS canonicalization plus SHA-256 for the chain, the same
-  again per proof, and one Ed25519 verify per proof. The only cache is a
-  hash-value memo in did-method-webvh.
-- Growth. Each rotation and each recipient add or remove appends a full
-  descriptor snapshot, wrapped keys for every recipient included, and a seal
-  appends one more entry. There is no compaction or checkpoint, so a log grows
-  roughly as changes x roster size.
-- Frequency. Acquisition runs at cipher build and at most once more per cipher
-  on `UnknownEpochError`, never per document read or write. freewallet acquires
-  5 collections concurrently at session start. The controller log is memoized
-  per session (freewallet's `verifiedAccountLog`), and a did:key controller
-  costs nothing.
-- Writes. A governed append is 2 log GETs and 1 PUT (read and re-verify, sign,
-  pre-verify, CAS, then read back and re-verify), with up to 3 attempts on
-  conflict. A point-state write is 1 PUT. Writes happen only on rotations and
-  recipient changes.
-- Server. The teaching server re-parses the whole log on every Collection
-  Metadata read to derive the projection (WAS-102).
-
-No benchmark exists yet. A rough estimate: tens of entries verify in single- to
-double-digit milliseconds, and the body fetch dominates. A long-lived shared
-collection with hundreds of rotations and a large roster could mean megabytes
-per acquisition, for each collection at every session start.
-
-Bounding options, from most to least effective:
-
-1. Incremental verification from the pin. Remember the verified head, verify
-   only new entries and their link to it. No wire change. This alone makes
-   repeat reads proportional to the entries added since the last session.
-2. Read only the tail. Fetch entries after a known `versionId` via a range or
-   query on `meta/log`. A new WAS wire contract, so it needs a maintainer
-   decision first.
-3. Keep a local snapshot of the verified log beside the cached descriptor, so a
-   warm start fetches only the delta. Pairs with 1.
-4. Close WAS-102 on the server: cache the derived projection, or read only the
-   head line.
-
-discovered-from: WCL-118.
 
 ### WCL-61: [L] EDV key housekeeping -- unbounded resolver memo, duplicated first-epoch install
 
