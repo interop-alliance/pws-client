@@ -60,12 +60,12 @@ import { httpStatus, NotFoundError, NotSupportedError } from '../errors.js'
 import { readJsonData } from '../internal/content.js'
 import { readEtag, writeHeaders } from '../internal/conditional.js'
 import {
-  canonicalSpaceUrl,
   resourceChunkUrl,
   resourceChunksUrl,
   resourceUrl,
   collectionQueryUrl
 } from '../internal/paths.js'
+import { canonicalSpaceUrl } from '../internal/layout.js'
 import { DEFAULT_CONTENT_TYPE, envelopeBytes } from './constants.js'
 
 /**

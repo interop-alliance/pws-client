@@ -27,17 +27,16 @@ import type { ZcapClient } from '@interop/ezcap'
 import { isValidTarget } from '@interop/zcap'
 import type { HttpResponse } from '@interop/http-client'
 import type { ServiceDescription } from '@interop/storage-core'
+import { canonicalContainerUrl, parseSpaceTarget } from './internal/paths.js'
 import {
   canonicalBaseServerUrl,
-  canonicalContainerUrl,
   canonicalSpaceUrl,
   parseAbsoluteHttpUrl,
-  parseSpaceTarget,
   serviceDescriptionUrl,
   spacesRepositoryUrl,
   spaceUrlById,
   splitCollectionUrl
-} from './internal/paths.js'
+} from './internal/layout.js'
 import type { ClientContext } from './internal/request.js'
 import { send, rawRequest, unsignedRequest } from './internal/request.js'
 import { parseResource, readJsonData } from './internal/content.js'

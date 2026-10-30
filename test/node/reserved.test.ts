@@ -20,7 +20,7 @@ import {
   isReservedCollectionId,
   isReservedResourceId,
   resourceUrl
-} from '../../src/paths.js'
+} from '../../src/paths/index.js'
 
 describe('assertNotReserved', () => {
   it('throws a ValidationError for a reserved collection id', () => {

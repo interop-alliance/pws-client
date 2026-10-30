@@ -16,7 +16,6 @@
  * removes the Collection.
  */
 import {
-  canonicalSpaceUrl,
   collectionUrl,
   collectionPolicyUrl,
   collectionLinksetUrl,
@@ -27,6 +26,7 @@ import {
   collectionLogUrl,
   resourceUrl
 } from './internal/paths.js'
+import { canonicalSpaceUrl } from './internal/layout.js'
 import { assertNotReserved } from './internal/reserved.js'
 import {
   NotFoundError,

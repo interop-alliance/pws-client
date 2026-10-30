@@ -56,9 +56,9 @@ export {
   WasSyncNotFoundError,
   WasServerError,
   httpStatus,
-  isDenialError,
-  mapError
+  isDenialError
 } from './errors.js'
+export { mapError } from './internal/mapError.js'
 
 export { isChunkedWrite } from './codec.js'
 export type {

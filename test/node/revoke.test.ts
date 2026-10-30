@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest'
 
 import { ValidationError, NotFoundError } from '../../src/index.js'
 import type { IDelegatedZcap } from '../../src/index.js'
-import { rootCapabilityId } from '../../src/paths.js'
+import { rootCapabilityId } from '../../src/paths/index.js'
 import { clientWithRequestSpy, spaceUrlFor } from '../helpers/stubClient.js'
 
 const SPACE_URL = spaceUrlFor('space-1')

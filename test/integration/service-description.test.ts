@@ -24,7 +24,7 @@ import {
   serviceDescriptionUrl,
   spacesRepositoryUrl,
   spaceUrlById
-} from '../../src/paths.js'
+} from '../../src/paths/index.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip

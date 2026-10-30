@@ -162,6 +162,13 @@ inverse. It accepts the service, Spaces Repository or Space URL and rejects
 anything else. `splitCollectionUrl(url)` splits a Collection URL into its Space
 URL and id.
 
+`@interop/was-client/paths/layout` exports these same functions and nothing
+else, with no package behind them. Import it where one URL is validated and the
+rest of `./paths` (the reserved-id predicates, which read
+`@interop/storage-core`'s registry, and the root capability grammar from
+`@interop/zcap`) is not wanted; under plain Node ESM `./paths` evaluates both
+packages on first import.
+
 #### Single fixed Space
 
 Some servers are one Space with no id and no base server URL, such as a personal

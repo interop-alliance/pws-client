@@ -25,7 +25,7 @@
  */
 import { isValidTarget } from '@interop/zcap'
 import type { ClientContext } from './request.js'
-import { canonicalSpaceUrl } from './paths.js'
+import { canonicalSpaceUrl } from './layout.js'
 import { rootCapabilityId } from './rootCapability.js'
 import { ValidationError } from '../errors.js'
 import type { GrantOptions, IDelegatedZcap, IZcap } from '../types.js'

@@ -112,7 +112,7 @@ description, or a Spaces Repository URL (from which a HEAD request yields the
 
 - A breaking was-client release (0.100.0), followed by wallet-core (WC-307),
   wallet-request (WR-4), freewallet (FW-694), was-react (WR-98), and dcw
-  (DCW-104); the teaching server's testing counterpart is WAS-234. The teaching
+  (DCW-104); the teaching server's testing counterpart is WSS-234. The teaching
   server's testing counterpart changes its return value; the server itself
   already sends the `service` link on every response.
 - Every stored account pointer, invitation QR, and dcw profile row changes

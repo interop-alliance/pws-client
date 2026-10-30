@@ -13,7 +13,7 @@
  */
 import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
 import { discoverService } from '../../src/index.js'
-import { baseServerUrlOf } from '../../src/paths.js'
+import { baseServerUrlOf } from '../../src/paths/index.js'
 
 export default async function setup(): Promise<() => Promise<void>> {
   if (process.env.TEST_SERVER_URL) {

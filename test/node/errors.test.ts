@@ -31,7 +31,7 @@ import {
   httpStatus,
   isDenialError
 } from '../../src/index.js'
-import { mapError } from '../../src/errors.js'
+import { mapError } from '../../src/internal/mapError.js'
 
 describe('mapError', () => {
   it('maps 400 to ValidationError', () => {

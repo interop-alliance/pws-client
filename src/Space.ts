@@ -18,8 +18,6 @@
  */
 import type { HttpResponse } from '@interop/http-client'
 import {
-  canonicalSpaceUrl,
-  spaceIdOfCanonicalUrl,
   spaceMetaUrl,
   spaceExportUrl,
   spaceImportUrl,
@@ -32,6 +30,7 @@ import {
   replicaRegistrationUrl,
   replicaStatusUrl
 } from './internal/paths.js'
+import { canonicalSpaceUrl, spaceIdOfCanonicalUrl } from './internal/layout.js'
 import { assertNotReserved } from './internal/reserved.js'
 import { compareAndSwap, composeAndSwap } from './internal/cas.js'
 import {

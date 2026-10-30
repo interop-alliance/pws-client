@@ -24,7 +24,7 @@ import {
   NotSupportedError,
   PreconditionFailedError
 } from '../../src/index.js'
-import { rootCapabilityId } from '../../src/paths.js'
+import { rootCapabilityId } from '../../src/paths/index.js'
 import type { CollectionEncryption, IZcap } from '../../src/index.js'
 import { Space } from '../../src/Space.js'
 import { Collection } from '../../src/Collection.js'

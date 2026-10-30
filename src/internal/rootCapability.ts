@@ -15,7 +15,7 @@
  * submission that uses `rootCapability` lives in `revoke.ts`.
  */
 import { constants } from '@interop/zcap'
-import { canonicalSpaceUrl } from './paths.js'
+import { canonicalSpaceUrl } from './layout.js'
 import { ValidationError } from '../errors.js'
 import type { IRootZcap, IZcap } from '../types.js'
 

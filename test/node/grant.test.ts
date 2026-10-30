@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { ValidationError, WasClient, allowsAction } from '../../src/index.js'
-import { rootCapabilityId } from '../../src/paths.js'
+import { rootCapabilityId } from '../../src/paths/index.js'
 import {
   clientWithRequestSpy,
   serviceDescriptionFor,

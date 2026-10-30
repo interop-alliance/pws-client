@@ -43,14 +43,6 @@
  * function with no I/O and no client state.
  */
 export {
-  canonicalBaseServerUrl,
-  serviceDescriptionUrl,
-  spacesRepositoryUrl,
-  spaceUrlById,
-  baseServerUrlOf,
-  splitCollectionUrl,
-  canonicalSpaceUrl,
-  spaceIdOfUrl,
   spaceMetaUrl,
   collectionUrl,
   collectionMetaUrl,
@@ -61,17 +53,18 @@ export {
   spaceReplicasUrl,
   replicaRegistrationUrl,
   parseSpaceTarget
-} from './internal/paths.js'
+} from '../internal/paths.js'
+export * from './layout.js'
 export {
   isReservedCollectionId,
   isReservedResourceId
-} from './internal/reserved.js'
-export type { ParsedSpacePath } from './internal/paths.js'
+} from '../internal/reserved.js'
+export type { ParsedSpacePath } from '../internal/paths.js'
 
 export {
   rootCapabilityId,
   rootCapabilityTarget,
   rootCapability,
   spaceUrlOf
-} from './internal/rootCapability.js'
-export type { IRootZcap } from './types.js'
+} from '../internal/rootCapability.js'
+export type { IRootZcap } from '../types.js'

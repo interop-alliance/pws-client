@@ -17,8 +17,10 @@ import type {
   ServiceDescription,
   ServiceDescriptionVersionEntry
 } from '@interop/storage-core'
-import { IncompatibleServerError, mapError } from '../errors.js'
-import { canonicalContainerUrl, parseAbsoluteHttpUrl } from './paths.js'
+import { IncompatibleServerError } from '../errors.js'
+import { mapError } from './mapError.js'
+import { canonicalContainerUrl } from './paths.js'
+import { parseAbsoluteHttpUrl } from './layout.js'
 import { fetchMapped } from './request.js'
 import type { ServiceInfo } from '../types.js'
 

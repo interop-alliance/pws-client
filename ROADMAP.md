@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 149
+nextAvailableId: 150
 
 <!-- roadmap-order:index:start -->
 
@@ -90,9 +90,9 @@ Waiting on another repo:
 - WCL-140 [H] Construct from a base server URL under a fixed server layout; open
   a fixed Space by its own URL (after WASS-60)
 - WCL-142 [M] Remove the late in-place `encryption` declaration from
-  provisioning (after WAS-194)
+  provisioning (after WSS-194)
 - WCL-144 [M] Follow the replication companion: the server DID on the core
-  entry, and unrecognized stall reasons (after WAS-238)
+  entry, and unrecognized stall reasons (after WSS-238)
 
 **Features**
 
@@ -121,7 +121,7 @@ Ready:
 Waiting on another repo:
 
 - WCL-143 [M] Live tests for replica pause, resume, capability replacement, and
-  the delegated route (after WAS-228, WAS-226)
+  the delegated route (after WSS-228, WSS-226)
 
 **Someday / Maybe**
 
@@ -839,28 +839,27 @@ discovered-from: whole-codebase review, 2026-09-11.
 - acceptance:
   - [ ] `sealResourceLog` discards a `current` hint whose head controller
         version does not resolve at its index in the view it was given, and
-        falls back to its own read, the way `verifyResourceLog` already does
-        for `previous`
+        falls back to its own read, the way `verifyResourceLog` already does for
+        `previous`
   - [ ] `verifyResourceLogAppend` refuses a `head` whose controller version
         index does not resolve in `controller` with a distinct typed error,
         which `replace` maps to `PreconditionFailedError`
   - [ ] The predicate the library uses for `previous` is exported, and
         `viewCarriesHeadOf` in `src/edv/logGovernedDescriptorStore.ts` is
         removed along with the held controller view
-  - [ ] The two tests in `test/node/log-governed-descriptor-store.test.ts`
-        that count verified entries under a shifted view keep passing
+  - [ ] The two tests in `test/node/log-governed-descriptor-store.test.ts` that
+        count verified entries under a shifted view keep passing
 
 `logGovernedDescriptorStore` keeps the controller view each read or append was
-verified under, and gates `replace` and the `seal` hint on
-`viewCarriesHeadOf`: both library entry points take the held record's head
-controller version as an index into the view's version list, and neither
-checks the view for itself. The library already performs that check for
-`previous` on a resumed read (its private `resumeFrom` compares the head
-proof's actual controller version at its index and falls back to a full pass),
-so the client-side gate exists only because `current` and `head` lack the same
-guard. The client's copy is also looser than the library's (WCL-148). Moving the
-check upstream makes the mismatch impossible to hand in and deletes the held
-view from the client.
+verified under, and gates `replace` and the `seal` hint on `viewCarriesHeadOf`:
+both library entry points take the held record's head controller version as an
+index into the view's version list, and neither checks the view for itself. The
+library already performs that check for `previous` on a resumed read (its
+private `resumeFrom` compares the head proof's actual controller version at its
+index and falls back to a full pass), so the client-side gate exists only
+because `current` and `head` lack the same guard. The client's copy is also
+looser than the library's (WCL-148). Moving the check upstream makes the
+mismatch impossible to hand in and deletes the held view from the client.
 
 ### WCL-148: [M] `viewCarriesHeadOf` compares the held view's tail, not the held head's controller version
 
@@ -870,24 +869,24 @@ view from the client.
 - discovered-from: review of the resumed-verification change, 2026-10-30
 - acceptance:
   - [ ] The gate in `src/edv/logGovernedDescriptorStore.ts` takes the held
-        record's `headControllerVersionIndex` and checks that the version id
-        at that index in the held view is the version id at the same index in
-        the view resolved now
+        record's `headControllerVersionIndex` and checks that the version id at
+        that index in the held view is the version id at the same index in the
+        view resolved now
   - [ ] A test where the controller advanced between the head's proof and the
-        held view (the held view lists versions past the head's) shows the
-        gate admitting a view that carries the head's version and refusing one
-        that does not, independent of the held view's tail
+        held view (the held view lists versions past the head's) shows the gate
+        admitting a view that carries the head's version and refusing one that
+        does not, independent of the held view's tail
   - [ ] The two existing shifted-view tests keep passing
 
 The library's pre-write pass and sealing shortcut index the held record's
-`headControllerVersionIndex` into the resolved view's version list. The
-client's gate approximates that by checking the held view's last version id at
-its own index. The two agree only while the head's index is the held view's
-last index. Once the controller advanced between the head's proof and the view
-the read verified under, the held view's tail sits past the head, and the gate
-checks an index the library never reads: it can refuse a view that carries the
-head's version, or admit one that does not. The library's own resume check
-for `previous` compares the head proof's version at `headControllerVersionIndex`,
+`headControllerVersionIndex` into the resolved view's version list. The client's
+gate approximates that by checking the held view's last version id at its own
+index. The two agree only while the head's index is the held view's last index.
+Once the controller advanced between the head's proof and the view the read
+verified under, the held view's tail sits past the head, and the gate checks an
+index the library never reads: it can refuse a view that carries the head's
+version, or admit one that does not. The library's own resume check for
+`previous` compares the head proof's version at `headControllerVersionIndex`,
 which the verified record already exposes, so the client can compare the same
 thing with no upstream change. WCL-147 removes the gate altogether once the
 library guards its own arguments; this item makes it correct until then.
@@ -1185,7 +1184,7 @@ without this upstream fix.
   - storage-core: `ORIGIN_ROOT_RESERVED_COLLECTION_IDS` and optional
     `SpaceMetadata.id` landed locally 2026-10-29 (0.42.0, unpublished;
     was-client consumes it via `link:` until it is on npm)
-  - was-teaching-server: WAS-234 (re-scoped 2026-10-29: `startTestServer`
+  - was-teaching-server: WSS-234 (re-scoped 2026-10-29: `startTestServer`
     returns the base server URL; the server confirms the fixed layout and
     reserves `service`, `spaces` and `space` at a root-mounted Space)
   - portable-web-spaces-spec: WASS-60 (drafted 2026-10-28 for 0002; reverse per
@@ -1200,7 +1199,7 @@ without this upstream fix.
         from the Space URL; `spaceUrlOf` reads the Space off a capability's
         chain root. These carry forward unchanged under 0003
   - [x] The client implementation (WCL-141) landed 2026-10-29
-  - [ ] The testing counterpart returns the server's base server URL (WAS-234),
+  - [ ] The testing counterpart returns the server's base server URL (WSS-234),
         and was-react's and dcw's counterpart tests stay green on the release
   - [ ] Every `touches:` entry is annotated with the item re-scoped to 0003
 
@@ -1236,7 +1235,7 @@ reading that followed, and the wallet-core port of 2026-10-29.
     `https://w3id.org/pws/encrypted-collections` `0.1` entry
     (`blinded-index-query`, `governed-history-logs`); see
     `https://interop-alliance.github.io/portable-wallet-profile-spec/#entry-as-shorthand`
-  - was-teaching-server: WAS-243 lists the entry; this item's tests need a
+  - was-teaching-server: WSS-243 lists the entry; this item's tests need a
     server past that item (the pair rule of LEARNINGS.md applies)
   - was-conformance-suite: PWSCS-33 is the server-side counterpart and does not
     gate this item
@@ -1320,7 +1319,7 @@ settled in a test.
   - storage-core: `PwsVersionEntry` (`src/was.ts:839-843`) loses the two members
     and a new `AuthzProfileVersionEntry` carries them: SC-7 (filed 2026-09-16,
     published as 0.17.0)
-  - was-teaching-server: WAS-112 lists the entry and moves the members; this
+  - was-teaching-server: WSS-112 lists the entry and moves the members; this
     item's tests need a server past that item (the pair rule of LEARNINGS.md
     applies)
   - was-client (this repo): README.md and ARCHITECTURE.md (the Service
@@ -1352,14 +1351,14 @@ profile describes (an Ed25519 `did:key` capability invocation with the `Digest`
 header); this item only makes it check that the server says it accepts that, in
 the place the spec now says to look.
 
-### WCL-142: [M] [after WAS-194] Remove the late in-place `encryption` declaration from provisioning
+### WCL-142: [M] [after WSS-194] Remove the late in-place `encryption` declaration from provisioning
 
 - status: todo
 - priority: medium
 - labels: provisioning, encryption, spec, breaking
 - discovered-from: WASS-49 (portable-web-spaces-spec, 2026-10-29); spec decision
   0012
-- blocked-by: WAS-194
+- blocked-by: WSS-194
 - touches:
   - was-client: `src/sync/provisioning.ts` -- the `'edv'` branch that runs when
     the Collection exists without a descriptor (the compare-and-swap write of
@@ -1371,7 +1370,7 @@ the place the spec now says to look.
   - dcw: `app/lib/sync/smokeTest.ts` relies on the `'edv'` default, which
     creates the Collection with the descriptor; re-checked once the branch is
     gone
-  - was-teaching-server: WAS-194 is the server half and ships the refusal
+  - was-teaching-server: WSS-194 is the server half and ships the refusal
 - acceptance:
   - [ ] `ensureSpaceAndCollection` with `encryption: 'edv'` over an existing
         Collection that lacks a descriptor leaves it untouched and reports the
@@ -1391,27 +1390,27 @@ last-writer-wins converges on a Collection whose descriptor is silently gone.
 This module's `'edv'` mode still carries the late write as a fallback for a
 Collection provisioned before the descriptor existed. No wallet caller reaches
 it: the App Connect flow creates its Collections encrypted from birth, and
-was-react dropped `markCollectionEncrypted` in 0.28.0. Once WAS-194 lands the
+was-react dropped `markCollectionEncrypted` in 0.28.0. Once WSS-194 lands the
 server answers the write with a 409 that `rethrow` surfaces as a
 `ConflictError`, so the branch becomes a guaranteed failure rather than a
 fallback. A Collection that exists without a descriptor never becomes encrypted
 in place; the path is a new Collection and a copy, which the migration code
 already takes for a key rotation it cannot express as an epoch.
 
-### WCL-144: [M] [after WAS-238] Follow the replication companion: the server DID on the core entry, and unrecognized stall reasons
+### WCL-144: [M] [after WSS-238] Follow the replication companion: the server DID on the core entry, and unrecognized stall reasons
 
 - status: todo
 - priority: medium
 - labels: spec, replication, service-description, docs
 - discovered-from: portable-web-spaces-spec WASS-50 (2026-10-29)
-- blocked-by: WAS-238
+- blocked-by: WSS-238
 - touches:
   - storage-core: the `ServiceDescription` type (`serverDid` joins the core
     `PwsVersionEntry` beside `originId` and leaves `instance`), the
     `ReplicaStatus` and `ReplicaCollectionStatus` JSDoc ("controller-only" is
     stale now that the route admits a root-chained delegated invocation;
     `ReplicaStallReason` is a closed set a reader extends with "unrecognized")
-  - was-teaching-server: WAS-238 (serves the member on the core entry)
+  - was-teaching-server: WSS-238 (serves the member on the core entry)
   - freewallet / wallet-core: whatever reads the replica server's DID off
     `was.service()` before delegating the pull capability (FW-638, FW-688)
   - was-client (this repo): `src/types.ts` (`ServiceInfo` docs), `src/Space.ts`
@@ -1454,7 +1453,7 @@ reading rules. Related: WCL-143 (the live tests).
     documents `If-None-Match: *` and its 412; the Space Data Model gains the
     server-managed validator, Read Space the `ETag`, Update Space both
     preconditions)
-  - was-teaching-server: WAS-90 (shipped 2026-09-07 for 0.29.0: both
+  - was-teaching-server: WSS-90 (shipped 2026-09-07 for 0.29.0: both
     preconditions on Update Space and Update Collection, the Space `ETag`;
     publish pending)
   - was-client: `Space.describeWithEtag` / `replaceDescription` and
@@ -1486,7 +1485,7 @@ As filed, no client-side change could close it: `If-None-Match: *` is the only
 precondition that states create-if-absent, and at the time neither endpoint
 honored it (the collection handler parsed the header and dropped it, and the
 Space handler read no preconditions at all). Closing it was spec work first
-(WASS-31), then server work (WAS-90), then the client half.
+(WASS-31), then server work (WSS-90), then the client half.
 
 Resolution, 2026-09-07: both create branches in `src/sync/provisioning.ts` now
 create through `replaceDescription` under `ifNoneMatch`, and a failed create is
@@ -1569,16 +1568,16 @@ review, 2026-09-11.
 Test coverage, docstring and decision-record corrections, and refactors with no
 behavior change.
 
-### WCL-143: [M] [after WAS-228, WAS-226] Live tests for replica pause, resume, capability replacement, and the delegated route
+### WCL-143: [M] [after WSS-228, WSS-226] Live tests for replica pause, resume, capability replacement, and the delegated route
 
 - status: todo
 - priority: medium
 - labels: tests, replication, spaces
 - discovered-from: WCL-137 (2026-10-29)
-- blocked-by: WAS-228, WAS-226
+- blocked-by: WSS-228, WSS-226
 - touches:
-  - was-teaching-server: WAS-228 (`provisionServerIdentity` and the two-server
-    helpers from `was-teaching-server/testing`), WAS-226 (the delegated replicas
+  - was-teaching-server: WSS-228 (`provisionServerIdentity` and the two-server
+    helpers from `was-teaching-server/testing`), WSS-226 (the delegated replicas
     route)
 - acceptance:
   - [ ] An integration suite boots a server with a server key seed and a
@@ -1607,8 +1606,8 @@ on 2026-10-29. The live coverage was split out because the integration tier's
 one-server boot has no server identity, and the server accepts a registration
 only when its `server` Space holds a verifying did:webvh log listing the
 seed-derived key under `capabilityInvocation`. The provisioner for that lives in
-the server's own test helpers until WAS-228 exports it, and the delegated route
-is not served until WAS-226.
+the server's own test helpers until WSS-228 exports it, and the delegated route
+is not served until WSS-226.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked
 

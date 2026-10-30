@@ -8,11 +8,11 @@
  */
 import type { HttpResponse } from '@interop/http-client'
 import {
-  canonicalSpaceUrl,
   resourceUrl,
   resourcePolicyUrl,
   resourceMetaUrl
 } from './internal/paths.js'
+import { canonicalSpaceUrl } from './internal/layout.js'
 import { assertNotReserved } from './internal/reserved.js'
 import type { ClientContext } from './internal/request.js'
 import { send } from './internal/request.js'

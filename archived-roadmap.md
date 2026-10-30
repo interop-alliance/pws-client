@@ -44,9 +44,9 @@ of stored envelopes" recorded decision in ROADMAP.md.
 - priority: medium
 - labels: api, metadata, encryption
 - touches:
-  - wallet-attached-storage-spec -- the endpoints must be specified first;
+  - portable-web-spaces-spec -- the endpoints must be specified first;
     tracked as WASS-9 in that repo's ROADMAP (done, WASS-9 moved to archive)
-  - was-teaching-server -- resolved: WAS-55 shipped in was-teaching-server
+  - was-teaching-server -- resolved: WSS-55 shipped in was-teaching-server
     0.21.0, with conformance coverage in `@interop/was-conformance-suite` 0.5.0
   - was-client ARCHITECTURE.md + README.md -- resolved: the new handle surface
     is documented in both
@@ -67,7 +67,7 @@ and mirroring it at Collection level also gives encrypted collections a
 client-encrypted name/tags surface (today `name` rides the Collection
 Description in plaintext, which encrypted collections refuse to populate). WCL-1
 consumes this surface for its index schema and stays blocked on it (with WASS-9
-/ WAS-55) for everything past key distribution.
+/ WSS-55) for everything past key distribution.
 
 ### WCL-10: `was.collection` binding for the Collection Metadata envelope
 
@@ -480,12 +480,12 @@ on the 0.36.0 npm publish -- both since shipped (see touches), closing the item
     `custom.indexSchema` (with the per-attribute addition marker recording that
     matches may be partial), and Security Considerations for the revocation
     asymmetry and the schema's own sensitivity
-  - wallet-attached-storage-spec -- resolved: the `blinded-index` query profile
+  - portable-web-spaces-spec -- resolved: the `blinded-index` query profile
     was already in the Query Profile Registry, and the schema's home, the
     Collection-level `/meta` endpoints, shipped as WASS-9 (archived in that
     repo's `_spec` roadmap)
   - was-teaching-server -- resolved: the schema home (Collection-level `/meta`,
-    WAS-55) shipped in 0.21.0, and WAS-56 (archived 2026-08-12) closed the rest:
+    WSS-55) shipped in 0.21.0, and WSS-56 (archived 2026-08-12) closed the rest:
     the `blinded-index-api` conformance suite gained a codec-path group (equals
     round-trip, has + count, unique 409 conflict; conformance-suite 0.6.0,
     pending publish) and the Reverse-gaps preamble now cross-links the served
@@ -532,7 +532,7 @@ install, hmac roster edits riding the same CAS write in `addRecipient` /
 resolving and exposing `blindingKey` (also handed to `EdvClientCore`). It was
 **paused** on the persisted schema's home, the Collection-level `/meta`
 envelope, which has since shipped on all three sides (client WCL-8, server
-WAS-55 in was-teaching-server 0.21.0, spec WASS-9).
+WSS-55 in was-teaching-server 0.21.0, spec WASS-9).
 
 Progress (2026-08-12, second pass): the remaining halves are implemented, so all
 four acceptance criteria are met. The schema lives under `custom.indexSchema` in
@@ -560,7 +560,7 @@ a plain alias of `CollectionEncryption`). The item stayed `in-progress` on one
 remaining `touches:` entry: the encrypted-collections spec text (hmac
 distribution, `indexed` envelope entries, index-schema persistence, Security
 Considerations), filed as ECS-2 in the ECS roadmap. The was-teaching-server half
-(WAS-56: codec-path conformance coverage plus the Reverse-gap cross-link) was
+(WSS-56: codec-path conformance coverage plus the Reverse-gap cross-link) was
 archived 2026-08-12. WCL-10 (the `was.collection` binding decided as ECS-1)
 landed alongside it on 2026-08-12, so the persisted schema envelopes are minted
 with the final binding shape. ECS-2 shipped and was archived 2026-08-12,
@@ -577,7 +577,7 @@ data model), so it cannot ride the Collection Description in plaintext; the home
 is the collection's encrypted metadata envelope -- any epoch recipient can
 already decrypt it, and its `metaVersion` ETag gives concurrent schema edits
 conditional-write semantics. That envelope now exists at Collection level (WCL-8
-/ WAS-55 / WASS-9, all shipped). The considered-and-rejected alternative
+/ WSS-55 / WASS-9, all shipped). The considered-and-rejected alternative
 (2026-08-12) was persisting the schema as an ordinary encrypted Resource under a
 blind-derived id (`HMAC(indexKey, 'index-schema')` in the EDV id layout):
 discoverable by any key holder with no endpoint work, but the magic-id document
@@ -962,7 +962,7 @@ subtype relationships hold.
     path and deliberately excludes the RxDB adapter); its ARCHITECTURE.md
     references to "freewallet's RxDB driver/adapter" get re-pointed at the
     extracted package
-  - wallet-attached-storage-spec -- unaffected (the wire contract is already
+  - portable-web-spaces-spec -- unaffected (the wire contract is already
     normative: Query Profile Registry appendix + Conditional Requests)
 
 Most of what this item originally deferred has since landed, in a different
@@ -1342,7 +1342,7 @@ conforming writer produces; the change only closes the fallthrough.
     plus the call sites: `readMeta` / `writeMeta` in `src/internal/meta.ts` (the
     single chokepoint the `Resource` and `Collection` handles go through) and
     the direct `decodeMeta` in `src/edv/docCipher.ts`
-  - wallet-attached-storage-spec / encrypted-collections spec: no wire change
+  - portable-web-spaces-spec / encrypted-collections spec: no wire change
     intended, but the `was.collection` vs `was.resource` binding this selects is
     normative text, so confirm the seam change does not imply one
 - acceptance:
@@ -1473,7 +1473,7 @@ seam.
 - touches:
   - storage-core: SC-2 minted `ProblemTypes.CAPABILITY_ALREADY_REVOKED`
     (`#capability-already-revoked`, 400) on 2026-09-09; published in 0.13.0
-  - was-teaching-server: WAS-91 emits it on the revocation route
+  - was-teaching-server: WSS-91 emits it on the revocation route
   - wallet-core: WC-135 dispatches on the new `err.name`
 - acceptance:
   - [x] `mapError`'s kind table (`src/errors.ts`, `ERROR_CLASS_BY_KIND`) maps
@@ -1506,7 +1506,7 @@ consumer can match across package copies.
   - storage-core: SC-3 minted `ProblemTypes.CAPABILITY_REVOKED` and
     `CAPABILITY_EXPIRED` (`#capability-revoked` / `#capability-expired`, 404) on
     2026-09-09; published in 0.13.0
-  - was-teaching-server: WAS-57 emits them from the capability-invocation
+  - was-teaching-server: WSS-57 emits them from the capability-invocation
     verification path
 - acceptance:
   - [x] `ERROR_CLASS_BY_KIND` maps the two kinds to `CapabilityRevokedError` and
@@ -1517,7 +1517,7 @@ consumer can match across package copies.
   - [x] Tests pin both mappings from a `problem+json` body
   - [x] CHANGELOG entry
 
-Discovered 2026-09-09 from was-teaching-server WAS-57. A holder whose grant
+Discovered 2026-09-09 from was-teaching-server WSS-57. A holder whose grant
 stops working could not tell a revocation from an expiry or a plain denial; the
 server now names the first two by `type`, and this maps that onto the one signal
 a consumer can match across package copies. Lands with 0.57.0; stays open until
@@ -1531,7 +1531,7 @@ storage-core 0.13.0 is published and the link override dropped.
 - labels: was-v0.5, encryption, key-epochs, spec, blocking
 - discovered-from: WCL-41
 - touches:
-  - wallet-attached-storage-spec: RESOLVED 2026-09-12 -- the envelope rule now
+  - portable-web-spaces-spec: RESOLVED 2026-09-12 -- the envelope rule now
     applies to a `custom` that is present, and an omitted `custom` clears on an
     encrypted Collection. The Collection Metadata data model, its lifecycle and
     error list, the server-side write-validation rule, and the Resource-level
@@ -1610,14 +1610,14 @@ suites and the `governed-log` case above.
 - priority: high
 - labels: was-v0.5, discovery, api
 - touches:
-  - wallet-attached-storage-spec: waived -- the Service Description section is
+  - portable-web-spaces-spec: waived -- the Service Description section is
     drafted on branch `service-description` (decision
     `_spec/decisions/0006-service-description.md`); the client implements that
     draft
   - storage-core: shipped -- SC-5 there, archived 2026-09-13; 0.15.0 exports
     `ServiceDescription`, `ServiceDescriptionVersionEntry`, and
     `PwsVersionEntry`, which this item consumes
-  - was-teaching-server: shipped -- WAS-98 there (archived 2026-09-13) serves
+  - was-teaching-server: shipped -- WSS-98 there (archived 2026-09-13) serves
     `GET /service` and the `Link: <...>; rel="service"` header on every response
   - was-client: shipped -- `src/internal/service.ts` (new), `src/WasClient.ts`
     (`service()`), `src/internal/request.ts` (the gate), `src/internal/paths.ts`
@@ -1718,7 +1718,7 @@ relative `next` is unaffected. discovered-from: whole-codebase review,
 - blocked-by: nothing for the was-client half (the reference server serves the
   v0.5 route table as of was-teaching-server 0.31.0)
 - touches:
-  - wallet-attached-storage-spec: shipped -- WASS-29 landed the spec text
+  - portable-web-spaces-spec: shipped -- WASS-29 landed the spec text
     2026-09-11 (decision
     `_spec/decisions/0005-container-descriptions-live-at-meta.md`, with its two
     2026-09-11 amendments)
@@ -2374,7 +2374,7 @@ list scoped them out.
 - priority: medium
 - labels: conditional-writes, conformance, spec-alignment
 - touches:
-  - wallet-attached-storage-spec: WASS-40 settles the surrounding question; this
+  - portable-web-spaces-spec: WASS-40 settles the surrounding question; this
     item is the client-side conformance half and stands whichever way that goes
 - acceptance:
   - [x] The divergence is resolved in one direction: either the spec gains text
@@ -3141,7 +3141,7 @@ legitimately take options with neither member, since `delegateGrantAt` fills
 `target`. Node suite green (1049 tests, up from 1042), browser suite green, lint
 and typecheck clean. The same faulty depth argument appears twice in
 was-teaching-server (`src/lib/paths.ts` and `src/routes.ts`) and is filed there
-as WAS-148.
+as WSS-148.
 
 ### WCL-116: Hash a large binary body incrementally before a signed write
 
@@ -3445,14 +3445,14 @@ Open question: a JSON Resource rewritten to a binary type, or a binary
 Resource's tombstone, is skipped by the port, so a replica that holds the JSON
 revision keeps it. `documents()` drops such a Resource from its snapshot.
 
-discovered-from: was-teaching-server WAS-182, 2026-10-04.
+discovered-from: was-teaching-server WSS-182, 2026-10-04.
 
 ### WCL-123: Policy validators, preconditions, and the `policy` change kind
 
 - status: done (2026-10-04)
 - priority: medium
 - labels: policies, etag, changes-feed, dependencies
-- discovered-from: was-teaching-server WAS-183 (2026-10-04)
+- discovered-from: was-teaching-server WSS-183 (2026-10-04)
 - touches:
   - storage-core: `PolicyDocument` stamp members, `PolicyTombstone`,
     `PolicyChangeDocument` in the `ChangeDocument` union (0.34.0, publish
@@ -3460,7 +3460,7 @@ discovered-from: was-teaching-server WAS-182, 2026-10-04.
   - was-teaching-server: shipped in its working tree (policy `ETag`, `If-Match`
     / `If-None-Match: *` on `PUT` and `DELETE`, the tombstone,
     `?include=deleted`)
-  - wallet-attached-storage-spec: WASS-52
+  - portable-web-spaces-spec: WASS-52
 - acceptance:
   - [x] The `@interop/storage-core` dependency is bumped to the version that
         carries `PolicyChangeDocument`
@@ -3513,7 +3513,7 @@ behavior.
     `putMeta` JSDoc in `src/sync/types.ts`, `sync-port.test.ts`)
   - was-sync: WS-17 (the ack write-back stamps the members under the unit rule)
   - wallet-core (optional: the engine may adopt the new members)
-  - was-teaching-server: WAS-189 (shipped the body; the server side of this
+  - was-teaching-server: WSS-189 (shipped the body; the server side of this
     contract)
 - acceptance:
   - [x] `WriteAck` carries `updatedAt`, `updatedAtCounter`, `originId`, `meta`,
@@ -3528,7 +3528,7 @@ behavior.
   - [x] ARCHITECTURE.md and the JSDoc describe the members and the shape guard
   - [x] CHANGELOG.md entry
 
-Context: was-teaching-server WAS-189 (done 2026-10-04) changed a successful
+Context: was-teaching-server WSS-189 (done 2026-10-04) changed a successful
 Resource write to answer `201` on a create and `200` on an update or `/meta`
 write, with a body carrying the server-managed members of the Resource Metadata
 object: `contentType`, `size`, the content record's stamp, `createdAt` and
@@ -3767,7 +3767,7 @@ counterpart (a streaming `get` variant) for callers that cannot buffer.
 - status: done (2026-10-05)
 - priority: medium
 - labels: replication, spaces, storage-core, api
-- discovered-from: was-teaching-server WAS-176 (2026-10-04)
+- discovered-from: was-teaching-server WSS-176 (2026-10-04)
 - touches:
   - was-client (README.md and ARCHITECTURE.md for the new handle, reserved ids,
     and the `created` member): shipped with this item
@@ -3833,7 +3833,7 @@ the registration record, so names may still move before it is final.
         member
   - [x] CHANGELOG.md entry (breaking for a caller that passed the option)
 
-Context: WAS-96's open point 2 moves `writerId` to the content record alone. The
+Context: WSS-96's open point 2 moves `writerId` to the content record alone. The
 spec now says a server ignores a `writerId` member in the body of an Update
 Resource Metadata request, and the declare-or-clear rule for that request is
 withdrawn. `putMeta` still takes a `writerId` option and spreads it into the
@@ -4058,7 +4058,7 @@ whole-codebase review, 2026-09-11.
     `grant({ actions: ['GET', 'HEAD'] })` did not typecheck; widened there
     (0.38.0, unpublished), WCL-136 drops the test's cast once it is published
     and bumped here
-  - wallet-attached-storage-spec: WASS-51's GET form, cited; still `todo` there,
+  - portable-web-spaces-spec: WASS-51's GET form, cited; still `todo` there,
     the profile text has yet to state the form
   - freewallet: FW-478 depends on this item; the e2e agent double reads an
     audience through it (nothing to file: the caller is `Collection.changes()`
@@ -4536,7 +4536,7 @@ discovered-from: whole-codebase review, 2026-09-11.
         from the base the testing counterpart returns, and
         `test/integration/service-description.test.ts` asserts the description
         agrees with the base. `test/integration/globalSetup.ts` derives the base
-        from `startTestServer` until WAS-234 returns it directly
+        from `startTestServer` until WSS-234 returns it directly
   - [x] README.md (Constructing a client, Service discovery, the migration table
         row for `new Client(url)`), ARCHITECTURE.md (Service discovery, the
         request lifecycle paragraph that says the client holds no base, and the
@@ -4585,9 +4585,9 @@ base. The option name `baseServerUrl`, the trailing-slash normalization and the
     `capability` and `pausedAt` may differ, 400 on the member's pointer
     otherwise; 201 on create, 204 on replace; optional `If-Match` /
     `If-None-Match: *`, 412; `pausedAt` server-set; four-segment `ETag`); the
-    replicas route admitting a delegated invocation is WAS-226, still open; the
+    replicas route admitting a delegated invocation is WSS-226, still open; the
     server identity provisioner the live tests here need from
-    `was-teaching-server/testing` is WAS-228, still open
+    `was-teaching-server/testing` is WSS-228, still open
   - portable-web-spaces-spec: decision 0013 amended and WASS-50's text (the
     pause, the in-place replacement, the delegated replicas route)
   - wallet-core, freewallet: the consumers (the replica pass, Stop, re-start,
@@ -4619,8 +4619,8 @@ base. The option name `baseServerUrl`, the trailing-slash normalization and the
         status, resume, the replacement keeping the `id`, and the replica
         methods under a delegated replicas-route grant -- split out as WCL-143
         (2026-10-29), since the one-server setup the integration tier boots has
-        no server identity and so accepts no registration (WAS-228), and the
-        delegated route is WAS-226. Unit tests over a stubbed transport cover
+        no server identity and so accepts no registration (WSS-228), and the
+        delegated route is WSS-226. Unit tests over a stubbed transport cover
         the three calls' requests and their error mapping
 
 Context: freewallet FW-688 lets every session kind keep a replica of the account
@@ -4746,7 +4746,7 @@ read through `Resource.getWithEtag`. discovered-from: whole-codebase review,
     from it; `src/internal/revoke.ts` keeps the submission;
     `test/node/import-graph.test.ts` walks `paths.ts`; ARCHITECTURE.md invariant
     9; CHANGELOG 0.101.0
-  - wallet-core: `unaffected` (its record envelope keeps importing
+  - unaffected: wallet-core (its record envelope keeps importing
     `canonicalSpaceUrl` from `@interop/was-client/paths`; the entry's surface is
     unchanged)
   - wallet-backup: WBU-13 takes the published version and re-runs its dist probe
@@ -4790,7 +4790,7 @@ separable: nothing in the grammar sends.
     descriptor cache for warm starts; the pin stores are in memory on both
     persistence variants, so a session's first read stays full)
   - portable-web-spaces-spec: WASS-63 (draft: a tail read of `meta/log`);
-    was-teaching-server: WAS-241 (draft, blocked on WASS-63); WAS-102 shipped
+    was-teaching-server: WSS-241 (draft, blocked on WASS-63); WSS-102 shipped
 - acceptance:
   - [x] A repeat acquisition verifies only the entries after the held pin, plus
         the chain link to it (on one store instance; the wallet stack's source
@@ -4806,7 +4806,7 @@ Measured 2026-10-29 (desktop, Node, mean of 3): a full pass costs about 0.9 to
 300 x 1 269 ms, 300 x 10 285 ms, 300 x 50 329 ms; the 300 x 50 log serializes to
 6.3 MB). A resumed pass with one new entry costs about 1 ms whatever the log
 length; with no new entry, under 0.02 ms. Options 1 (incremental from the held
-record) and 4 (WAS-102) are done; 2 is WASS-63 / WAS-241; 3 is FW-696.
+record) and 4 (WSS-102) are done; 2 is WASS-63 / WSS-241; 3 is FW-696.
 
 With WCL-118's `requireGoverned` on, every encrypted collection in the wallet
 stack reads its descriptor from its governing log. Current costs:
@@ -4831,7 +4831,7 @@ stack reads its descriptor from its governing log. Current costs:
   conflict. A point-state write is 1 PUT. Writes happen only on rotations and
   recipient changes.
 - Server. The teaching server re-parses the whole log on every Collection
-  Metadata read to derive the projection (WAS-102).
+  Metadata read to derive the projection (WSS-102).
 
 No benchmark exists yet. A rough estimate: tens of entries verify in single- to
 double-digit milliseconds, and the body fetch dominates. A long-lived shared
@@ -4848,7 +4848,50 @@ Bounding options, from most to least effective:
    decision first.
 3. Keep a local snapshot of the verified log beside the cached descriptor, so a
    warm start fetches only the delta. Pairs with 1.
-4. Close WAS-102 on the server: cache the derived projection, or read only the
+4. Close WSS-102 on the server: cache the derived projection, or read only the
    head line.
 
 discovered-from: WCL-118.
+
+### WCL-149: [M] The `./paths` entry pays `@interop/storage-core` and `@interop/zcap` to validate one URL
+
+- status: done
+- done: 2026-10-30
+- priority: medium
+- labels: layering, offline, dependencies
+- discovered-from: WR-5 (wallet-request, 2026-10-30)
+- touches:
+  - was-client (this repo): shipped -- `src/internal/layout.ts` holds the
+    dependency-free grammar, `src/paths/layout.ts` is the `./paths/layout` entry
+    (`src/paths.ts` moved to `src/paths/index.ts`), `src/internal/mapError.ts`
+    holds `mapError` and its `ProblemTypes` table so `errors.ts` loads with no
+    runtime dependency; `test/node/import-graph.test.ts` pins the entry's
+    closure; ARCHITECTURE.md invariant 9; CHANGELOG 0.103.0
+  - wallet-request: WR-5 switches `onboarding.ts` to
+    `@interop/was-client/paths/layout` and names it in its ARCHITECTURE.md
+  - unaffected: wallet-core (its record envelope may keep importing
+    `canonicalSpaceUrl` from `./paths`, whose surface is unchanged;
+    `./paths/layout` is the lighter choice for the same import)
+- acceptance:
+  - [x] the runtime static closure of `src/paths/layout.ts` holds no external
+        package, enforced by the import-graph test; plain Node ESM loads three
+        modules of this package for it and nothing from `node_modules`
+  - [x] `canonicalBaseServerUrl` on the new entry is the function `WasClient`
+        applies, re-exported rather than copied
+  - [x] the `./paths` export surface is unchanged
+  - [x] ARCHITECTURE.md names `./paths/layout` and why it is the light one
+
+Context: wallet-request's `onboarding.ts` imports `canonicalBaseServerUrl` from
+`@interop/was-client/paths` so the base server URL an inviter publishes is
+validated by the rule the enrollee's `WasClient` applies. That entry is a leaf
+of the export map and off the transport graph, but its closure reaches
+`@interop/storage-core` twice (the Reserved Path Segment Registry behind
+`internal/reserved.ts`, and `ProblemTypes` behind `mapError` in `errors.ts`) and
+`@interop/zcap` once (`internal/rootCapability.ts`). `sideEffects: false` lets a
+bundler shake those away; plain Node ESM evaluates them on first import, and
+every root consumer of wallet-request paid for it. Re-stating the rule
+downstream was not an option (one rule, owned here), so the fix is a lighter
+entry: the layout grammar and the canonical URL forms need only the platform
+`URL` and the `ValidationError` class, and the one thing keeping `errors.ts`
+from being dependency-free was the problem-type table, which belongs with
+`mapError` anyway.

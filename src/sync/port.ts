@@ -57,7 +57,6 @@ import type {
   ResourceMetadata
 } from '@interop/storage-core'
 import {
-  mapError,
   NotFoundError,
   PreconditionFailedError,
   WasSyncAuthError,
@@ -67,6 +66,7 @@ import {
   WasServerError
 } from '../errors.js'
 import type { WasError, WasErrorOptions } from '../errors.js'
+import { mapError } from '../internal/mapError.js'
 import type { IZcap } from '../types.js'
 import type {
   Json,

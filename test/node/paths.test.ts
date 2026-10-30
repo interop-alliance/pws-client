@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 
 import { ValidationError } from '../../src/index.js'
 import type { IDelegatedZcap, IZcap } from '../../src/index.js'
-import type { IRootZcap } from '../../src/paths.js'
+import type { IRootZcap } from '../../src/paths/index.js'
 import {
   baseServerUrlOf,
   canonicalBaseServerUrl,
@@ -23,10 +23,8 @@ import {
   spaceUrlById,
   spacesRepositoryUrl,
   splitCollectionUrl
-} from '../../src/paths.js'
+} from '../../src/paths/index.js'
 import {
-  canonicalSpaceUrl,
-  spaceIdOfUrl,
   spaceMetaUrl,
   spaceExportUrl,
   spaceImportUrl,
@@ -55,6 +53,7 @@ import {
   resourceChunksUrl,
   parseSpaceTarget
 } from '../../src/internal/paths.js'
+import { canonicalSpaceUrl, spaceIdOfUrl } from '../../src/internal/layout.js'
 import {
   rootCapabilityId,
   rootCapabilityTarget,
@@ -714,7 +713,7 @@ describe('spaceUrlOf', () => {
 
 describe('the ./paths subpath barrel', () => {
   it('re-exports the builders, the inverse grammar, the reserved-segment predicates, and the root zcap', async () => {
-    const barrel = await import('../../src/paths.js')
+    const barrel = await import('../../src/paths/index.js')
 
     expect(Object.keys(barrel).sort()).toEqual(
       [
@@ -755,7 +754,7 @@ describe('the ./paths subpath barrel', () => {
   })
 
   it('forms the replicas route and a registration beneath it', async () => {
-    const barrel = await import('../../src/paths.js')
+    const barrel = await import('../../src/paths/index.js')
 
     // The replicas-route grant's `invocationTarget`: the bare path, no
     // trailing slash.
@@ -769,7 +768,7 @@ describe('the ./paths subpath barrel', () => {
 
   it('mints the root capability id and its object form', async () => {
     const { rootCapability, rootCapabilityId: barrelRootId } =
-      await import('../../src/paths.js')
+      await import('../../src/paths/index.js')
     const target = 'http://localhost:3000/space/s/c/r'
 
     expect(barrelRootId(target)).toBe(

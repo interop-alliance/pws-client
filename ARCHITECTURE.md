@@ -17,8 +17,9 @@ src/*.ts            Public handle classes + contracts
         |
         v
 src/internal/*.ts   Transport and orchestration
-  request, service, write, content, paths, conditional, codec (identity +
-  resolver), features, policy, grant, revoke, pagination, describe, reserved
+  request, service, write, content, paths, layout, conditional, codec
+  (identity + resolver), features, policy, grant, revoke, pagination,
+  describe, reserved, mapError
         |
         v
 external deps       @interop/ezcap, @interop/storage-core,
@@ -78,14 +79,14 @@ src/log/*.ts        Resource-log subpath (sibling, opt-in)
 
 The load-bearing rule: **core does not import `src/edv/`, and neither do
 `src/sync/` or `src/log/`** (the one exception is `src/edv/constants.ts`, which
-itself reaches only core). The package ships eight entry points in the
-package.json exports map: `.`, `./paths`, `./log`, and `./sync` are the core
-client. `./edv/cipher`, `./edv/core`, `./edv`, and `./identity` are the four
-that leave core. `./edv/cipher` is the log-free part of the offline half: the
-codec, the doc ciphers, the key epochs, the recipient operations,
-`resourceDescriptorStore`, and the blinding keys, none of which need a server or
-a resource log. `./edv/core` is that entry plus the log-governed descriptor
-stores, which read through a resource log verified by
+itself reaches only core). The package ships nine entry points in the
+package.json exports map: `.`, `./paths`, `./paths/layout`, `./log`, and
+`./sync` are the core client. `./edv/cipher`, `./edv/core`, `./edv`, and
+`./identity` are the four that leave core. `./edv/cipher` is the log-free part
+of the offline half: the codec, the doc ciphers, the key epochs, the recipient
+operations, `resourceDescriptorStore`, and the blinding keys, none of which need
+a server or a resource log. `./edv/core` is that entry plus the log-governed
+descriptor stores, which read through a resource log verified by
 `@interop/vh-resource-log`; still no server in the graph, but that verifier (and
 thereby `@interop/did-method-webvh`) is. `./edv` is `./edv/core` plus the
 modules that do talk to a server (`WasTransport`, `createEdvEncryption`,
@@ -117,10 +118,27 @@ A third rule, one level further in still, walks `./edv/cipher` and asserts the
 same as the second rule plus one more thing: no reach into
 `edv/logGovernedDescriptorStore.ts`, `edv/acquire.ts`, any `src/log/` module, or
 `@interop/vh-resource-log` / `@interop/did-method-webvh`. `edv/EdvCodec.ts` does
-still reach `@interop/storage-core` through `errors.ts`'s `ProblemTypes` table
-(for `mapError`'s problem-kind lookup), independent of the log-governed split;
-that edge is not part of this rule, since removing it would mean moving
-`mapError` off `errors.ts` and updating its callers across the package.
+still reach `@interop/storage-core` through `internal/content.ts` (for
+`isJsonContentType`), independent of the log-governed split; that edge is not
+part of this rule.
+
+A fourth rule holds `./paths` itself off the transport graph. Its static closure
+must hold no transport module or HTTP package and make no dynamic import, since
+an offline consumer imports the entry for one URL builder.
+
+A fifth rule walks `./paths/layout` and asserts its static closure holds no
+external package at all: exactly `paths/layout.ts`, `internal/layout.ts`, and
+`errors.ts`. The entry is the dependency-free part of the `./paths` grammar, for
+a consumer that validates one URL (an onboarding query naming a base server URL,
+a record envelope naming a Space) under plain Node ESM, where
+`sideEffects: false` buys nothing and the whole closure evaluates. `./paths`
+keeps `@interop/storage-core` (the Reserved Path Segment Registry behind
+`internal/reserved.ts`) and `@interop/zcap` (the root capability grammar), and
+the rule's guard checks it still reaches both. Two placements make the light
+entry possible. The layout grammar lives in `internal/layout.ts`, and
+`internal/paths.ts` builds on it. `mapError` and its `ProblemTypes` table live
+in `internal/mapError.ts`, apart from the class hierarchy in `errors.ts`, so the
+error classes the layout builders throw load with no dependency of their own.
 
 `./edv` reaches `@interop/edv-client` through that package's transport-free
 `./core` entry (`EdvClientCore`, `EdvDocumentCipher`, `assertDocId` and the
@@ -326,7 +344,11 @@ taking a `baseServerUrl`, and `baseServerUrlOf`, which accepts the service,
 Spaces Repository or Space URL. Beneath a Space, the builders each take a Space
 URL (`collectionUrl({ spaceUrl, collectionId })` and its siblings). At an
 origin-root Space the Collection ids `service`, `spaces` and `space` are
-reserved, since they would collide with the server-level paths.
+reserved, since they would collide with the server-level paths. The three
+builders, their inverse, the two canonical forms (`canonicalBaseServerUrl`,
+`canonicalSpaceUrl`), `spaceIdOfUrl` and `splitCollectionUrl` are also the whole
+of `./paths/layout`, the entry with no package behind it (see "Subpaths, not
+packages" under Layering).
 
 ## Lifecycle of an authenticated request
 
@@ -357,9 +379,10 @@ Taking `resource.put(data)` as the canonical path:
    (`GET`/`PUT`/...), never ezcap's `read`/`write` -- PWS scopes capabilities by
    verb. With no bound capability, ezcap synthesizes the root capability for the
    target URL.
-6. **Error mapping** (`src/errors.ts`): `mapError` dispatches on the
+6. **Error mapping** (`src/internal/mapError.ts`): `mapError` dispatches on the
    `application/problem+json` type URI (from `@interop/storage-core`'s
-   `ProblemTypes`), falling back to HTTP status.
+   `ProblemTypes`), falling back to HTTP status, onto the class hierarchy in
+   `src/errors.ts`.
 
 Reads mirror this: signed GET, then
 `codec.decode(response, expectedId, context)`, where `context` is the same
@@ -1070,7 +1093,11 @@ create.
    transport graph. Its static closure evaluates no transport module and none of
    the HTTP packages. For that reason the root capability grammar lives in
    `internal/rootCapability.ts`, apart from the revocation submission in
-   `internal/revoke.ts`. The same test enforces it.
+   `internal/revoke.ts`. The same test enforces it. `./paths/layout` is held off
+   every external package: its closure is `internal/layout.ts` and `errors.ts`,
+   so the layout grammar stays in `internal/layout.ts` and `mapError`'s
+   `ProblemTypes` table stays in `internal/mapError.ts`, not in `errors.ts`. The
+   same test pins that closure.
 10. **The transport-free edv entries stay off the transport graph.** Importing
     `./edv/core` or `./edv/cipher` evaluates no transport module and none of the
     HTTP packages. That holds for static edges. `createEdvDocCipher` loads
@@ -1289,17 +1316,17 @@ it, and otherwise cover the client-side concepts this file names.
 
 ## Where to add what
 
-| Change                            | Start in                                                                     |
-| --------------------------------- | ---------------------------------------------------------------------------- |
-| New public API method             | The relevant handle class in `src/*.ts`                                      |
-| New server endpoint or path shape | `src/internal/paths.ts` (+ wire types upstream in `@interop/storage-core`)   |
-| Request/transport behavior        | `src/internal/request.ts`                                                    |
-| Supported spec versions           | `src/internal/service.ts` (`SUPPORTED_PWS_VERSIONS`)                         |
-| Write preconditions, ETags        | `src/internal/conditional.ts`, `src/internal/write.ts`                       |
-| Server affordance token           | `src/internal/service.ts` (the service description's `features`)             |
-| New error kind                    | `src/errors.ts` (`ERROR_CLASS_BY_KIND`), problem type upstream               |
-| Encryption format or key handling | `src/edv/` (never in core; keep the seam interface-only)                     |
-| Descriptor read or refresh policy | `src/edv/acquire.ts`, `src/edv/refresh.ts`, `src/edv/refreshingDocCipher.ts` |
-| Codec resolution policy           | `src/internal/codec.ts`                                                      |
-| Write payload kinds, content type | `src/internal/content.ts` (`resolvePayload`)                                 |
-| Cross-replica sync behavior       | `src/sync/` (port stays verbatim/keyless; ciphers implement `DocCipher`)     |
+| Change                            | Start in                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| New public API method             | The relevant handle class in `src/*.ts`                                                                               |
+| New server endpoint or path shape | `src/internal/paths.ts`, or `src/internal/layout.ts` above a Space (+ wire types upstream in `@interop/storage-core`) |
+| Request/transport behavior        | `src/internal/request.ts`                                                                                             |
+| Supported spec versions           | `src/internal/service.ts` (`SUPPORTED_PWS_VERSIONS`)                                                                  |
+| Write preconditions, ETags        | `src/internal/conditional.ts`, `src/internal/write.ts`                                                                |
+| Server affordance token           | `src/internal/service.ts` (the service description's `features`)                                                      |
+| New error kind                    | `src/errors.ts` (the class), `src/internal/mapError.ts` (`ERROR_CLASS_BY_TYPE`), problem type upstream                |
+| Encryption format or key handling | `src/edv/` (never in core; keep the seam interface-only)                                                              |
+| Descriptor read or refresh policy | `src/edv/acquire.ts`, `src/edv/refresh.ts`, `src/edv/refreshingDocCipher.ts`                                          |
+| Codec resolution policy           | `src/internal/codec.ts`                                                                                               |
+| Write payload kinds, content type | `src/internal/content.ts` (`resolvePayload`)                                                                          |
+| Cross-replica sync behavior       | `src/sync/` (port stays verbatim/keyless; ciphers implement `DocCipher`)                                              |

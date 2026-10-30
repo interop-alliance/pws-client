@@ -31,7 +31,7 @@ import type { ClientContext } from './request.js'
 import { send } from './request.js'
 import { dataOrNull } from './content.js'
 import { WasServerError } from '../errors.js'
-import { hasUserinfo } from './paths.js'
+import { hasUserinfo } from './layout.js'
 
 /**
  * The default page-count bound on one listing walk. Generous enough for any

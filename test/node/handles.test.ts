@@ -22,7 +22,7 @@ import {
   WasServerError
 } from '../../src/index.js'
 import type { IDID, IZcap } from '../../src/index.js'
-import { rootCapabilityId } from '../../src/paths.js'
+import { rootCapabilityId } from '../../src/paths/index.js'
 import type { RequestArgs } from '../helpers/stubClient.js'
 import {
   clientWithRequestSpy,

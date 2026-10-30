@@ -1,5 +1,15 @@
 # @interop/was-client Changelog
 
+## 0.103.0 - TBD
+
+### Added
+
+- `@interop/was-client/paths/layout`: the dependency-free part of `./paths`
+  (`canonicalBaseServerUrl`, `serviceDescriptionUrl`, `spacesRepositoryUrl`,
+  `spaceUrlById`, `baseServerUrlOf`, `canonicalSpaceUrl`, `spaceIdOfUrl`,
+  `splitCollectionUrl`). Its static closure holds no external package. `./paths`
+  re-exports the same functions; its surface is unchanged.
+
 ## 0.102.0 - 2026-10-30
 
 ### Changed

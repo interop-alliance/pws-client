@@ -17,9 +17,9 @@ import {
   NotFoundError,
   WasError,
   WasServerError,
-  mapError,
   httpStatus
 } from '../errors.js'
+import { mapError } from './mapError.js'
 import { dataOrNull } from './content.js'
 import { readEtag } from './conditional.js'
 import type { EncryptionProvider } from '../codec.js'

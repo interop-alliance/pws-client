@@ -33,7 +33,7 @@ import type {
   CollectionEncryption,
   Space
 } from '../../src/index.js'
-import { collectionLogUrl } from '../../src/paths.js'
+import { collectionLogUrl } from '../../src/paths/index.js'
 import { resourceLogStore } from '../../src/log/index.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL

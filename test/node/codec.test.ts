@@ -30,7 +30,7 @@ import type {
   ResourceMetadataCustom
 } from '../../src/index.js'
 import { CodecHolder, identityCodec } from '../../src/internal/codec.js'
-import { rootCapabilityId } from '../../src/paths.js'
+import { rootCapabilityId } from '../../src/paths/index.js'
 import { drain } from '../helpers/bytes.js'
 import {
   serviceDescriptionFor,

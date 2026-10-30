@@ -60,6 +60,17 @@
  * consumer imports the entry for one URL builder (`@interop/wallet-core`'s
  * record envelope takes `canonicalSpaceUrl`). The entry's static closure must
  * hold no transport module or HTTP package and make no dynamic import.
+ *
+ * A fifth rule holds `./paths/layout` off every external package. The entry
+ * is the dependency-free part of the `./paths` grammar (the Server Layout
+ * builders and the canonical base server and Space URL forms, from
+ * `internal/layout.ts`), for a consumer that validates one URL under plain
+ * Node ESM, where `sideEffects: false` buys nothing and the whole closure
+ * evaluates. `./paths` itself keeps `@interop/storage-core` (the Reserved
+ * Path Segment Registry behind `internal/reserved.ts`) and `@interop/zcap`
+ * (the root capability grammar). The rule pins the layout entry's closure to
+ * exactly the modules it is meant to hold. A guard checks `./paths` still
+ * reaches both packages, so the split cannot pass vacuously.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -72,7 +83,13 @@ const SRC = path.resolve(
   '../../src'
 )
 
-const CORE_ENTRIES = ['index.ts', 'paths.ts', 'log/index.ts', 'sync/index.ts']
+const CORE_ENTRIES = [
+  'index.ts',
+  'paths/index.ts',
+  'paths/layout.ts',
+  'log/index.ts',
+  'sync/index.ts'
+]
 
 const ENCRYPTION_PACKAGES = [
   '@interop/edv-client',
@@ -248,12 +265,8 @@ const RESOURCE_LOG_MODULES = [
  * `@interop/storage-core` is deliberately not asserted here even though
  * `logGovernedDescriptorStore.ts` imports it directly (for
  * `RESOURCE_LOG_METHOD`). It already reaches `edv/cipher.ts` by a second,
- * unrelated path this split does not touch: `edv/EdvCodec.ts` imports the
- * error classes from `errors.ts`, and `errors.ts` imports `ProblemTypes` from
- * `@interop/storage-core` to build `mapError`'s problem-kind table. Removing
- * that edge means moving `mapError` off `errors.ts`, which is used by
- * `internal/request.ts`, `internal/service.ts`, `sync/port.ts`, and
- * re-exported from the package root -- out of scope for this split.
+ * unrelated path this split does not touch: the codec reads
+ * `isJsonContentType` from it through `internal/content.ts`.
  */
 const RESOURCE_LOG_PACKAGES = [
   '@interop/vh-resource-log',
@@ -468,7 +481,7 @@ describe('the log-free edv cipher entry', () => {
 })
 
 describe('the paths entry', () => {
-  const { modules, packages, dynamicEdges } = runtimeGraphFrom('paths.ts')
+  const { modules, packages, dynamicEdges } = runtimeGraphFrom('paths/index.ts')
 
   it('reaches no transport through its static imports', () => {
     expect(transportLeaksOf({ modules, packages })).toEqual([])
@@ -484,5 +497,36 @@ describe('the paths entry', () => {
     // the assertions above without covering the split.
     expect(modules.has('internal/rootCapability.ts')).toBe(true)
     expect(modules.has('internal/revoke.ts')).toBe(false)
+  })
+
+  it('does reach the registry and the zcap grammar', () => {
+    // Guards the layout entry's "no external package" rule: the two packages
+    // are what that entry leaves out, so a `./paths` that stopped reaching
+    // them would mean the walker no longer sees packages and that rule would
+    // pass vacuously.
+    expect(modules.has('internal/reserved.ts')).toBe(true)
+    expect(packages.has('@interop/storage-core')).toBe(true)
+    expect(packages.has('@interop/zcap')).toBe(true)
+  })
+})
+
+describe('the layout entry', () => {
+  const { modules, packages, dynamicEdges } =
+    runtimeGraphFrom('paths/layout.ts')
+
+  it('imports no external package', () => {
+    expect([...packages]).toEqual([])
+  })
+
+  it('holds exactly the layout grammar and the error classes', () => {
+    expect([...modules].sort()).toEqual([
+      'errors.ts',
+      'internal/layout.ts',
+      'paths/layout.ts'
+    ])
+  })
+
+  it('makes no dynamic import', () => {
+    expect([...dynamicEdges]).toEqual([])
   })
 })

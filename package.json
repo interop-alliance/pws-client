@@ -51,10 +51,16 @@
       "default": "./dist/edv/cipher.js"
     },
     "./paths": {
-      "types": "./dist/paths.d.ts",
-      "react-native": "./dist/paths.js",
-      "import": "./dist/paths.js",
-      "default": "./dist/paths.js"
+      "types": "./dist/paths/index.d.ts",
+      "react-native": "./dist/paths/index.js",
+      "import": "./dist/paths/index.js",
+      "default": "./dist/paths/index.js"
+    },
+    "./paths/layout": {
+      "types": "./dist/paths/layout.d.ts",
+      "react-native": "./dist/paths/layout.js",
+      "import": "./dist/paths/layout.js",
+      "default": "./dist/paths/layout.js"
     },
     "./log": {
       "types": "./dist/log/index.d.ts",
