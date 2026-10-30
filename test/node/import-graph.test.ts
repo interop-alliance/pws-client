@@ -53,6 +53,13 @@
  * gated `transportFactory.ts` import allowed, and a vacuous-pass guard that
  * checks `./edv/core` still reaches the resource-log graph the cipher entry
  * leaves out.
+ *
+ * A fourth rule holds `./paths` itself off the transport graph. Its graph
+ * carries the root capability grammar (`internal/rootCapability.ts`), which
+ * the revocation submission in `internal/revoke.ts` also uses, and an offline
+ * consumer imports the entry for one URL builder (`@interop/wallet-core`'s
+ * record envelope takes `canonicalSpaceUrl`). The entry's static closure must
+ * hold no transport module or HTTP package and make no dynamic import.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -355,21 +362,33 @@ describe('core entry import graphs', () => {
   })
 })
 
-describe('the transport-free edv entry', () => {
-  const { modules, packages, dynamicEdges } = runtimeGraphFrom('edv/core.ts')
-
-  it('reaches no transport module through its static imports', () => {
-    const leaked = TRANSPORT_MODULES.filter(module => modules.has(module))
-    expect(leaked).toEqual([])
-  })
-
-  it('imports none of the HTTP packages through its static imports', () => {
-    const leaked = [...packages].filter(specifier =>
+/**
+ * The transport reach of a static closure: the transport modules it holds
+ * followed by the HTTP packages it imports. The transport-free entries assert
+ * it empty.
+ */
+function transportLeaksOf({
+  modules,
+  packages
+}: {
+  modules: Set<string>
+  packages: Set<string>
+}): string[] {
+  return [
+    ...TRANSPORT_MODULES.filter(module => modules.has(module)),
+    ...[...packages].filter(specifier =>
       HTTP_PACKAGES.some(
         pkg => specifier === pkg || specifier.startsWith(`${pkg}/`)
       )
     )
-    expect(leaked).toEqual([])
+  ]
+}
+
+describe('the transport-free edv entry', () => {
+  const { modules, packages, dynamicEdges } = runtimeGraphFrom('edv/core.ts')
+
+  it('reaches no transport through its static imports', () => {
+    expect(transportLeaksOf({ modules, packages })).toEqual([])
   })
 
   it('makes one dynamic import, the spaceId-gated transport factory', () => {
@@ -405,18 +424,8 @@ describe('the transport-free edv entry', () => {
 describe('the log-free edv cipher entry', () => {
   const { modules, packages, dynamicEdges } = runtimeGraphFrom('edv/cipher.ts')
 
-  it('reaches no transport module through its static imports', () => {
-    const leaked = TRANSPORT_MODULES.filter(module => modules.has(module))
-    expect(leaked).toEqual([])
-  })
-
-  it('imports none of the HTTP packages through its static imports', () => {
-    const leaked = [...packages].filter(specifier =>
-      HTTP_PACKAGES.some(
-        pkg => specifier === pkg || specifier.startsWith(`${pkg}/`)
-      )
-    )
-    expect(leaked).toEqual([])
+  it('reaches no transport through its static imports', () => {
+    expect(transportLeaksOf({ modules, packages })).toEqual([])
   })
 
   it('reaches no resource-log module through its static imports', () => {
@@ -455,5 +464,25 @@ describe('the log-free edv cipher entry', () => {
         specifier.startsWith('@interop/vh-resource-log')
       )
     ).toBe(true)
+  })
+})
+
+describe('the paths entry', () => {
+  const { modules, packages, dynamicEdges } = runtimeGraphFrom('paths.ts')
+
+  it('reaches no transport through its static imports', () => {
+    expect(transportLeaksOf({ modules, packages })).toEqual([])
+  })
+
+  it('makes no dynamic import', () => {
+    expect([...dynamicEdges]).toEqual([])
+  })
+
+  it('does reach the root capability grammar', () => {
+    // Guards the test itself: the grammar is what used to sit beside the
+    // revocation submission, so an entry that stopped reaching it would pass
+    // the assertions above without covering the split.
+    expect(modules.has('internal/rootCapability.ts')).toBe(true)
+    expect(modules.has('internal/revoke.ts')).toBe(false)
   })
 })

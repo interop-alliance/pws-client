@@ -73,5 +73,5 @@ export {
   rootCapabilityTarget,
   rootCapability,
   spaceUrlOf
-} from './internal/revoke.js'
+} from './internal/rootCapability.js'
 export type { IRootZcap } from './types.js'

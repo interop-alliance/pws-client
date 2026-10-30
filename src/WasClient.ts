@@ -51,7 +51,8 @@ import {
 } from './internal/pagination.js'
 import type { PageWalk } from './internal/pagination.js'
 import { delegateGrant } from './internal/grant.js'
-import { spaceUrlOf, submitRevocation } from './internal/revoke.js'
+import { submitRevocation } from './internal/revoke.js'
+import { spaceUrlOf } from './internal/rootCapability.js'
 import { Memo } from './internal/memo.js'
 import {
   discoverService,

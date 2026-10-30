@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 145
+nextAvailableId: 146
 
 <!-- roadmap-order:index:start -->
 
@@ -1287,8 +1287,8 @@ already takes for a key rotation it cannot express as an epoch.
 - touches:
   - storage-core: the `ServiceDescription` type (`serverDid` joins the core
     `PwsVersionEntry` beside `originId` and leaves `instance`), the
-    `ReplicaStatus` and `ReplicaCollectionStatus` JSDoc ("controller-only"
-    is stale now that the route admits a root-chained delegated invocation;
+    `ReplicaStatus` and `ReplicaCollectionStatus` JSDoc ("controller-only" is
+    stale now that the route admits a root-chained delegated invocation;
     `ReplicaStallReason` is a closed set a reader extends with "unrecognized")
   - was-teaching-server: WAS-238 (serves the member on the core entry)
   - freewallet / wallet-core: whatever reads the replica server's DID off
@@ -1308,8 +1308,8 @@ already takes for a key rotation it cannot express as an epoch.
   - [ ] The replica method docs no longer say "controller-only"; they name the
         two admitted invocations (root, or a chain rooted in the Space's root)
         and the delegated `POST` bound
-  - [ ] Unit tests over the stubbed transport cover `registerReplica` against
-        a service description carrying `serverDid` on the core entry
+  - [ ] Unit tests over the stubbed transport cover `registerReplica` against a
+        service description carrying `serverDid` on the core entry
 
 Context: the replication companion (portable-web-spaces-spec
 `replication/spec.md`, 2026-10-29) settled three things the client documents or

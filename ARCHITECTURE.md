@@ -1037,7 +1037,8 @@ create.
    and no `spaceUrl` roots at the target's own root capability and is not
    Space-revocable. `GrantOptions.spaceUrl` roots it at the Space; the root
    capability there is built in object form because string root-cap ids break on
-   `http://localhost` (`internal/revoke.ts`).
+   `http://localhost` (`internal/rootCapability.ts`, which also owns the id
+   grammar and `spaceUrlOf`; the submission itself is `internal/revoke.ts`).
 6. **`@interop/http-client` pre-consumes JSON bodies** into `.data`, which is
    why body handling funnels through `internal/content.ts` helpers and why
    `getText`/`getBytes` are not byte-exact for JSON content types.
@@ -1057,7 +1058,11 @@ create.
    enforces it (see "Subpaths, not packages" under Layering). `./log` is not
    crypto-free: its dependency, `@interop/vh-resource-log`, pulls
    `@interop/did-method-webvh` and `@noble/curves` -- the hashing and proof
-   kernel only, with no DID resolution.
+   kernel only, with no DID resolution. `./paths` is further held off the
+   transport graph. Its static closure evaluates no transport module and none of
+   the HTTP packages. For that reason the root capability grammar lives in
+   `internal/rootCapability.ts`, apart from the revocation submission in
+   `internal/revoke.ts`. The same test enforces it.
 10. **The transport-free edv entries stay off the transport graph.** Importing
     `./edv/core` or `./edv/cipher` evaluates no transport module and none of the
     HTTP packages. That holds for static edges. `createEdvDocCipher` loads

@@ -4732,3 +4732,36 @@ response promise when the codec rejects; for a JSON body the client has already
 drained it, so the leak is confined to non-JSON responses such as a large blob
 read through `Resource.getWithEtag`. discovered-from: whole-codebase review,
 2026-09-11.
+
+### WCL-145: [H] The `./paths` entry evaluates the transport through the revocation module
+
+- status: done
+- done: 2026-10-29
+- priority: high
+- labels: layering, offline
+- discovered-from: WBU-13 (wallet-backup)
+- touches:
+  - was-client (this repo): shipped -- `src/internal/rootCapability.ts` holds
+    the id grammar, `rootCapability` and `spaceUrlOf`; `src/paths.ts` re-exports
+    from it; `src/internal/revoke.ts` keeps the submission;
+    `test/node/import-graph.test.ts` walks `paths.ts`; ARCHITECTURE.md invariant
+    9; CHANGELOG 0.101.0
+  - wallet-core: `unaffected` (its record envelope keeps importing
+    `canonicalSpaceUrl` from `@interop/was-client/paths`; the entry's surface is
+    unchanged)
+  - wallet-backup: WBU-13 takes the published version and re-runs its dist probe
+- acceptance:
+  - [x] the runtime static closure of `src/paths.ts` holds none of the transport
+        modules and none of the HTTP packages, and makes no dynamic import,
+        enforced by the import-graph test
+  - [x] the `./paths` export surface is unchanged
+  - [x] ARCHITECTURE.md names `./paths` as held off the transport graph
+
+Context: `src/paths.ts` re-exported `rootCapabilityId`, `rootCapabilityTarget`,
+`rootCapability` and `spaceUrlOf` from `src/internal/revoke.ts`, and that module
+imports `src/internal/request.ts` for the revocation submission. The edge is
+old, but it became reachable from an offline consumer when wallet-core 0.109.0's
+record envelope started importing `canonicalSpaceUrl` from the entry.
+wallet-backup's dist probe, which fails on any evaluated transport module,
+caught it under was-client 0.100.1. The grammar and the submission are
+separable: nothing in the grammar sends.

@@ -26,6 +26,11 @@
 
 ### Fixed
 
+- Importing `@interop/was-client/paths` no longer evaluates the transport. The
+  root capability grammar now lives apart from the revocation submission, so the
+  entry's static closure holds no request module and none of the HTTP packages.
+  The import-graph test enforces it.
+
 - `collection.indexes()`, `declareIndex()` and `declareIndexes()` return copies
   of the installed schema (compound `attribute` arrays included), the codec
   installs a copy of what it is handed, and the undeclared schema is minted per

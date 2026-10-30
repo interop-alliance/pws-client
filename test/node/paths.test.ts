@@ -59,7 +59,7 @@ import {
   rootCapabilityId,
   rootCapabilityTarget,
   spaceUrlOf
-} from '../../src/internal/revoke.js'
+} from '../../src/internal/rootCapability.js'
 
 const SPACE_URL = 'https://was.example/space/home/'
 
