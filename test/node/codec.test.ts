@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import { WasClient, EncryptionError, NotFoundError } from '../../src/index.js'
+import { PwsClient, EncryptionError, NotFoundError } from '../../src/index.js'
 import type {
   CollectionEncryption,
   IZcap,
@@ -48,9 +48,9 @@ interface RequestArgs {
 }
 
 /**
- * Builds a `WasClient` over a stub `ZcapClient` that records every request and
+ * Builds a `PwsClient` over a stub `ZcapClient` that records every request and
  * routes by URL. A GET returns `readData` (with `readContentType`); writes
- * return an empty 204-ish response. Every read carries an `ETag` (a WAS server
+ * return an empty 204-ish response. Every read carries an `ETag` (a PWS server
  * versions every resource), so a compare-and-swap write always has something
  * to pin `If-Match` to.
  *
@@ -79,7 +79,7 @@ function clientWithRouter({
    * When set, a collection-description GET (`/space/{s}/{c}/meta`) carries it.
    */
   descriptor?: CollectionEncryption
-} = {}): { client: WasClient; calls: RequestArgs[] } {
+} = {}): { client: PwsClient; calls: RequestArgs[] } {
   const calls: RequestArgs[] = []
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' },
@@ -149,8 +149,8 @@ function clientWithRouter({
         }
       } as unknown as HttpResponse
     }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  const client = new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  const client = new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
@@ -211,7 +211,7 @@ describe('codec seam: no provider (plaintext, unchanged)', () => {
       .collection('c')
       .add({ hello: 'world' })
     expect(calls[0]?.method).toBe('POST')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/')
     expect(result.id).toBe('server-minted')
   })
 
@@ -222,7 +222,7 @@ describe('codec seam: no provider (plaintext, unchanged)', () => {
       .collection('c')
       .put('r', { hello: 'world' })
     expect(calls[0]?.method).toBe('PUT')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/c/r')
+    expect(calls[0]?.url).toBe('https://pws.example/space/s/c/r')
     expect(calls[0]?.json).toEqual({ hello: 'world' })
   })
 })
@@ -264,7 +264,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
     expect(log).toContain('encode:mint')
     expect(result.id).toBe('zMintedEdvId')
     const write = calls.find(call => call.method === 'PUT')
-    expect(write?.url).toBe('https://was.example/space/s/c/zMintedEdvId')
+    expect(write?.url).toBe('https://pws.example/space/s/c/zMintedEdvId')
     expect(write?.headers?.['content-type']).toBe('application/jose+json')
     expect(write?.body).toBeInstanceOf(Uint8Array)
     // The override skips both the backend probe and descriptor discovery: no
@@ -311,7 +311,7 @@ describe('codec seam: encryption override binds the codec (no backend probe)', (
       .put({ secret: 1 })
     expect(log).toContain('encode:zDoc')
     const write = calls.find(call => call.method === 'PUT')
-    expect(write?.url).toBe('https://was.example/space/s/c/zDoc')
+    expect(write?.url).toBe('https://pws.example/space/s/c/zDoc')
     expect(write?.body).toBeInstanceOf(Uint8Array)
     expect(write?.json).toBeUndefined()
     // The override skips descriptor discovery: no collection-description GET.
@@ -383,7 +383,7 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
     const descriptorGet = calls.find(
       call =>
         (call.method ?? 'GET') === 'GET' &&
-        call.url === 'https://was.example/space/s/c/meta'
+        call.url === 'https://pws.example/space/s/c/meta'
     )
     expect(descriptorGet).toBeTruthy()
     expect(log).toContain('encode:zDoc')
@@ -456,7 +456,7 @@ describe('codec seam: policy resolution (override > descriptor > plaintext)', ()
 
   it('fails closed when the descriptor is unreadable (no fail-open to plaintext)', async () => {
     // An encryption-capable client whose collection-description GET 404s (the
-    // resource-scoped-capability case WAS masks as not-found). The descriptor is
+    // resource-scoped-capability case PWS masks as not-found). The descriptor is
     // ambiguous, so resolveCodec must refuse rather than write plaintext.
     const log: string[] = []
     const encryption: EncryptionProvider = {
@@ -501,7 +501,7 @@ describe('fromCapability forwards a per-handle encryption override', () => {
     '@context': 'https://w3id.org/zcap/v1',
     id: 'urn:zcap:scoped',
     parentCapability: rootCapabilityId(spaceUrlFor('s')),
-    invocationTarget: 'https://was.example/space/s/c/r'
+    invocationTarget: 'https://pws.example/space/s/c/r'
   } as unknown as IZcap
   const encryption: EncryptionProvider = {
     async codecFor() {
@@ -518,7 +518,7 @@ describe('fromCapability forwards a per-handle encryption override', () => {
     const handle = client.fromCapability(scoped) as Resource
     await expect(handle.get()).rejects.toThrow(EncryptionError)
     expect(calls.map(call => call.url)).toEqual([
-      'https://was.example/space/s/c/r'
+      'https://pws.example/space/s/c/r'
     ])
   })
 
@@ -537,7 +537,7 @@ describe('fromCapability forwards a per-handle encryption override', () => {
     // The covered resource itself still goes out.
     expect(await collection.resource('r').get()).toEqual({ ok: true })
     expect(calls.map(call => call.url)).toEqual([
-      'https://was.example/space/s/c/r'
+      'https://pws.example/space/s/c/r'
     ])
   })
 
@@ -592,7 +592,7 @@ function metaRoutedClient({
     args: RequestArgs
     segments: string[]
   }) => HttpResponse | undefined
-}): { client: WasClient; calls: RequestArgs[] } {
+}): { client: PwsClient; calls: RequestArgs[] } {
   const calls: RequestArgs[] = []
   const log: string[] = []
   const encryption: EncryptionProvider = {
@@ -623,8 +623,8 @@ function metaRoutedClient({
         headers: { 'content-type': 'application/json' }
       })
     }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  const client = new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  const client = new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     serviceDescription: serviceDescriptionFor(),
     zcapClient,
@@ -654,7 +654,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
    * another client reconfiguring the collection behind this one's back.
    */
   function flippableClient(): {
-    client: WasClient
+    client: PwsClient
     calls: RequestArgs[]
     flip: () => void
   } {
@@ -679,7 +679,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
             ...(encrypted && { encryption: { scheme: 'edv' } })
           },
           // `configure()` composes and pins its write to this read's ETag
-          // (a WAS server versions every resource), so the stub must serve
+          // (a PWS server versions every resource), so the stub must serve
           // one.
           headers: { 'content-type': 'application/json', etag: '"g.1"' }
         })
@@ -761,7 +761,7 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
    * retries.
    */
   function flakyDescriptorClient(): {
-    client: WasClient
+    client: PwsClient
     calls: RequestArgs[]
   } {
     let descriptorGets = 0
@@ -876,7 +876,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
       .collection('c', { encryption: { scheme: 'edv' } })
       .setMeta({ custom: { name: 'x', tags: { a: 'b' } } })
     const write = calls.find(call => call.method === 'PUT')
-    expect(write?.url).toBe('https://was.example/space/s/c/meta')
+    expect(write?.url).toBe('https://pws.example/space/s/c/meta')
     // The whole object is replaced, so the body restates the Collection id and
     // the configuration the compose step read back.
     expect(write?.json).toEqual({
@@ -941,7 +941,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
       .collection('c')
       .setMeta({ custom: { name: 'ok' } })
     const write = calls.find(call => call.method === 'PUT')
-    expect(write?.url).toBe('https://was.example/space/s/c/meta')
+    expect(write?.url).toBe('https://pws.example/space/s/c/meta')
     expect(write?.json).toEqual({ id: 'c', custom: { name: 'ok' } })
   })
 })

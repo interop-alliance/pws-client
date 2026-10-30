@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The delegation primitive shared by `was.grant()` and the `space`/`collection`
+ * The delegation primitive shared by `pws.grant()` and the `space`/`collection`
  * grant sugar. Maps `GrantOptions` onto `zcapClient.delegate(...)`, normalizing
  * action verbs to uppercase so a lowercase grant (`'get'`) still validates on
  * the server (which matches actions case-sensitively against `'GET'`).
@@ -11,11 +11,11 @@
  * fills from the handle) is delegated from that **Space's** root capability,
  * with the target carried as an attenuated `invocationTarget`, rather than
  * from the target's own root capability. Both forms grant the same access (the
- * server verifies WAS routes with target attenuation allowed), but only a
+ * server verifies PWS routes with target attenuation allowed), but only a
  * Space-rooted chain can be revoked -- revocation is Space-scoped, and the
  * endpoint requires the chain to root exactly in the Space (see `revoke.ts`).
  *
- * A bare `was.grant({ target })` without `spaceUrl` is the other mode, kept
+ * A bare `pws.grant({ target })` without `spaceUrl` is the other mode, kept
  * on purpose: it delegates from the target's own root capability (ezcap's
  * default). It is the shape for a server at the basic conformance level,
  * which may serve fixed collections, or resources alone, with no Space
@@ -106,7 +106,7 @@ function spaceRooted({
  * off out-of-band. An explicit `capability` (re-delegation of a parent zcap)
  * always wins; otherwise a grant naming its `spaceUrl` is rooted at that
  * Space, so the resulting capability is revocable via `space.revoke()` /
- * `was.revoke()`; otherwise ezcap roots it at the target's own root
+ * `pws.revoke()`; otherwise ezcap roots it at the target's own root
  * capability.
  *
  * @param context {ClientContext}
@@ -121,9 +121,9 @@ export async function delegateGrant(
   { to, actions, expires, target, capability, spaceUrl }: GrantOptions
 ): Promise<IDelegatedZcap> {
   // The scoped sugar always prefills `target`, so this only catches a direct
-  // `was.grant()`. Without either member ezcap has no invocation target and no
+  // `pws.grant()`. Without either member ezcap has no invocation target and no
   // parent to take one from, and rejects the call with a bare `TypeError` a
-  // consumer catching `WasError` would miss.
+  // consumer catching `PwsError` would miss.
   if (target === undefined && capability === undefined) {
     throw new ValidationError(
       'A grant needs a `target` (the invocationTarget URL to grant) or a ' +

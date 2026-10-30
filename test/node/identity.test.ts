@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The WAS identity derivation (`./identity`). The fixture values are
+ * The PWS identity derivation (`./identity`). The fixture values are
  * byte-critical: they pin the exact keys every account derives through under
  * the `'bootstrap'` / `'bootstrap-key'` names. If any fixture here changes,
  * existing accounts are stranded -- that is a bug in the change, not in the

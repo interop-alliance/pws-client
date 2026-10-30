@@ -8,7 +8,7 @@
  * `isKeyUnwrapError` also ships from `./edv`, beside the cipher that raises
  * it).
  *
- * All five signals are raised inside app-injected seams -- the `WasSyncPort`
+ * All five signals are raised inside app-injected seams -- the `PwsSyncPort`
  * for the three wire signals, the caller's `DocCipher` for the two no-key
  * signals --
  * and a consumer's tree can resolve a SECOND copy of this package (a `link:`
@@ -33,14 +33,14 @@ import {
   KeyUnwrapError,
   NotSupportedError,
   UnknownEpochError,
-  WasSyncAuthError,
-  WasSyncCheckpointError,
-  WasSyncConflictError,
-  WasSyncNotFoundError
+  PwsSyncAuthError,
+  PwsSyncCheckpointError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError
 } from '../../src/sync/index.js'
 
 /**
- * An error as it arrives from a SECOND copy of `@interop/was-client`: the same
+ * An error as it arrives from a SECOND copy of `@interop/pws-client`: the same
  * `name` contract, an unrelated constructor.
  */
 function foreignRealmError(name: string): Error {
@@ -60,10 +60,10 @@ const PREDICATES = [
 
 describe('the sync error predicates', () => {
   it("matches this package's own classes", () => {
-    expect(isSyncConflictError(new WasSyncConflictError())).toBe(true)
-    expect(isSyncNotFoundError(new WasSyncNotFoundError())).toBe(true)
-    expect(isSyncAuthError(new WasSyncAuthError(403))).toBe(true)
-    expect(isSyncCheckpointError(new WasSyncCheckpointError())).toBe(true)
+    expect(isSyncConflictError(new PwsSyncConflictError())).toBe(true)
+    expect(isSyncNotFoundError(new PwsSyncNotFoundError())).toBe(true)
+    expect(isSyncAuthError(new PwsSyncAuthError(403))).toBe(true)
+    expect(isSyncCheckpointError(new PwsSyncCheckpointError())).toBe(true)
     expect(
       isUnknownEpochError(
         new UnknownEpochError({ collectionId: 'c', kids: ['k'] })
@@ -72,16 +72,16 @@ describe('the sync error predicates', () => {
   })
 
   it("matches a foreign realm's errors, which instanceof cannot", () => {
-    const conflict = foreignRealmError('WasSyncConflictError')
-    const notFound = foreignRealmError('WasSyncNotFoundError')
-    const auth = foreignRealmError('WasSyncAuthError')
-    const checkpoint = foreignRealmError('WasSyncCheckpointError')
+    const conflict = foreignRealmError('PwsSyncConflictError')
+    const notFound = foreignRealmError('PwsSyncNotFoundError')
+    const auth = foreignRealmError('PwsSyncAuthError')
+    const checkpoint = foreignRealmError('PwsSyncCheckpointError')
     const unknownEpoch = foreignRealmError('UnknownEpochError')
 
-    expect(conflict instanceof WasSyncConflictError).toBe(false)
-    expect(notFound instanceof WasSyncNotFoundError).toBe(false)
-    expect(auth instanceof WasSyncAuthError).toBe(false)
-    expect(checkpoint instanceof WasSyncCheckpointError).toBe(false)
+    expect(conflict instanceof PwsSyncConflictError).toBe(false)
+    expect(notFound instanceof PwsSyncNotFoundError).toBe(false)
+    expect(auth instanceof PwsSyncAuthError).toBe(false)
+    expect(checkpoint instanceof PwsSyncCheckpointError).toBe(false)
     expect(unknownEpoch instanceof UnknownEpochError).toBe(false)
 
     expect(isSyncConflictError(conflict)).toBe(true)
@@ -94,20 +94,20 @@ describe('the sync error predicates', () => {
   it('matches a plain object carrying only the name', () => {
     // A value that lost its prototype (a structured clone, a serialized
     // rejection) still classifies, since the contract is the string.
-    expect(isSyncConflictError({ name: 'WasSyncConflictError' })).toBe(true)
-    expect(isSyncNotFoundError({ name: 'WasSyncNotFoundError' })).toBe(true)
-    expect(isSyncAuthError({ name: 'WasSyncAuthError', status: 404 })).toBe(
+    expect(isSyncConflictError({ name: 'PwsSyncConflictError' })).toBe(true)
+    expect(isSyncNotFoundError({ name: 'PwsSyncNotFoundError' })).toBe(true)
+    expect(isSyncAuthError({ name: 'PwsSyncAuthError', status: 404 })).toBe(
       true
     )
     expect(isUnknownEpochError({ name: 'UnknownEpochError' })).toBe(true)
   })
 
   it('matches a locally declared class with the same name', () => {
-    class WasSyncAuthError {
-      name = 'WasSyncAuthError'
+    class PwsSyncAuthError {
+      name = 'PwsSyncAuthError'
       status = 401
     }
-    const local = new WasSyncAuthError()
+    const local = new PwsSyncAuthError()
 
     expect(isSyncAuthError(local)).toBe(true)
     // The masked-404 read a consumer needs is a property read past the match,
@@ -117,14 +117,14 @@ describe('the sync error predicates', () => {
 
   it('reads the status off a matched auth error', () => {
     for (const status of [401, 403, 404]) {
-      const err = new WasSyncAuthError(status)
+      const err = new PwsSyncAuthError(status)
       expect(isSyncAuthError(err)).toBe(true)
       expect(err.status).toBe(status)
     }
   })
 
   it('keeps the signals apart, and rejects everything else', () => {
-    const conflict = foreignRealmError('WasSyncConflictError')
+    const conflict = foreignRealmError('PwsSyncConflictError')
     expect(isSyncNotFoundError(conflict)).toBe(false)
     expect(isSyncAuthError(conflict)).toBe(false)
     expect(isSyncCheckpointError(conflict)).toBe(false)
@@ -142,12 +142,12 @@ describe('the sync error predicates', () => {
       // than raising a TypeError of its own.
       expect(predicate(undefined)).toBe(false)
       expect(predicate(null)).toBe(false)
-      expect(predicate('WasSyncConflictError')).toBe(false)
+      expect(predicate('PwsSyncConflictError')).toBe(false)
     }
   })
 
   it('does not match a subtype relationship the name does not state', () => {
-    // `WasSyncAuthError` is an `AuthRequiredError` and `WasSyncConflictError`
+    // `PwsSyncAuthError` is an `AuthRequiredError` and `PwsSyncConflictError`
     // a `PreconditionFailedError`, but the base classes carry their own names,
     // so a base-class error is not one of the port's signals.
     expect(isSyncAuthError(foreignRealmError('AuthRequiredError'))).toBe(false)
@@ -203,8 +203,8 @@ describe('the NotSupportedError predicate', () => {
   })
 
   it('does not match the wire signals or the base class name', () => {
-    expect(isNotSupportedError(new WasSyncConflictError())).toBe(false)
-    expect(isNotSupportedError(new WasSyncAuthError(403))).toBe(false)
-    expect(isNotSupportedError(foreignRealmError('WasError'))).toBe(false)
+    expect(isNotSupportedError(new PwsSyncConflictError())).toBe(false)
+    expect(isNotSupportedError(new PwsSyncAuthError(403))).toBe(false)
+    expect(isNotSupportedError(foreignRealmError('PwsError'))).toBe(false)
   })
 })

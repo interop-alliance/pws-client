@@ -1,6 +1,6 @@
 # Architecture
 
-Internal design of `@interop/was-client` -- the layering, the request lifecycle,
+Internal design of `@interop/pws-client` -- the layering, the request lifecycle,
 the encryption seam, and the invariants that hold it together. For API usage see
 the [README](./README.md); for toolchain and code style see
 [AGENTS.md](./AGENTS.md).
@@ -11,7 +11,7 @@ Three layers with a strict downward dependency rule:
 
 ```
 src/*.ts            Public handle classes + contracts
-  WasClient, Space, Collection, Resource
+  PwsClient, Space, Collection, Resource
   codec.ts (interfaces only), errors.ts, types.ts, index.ts
   zcapClient.ts (zcapClientForSigner, the one ZcapClient construction site)
         |
@@ -37,7 +37,7 @@ src/identity/*.ts   Data-identity subpath (sibling, opt-in)
   @interop/capability-agent + @interop/x25519-key-agreement-key.
 
 src/edv/*.ts        Encryption subpath (sibling, opt-in)
-  EdvCodec, encryption/transportFactory, WasTransport, docCipher,
+  EdvCodec, encryption/transportFactory, PwsTransport, docCipher,
   epochCrypto/epochKeys/epochRoster, recipients, descriptorStore,
   logGovernedDescriptorStore
   Implements the interfaces in src/codec.ts; imports internal/* and the
@@ -45,7 +45,7 @@ src/edv/*.ts        Encryption subpath (sibling, opt-in)
   @scure/base).
   logGovernedDescriptorStore is the one edv module that imports src/log/
   (the resourceLogStore adapter) and @interop/vh-resource-log (the verifier).
-  new WasTransport(...) is called only from transportFactory. encryption
+  new PwsTransport(...) is called only from transportFactory. encryption
   builds that factory, and docCipher loads it through import() when a caller
   names a Space. index.ts also re-exports the class, for callers driving an
   EdvClient directly, so importing ./edv evaluates the transport module and
@@ -56,14 +56,14 @@ src/edv/*.ts        Encryption subpath (sibling, opt-in)
   log-governed stores); core.ts is the ./edv/core entry, which re-exports
   cipher.ts and adds logGovernedDescriptorStore and
   logGovernedCollectionDescriptorStore on top; index.ts is ./edv, which
-  re-exports core.ts and adds encryption, transportFactory, WasTransport,
+  re-exports core.ts and adds encryption, transportFactory, PwsTransport,
   collectionDescriptorStore, acquire and refresh on top.
 
 src/sync/*.ts       Sync subpath (sibling, opt-in, crypto-free)
-  port (createWasSyncPort), types (WasSyncPort, DocCipher, MasterState,
+  port (createPwsSyncPort), types (PwsSyncPort, DocCipher, MasterState,
   SyncStatus), predicates (the err.name classifiers), cid,
   plaintextCipher, envelope, provisioning
-  Imports core (WasClient, errors, internal/conditional) and one crypto-free
+  Imports core (PwsClient, errors, internal/conditional) and one crypto-free
   constant module (src/edv/constants.ts, for EDV_SCHEME_VERSION), nothing
   else under src/edv/; src/edv/docCipher.ts imports its DocCipher/envelope
   types.
@@ -89,7 +89,7 @@ a server or a resource log. `./edv/core` is that entry plus the log-governed
 descriptor stores, which read through a resource log verified by
 `@interop/vh-resource-log`; still no server in the graph, but that verifier (and
 thereby `@interop/did-method-webvh`) is. `./edv` is `./edv/core` plus the
-modules that do talk to a server (`WasTransport`, `createEdvEncryption`,
+modules that do talk to a server (`PwsTransport`, `createEdvEncryption`,
 `collectionDescriptorStore`, descriptor acquisition and refresh). Between them,
 these entries pull the encrypted-collection graph (`@interop/edv-client/core`,
 `@interop/minimal-cipher`, `@interop/x25519-key-agreement-key`), and
@@ -110,7 +110,7 @@ A second rule, one level further in, walks `./edv/core` itself and asserts it
 reaches no transport module and none of the HTTP packages
 (`@interop/http-client`, `@interop/http-signature-zcap-invoke`,
 `@interop/ezcap`). That walk counts runtime edges only: a type-only import is
-erased at build time, and `edv/EdvCodec.ts` legitimately names `WasTransport` as
+erased at build time, and `edv/EdvCodec.ts` legitimately names `PwsTransport` as
 a type. The core-entry rule above counts type imports on purpose, since a type
 reach into `edv/` is the first step of a runtime one.
 
@@ -145,18 +145,18 @@ error classes the layout builders throw load with no dependency of their own.
 abstract `Transport`), not through its root. The root also carries `EdvClient`
 and `HttpsTransport`, which load `@interop/http-client` and
 `@interop/http-signature-zcap-invoke` at module scope. This package brings its
-own transport, `WasTransport`, and uses neither class, so importing the core
+own transport, `PwsTransport`, and uses neither class, so importing the core
 entry keeps both HTTP packages out of the graph. The two `core` entries are the
 same idea at two levels: `@interop/edv-client/core` keeps a consumer of that
-package off its HTTP transport, and `@interop/was-client/edv/core` keeps a
+package off its HTTP transport, and `@interop/pws-client/edv/core` keeps a
 consumer of this one off its own.
 
 Every `ZcapClient` this package builds -- for invocations and delegations alike
 -- comes from one construction site, `zcapClientForSigner` in
-`src/zcapClient.ts`, hard-coded to `eddsa-jcs-2022`. `WasClient.fromSigner` and
+`src/zcapClient.ts`, hard-coded to `eddsa-jcs-2022`. `PwsClient.fromSigner` and
 every `./identity` derivation build their client there, so within this package
 there is exactly one place that could disagree with the suite the server
-verifies. A `ZcapClient` the caller constructs and passes to the `WasClient`
+verifies. A `ZcapClient` the caller constructs and passes to the `PwsClient`
 constructor is the caller's responsibility.
 
 ### Subpaths, not packages
@@ -166,7 +166,7 @@ repo into a core client and an encrypted client built on it. Decided 2026-08-22;
 the reasons, so the split is not re-proposed without new facts:
 
 - ESM subpath entries already give runtime isolation. A consumer that imports
-  `@interop/was-client` never evaluates `src/edv/`, bundler or not, so the
+  `@interop/pws-client` never evaluates `src/edv/`, bundler or not, so the
   isolation does not depend on tree-shaking (which Metro does poorly).
 - A package boundary would fall on seams that are private today. `src/edv/`
   imports `internal/content`, `internal/conditional` and `internal/indexSchema`;
@@ -179,7 +179,7 @@ the reasons, so the split is not re-proposed without new facts:
 - Nothing asks for what a package split adds beyond subpaths: install-time
   isolation (the crypto packages absent from a core-only consumer's
   `node_modules` and audit surface) and independent versioning. Both wallets and
-  was-react use the encrypted side, and the server does not depend on was-client
+  was-react use the encrypted side, and the server does not depend on pws-client
   at all.
 
 Revisit when any of these arrives: a core-only consumer that needs the crypto
@@ -206,7 +206,7 @@ its export list, so the two entries cannot drift.
 
 ## The handle model
 
-`WasClient` (spaces repository) creates `Space` handles, which create
+`PwsClient` (spaces repository) creates `Space` handles, which create
 `Collection` handles, which create `Resource` handles. Handle construction does
 **no network I/O**; requests happen only when a method is called.
 
@@ -233,7 +233,7 @@ controller). Per-handle state on top of that:
   children a resolver thunk so they share the parent's memoized codec (and its
   `reset()`). A standalone `Resource` resolves its own. Codecs stay per-handle:
   a handle may carry an encryption override.
-- `WasClient.fromCapability(zcap, options)` reads the Space off the capability's
+- `PwsClient.fromCapability(zcap, options)` reads the Space off the capability's
   delegation chain root with `spaceUrlOf`. The root id is `urn:zcap:root:` plus
   the encoded Space URL, taken from the first entry of the delegation proof's
   `capabilityChain` (the proof carrying one, wherever it sits in a proof set),
@@ -253,17 +253,17 @@ controller). Per-handle state on top of that:
   an upper-case host or an explicit default port could invoke nothing. A
   capability from another party needs no server known in advance, since the
   Space URL comes from the capability itself.
-- `WasClient.spaceAt(spaceUrl, options)` opens a handle on an absolute Space URL
+- `PwsClient.spaceAt(spaceUrl, options)` opens a handle on an absolute Space URL
   after canonicalizing it (`canonicalSpaceUrl`: trailing slash added, host
   lower-cased). A received Space URL is never checked against the base.
-  `WasClient.space(spaceId, options)` is the synchronous by-id route to
-  `spaceAt` of `{base}space/{spaceId}/`. `WasClient.collectionAt(url, options)`
+  `PwsClient.space(spaceId, options)` is the synchronous by-id route to
+  `spaceAt` of `{base}space/{spaceId}/`. `PwsClient.collectionAt(url, options)`
   opens a Collection by URL, splitting it into its parent (the Space URL) and
   its last segment (the id) with `splitCollectionUrl`. A Space URL may be an
   origin root, so `Space.id` is `undefined` there. `createSpace` returns
   `spaceAt` of the create response's `Location`, resolved against the Spaces
   Repository URL when relative. A response without `Location` throws
-  `WasServerError`. `WasClient.revoke(zcap)` derives the Space from the chain
+  `PwsServerError`. `PwsClient.revoke(zcap)` derives the Space from the chain
   root the same way and posts to the Space's revocation endpoint.
 
 ## Service discovery
@@ -272,7 +272,7 @@ controller). Per-handle state on top of that:
 server-level URL graph is rooted in one document, the service description. A
 client has two entry points. The usual one is built from a base server URL, and
 `readServiceDescription` reads `{base}service` with an unsigned `GET`. The other
-is `WasClient.forSpace({ spaceUrl })`, for a server that is a single fixed Space
+is `PwsClient.forSpace({ spaceUrl })`, for a server that is a single fixed Space
 with no id and no base. `discoverService` first sends an unsigned `HEAD` to the
 Space URL and follows the `Link: <...>; rel="service"` header on the response,
 then calls `readServiceDescription` on the linked URL. The spec fixes no path
@@ -289,10 +289,10 @@ without a string `version`. It picks the newest entry in
 `spaces` must be an absolute URL and its `features` an array of strings, since
 the client acts on both. The `instance` member is not read.
 
-`WasClient` memoizes discovery in a `Memo` and exposes it as `was.service()`.
+`PwsClient` memoizes discovery in a `Memo` and exposes it as `pws.service()`.
 `rawRequest` awaits `context.service()` before it signs, so every signed request
-passes the gate. That includes `send`, `was.request()`, codec-driven requests,
-`WasTransport`, and the sync port. Unsigned public reads take absolute URLs that
+passes the gate. That includes `send`, `pws.request()`, codec-driven requests,
+`PwsTransport`, and the sync port. Unsigned public reads take absolute URLs that
 may be on another server, so they are not gated.
 
 `send()` also answers, without sending, a request whose URL lies outside the
@@ -437,9 +437,9 @@ discriminates them). A plan carries the resource id it will write to and an
 `execute` method; `insertResource` runs it over a `CodecRequestContext` -- the
 handle's signed `request` primitive -- instead of sending one request. That
 `request` goes through the same mapped `send` path core uses, so a codec-driven
-write fails with the typed `WasError` subclasses the calling method documents
+write fails with the typed `PwsError` subclasses the calling method documents
 (the raw `HttpResponse` still comes back, and the typed errors carry the HTTP
-`status`, so a status-dispatching driver such as `WasTransport` is unaffected).
+`status`, so a status-dispatching driver such as `PwsTransport` is unaffected).
 `upsertResource` runs a plan too, and hands the codec its pre-read, so the plan
 owns its preconditions: where the pre-read found no document the plan's first
 write is create-if-absent, and a 412 surfaces as `PreconditionFailedError` under
@@ -524,7 +524,7 @@ Two integration levels share `src/edv/`:
   the codec (`random`, or `content`-derived for immutable content-addressed
   documents). A binary `add()` over `maxBlobBytes`, or any `ReadableStream`
   payload, is routed to the chunked path: the codec returns a plan that drives
-  `EdvClientCore.insert({ doc, stream, transport })` over a `WasTransport`, and
+  `EdvClientCore.insert({ doc, stream, transport })` over a `PwsTransport`, and
   so is a `put()` of one, which drives `update({ doc, stream, transport })`
   instead where the pre-read found a document. The transport is then seeded with
   that document's `ETag` (its `baseline`), so the core's first document write is
@@ -533,8 +533,8 @@ Two integration levels share `src/edv/`:
   build knows where the Collection lives. A codec built without one (the
   local-replica doc cipher) refuses the chunked write, and reads a chunked
   document only from a caller's `chunkSource`. The factory over PWS is
-  `wasTransportFactory` in `src/edv/transportFactory.ts`, which is the only
-  module that calls `new WasTransport(...)`. A blob is routed on its size alone
+  `pwsTransportFactory` in `src/edv/transportFactory.ts`, which is the only
+  module that calls `new PwsTransport(...)`. A blob is routed on its size alone
   and passed on as a stream, so an over-threshold `Blob` is never buffered whole
   by the codec; an over-threshold `Uint8Array` is copied once, since the chunks
   are encrypted across one round-trip each and the caller may reuse its buffer
@@ -547,7 +547,7 @@ Two integration levels share `src/edv/`:
   bound resource id the chunks are addressed by (never the envelope's cleartext
   `id`). The read runs on a local `Transport` subclass that serves only
   `getChunk`, from the network or from a `chunkSource`, and refuses with
-  `EncryptionError` a chunk whose protected-header `was` binding differs from
+  `EncryptionError` a chunk whose protected-header `pws` binding differs from
   the envelope's. A missing chunk surfaces as the typed `NotFoundError` from
   either source, so the decrypt stream errors with the same classes as every
   other read on the handle. The writer seals the same binding into every chunk,
@@ -596,7 +596,7 @@ Two integration levels share `src/edv/`:
   still stored, which a `delete()` of the resource removes. An update over an
   inline document lists nothing.
 
-- **`WasTransport`** (EDV-native): an `@interop/edv-client` `Transport` that
+- **`PwsTransport`** (EDV-native): an `@interop/edv-client` `Transport` that
   maps EDV document operations onto PWS resource CRUD ("vault per collection",
   EDV doc id is the PWS resource id), including blinded-index `find` and chunked
   streams. The EDV core owns the write sequence and discards the responses, so
@@ -635,8 +635,8 @@ epoch a collection encrypts under, and when a reader asks again. Every consumer
 running an encrypted collection must share one rule, since a drift between two
 replicas fails as a resource one of them cannot decrypt rather than loudly. The
 two seams are narrow on purpose: an `EncryptionDescriptorSource` is one signed
-read of the Collection Metadata object (`wasDescriptorSource` over a
-`WasClient`, or a consumer's own reader over a governed log), and an
+read of the Collection Metadata object (`pwsDescriptorSource` over a
+`PwsClient`, or a consumer's own reader over a governed log), and an
 `EncryptionDescriptorCache` is a client-local get/put the host has scoped to one
 Space. `acquireDescriptor` fetches, caches a success, and falls back to the
 cached copy whenever the fetch yields no descriptor -- thrown or empty, since
@@ -733,7 +733,7 @@ store already reflects the desired state" and ends the loop without a write;
 first-create race, while still refusing (`ValidationError`) a descriptor that
 already carried epochs on its first read.
 
-Tamper resistance: each write binds an AEAD-authenticated `was` parameter
+Tamper resistance: each write binds an AEAD-authenticated `pws` parameter
 (scheme version, resource id, epoch) into the JWE protected header, verified on
 decode (`IntegrityError` on envelope swap or epoch rollback). The resource-id
 check needs the id the read addressed, passed as `decode`'s `expectedId`. A
@@ -741,13 +741,13 @@ content-derived envelope binds no resource id, so that check re-derives the id
 from the ciphertext instead. Handle reads pass the id, and so does the sync
 `DocCipher`, whose `decrypt` requires it. A `decode` called without an id skips
 the check. The Collection `/meta` envelope belongs to no resource, so instead of
-a resource id it binds the collection id (`was.collection`, no Space scoping).
+a resource id it binds the collection id (`pws.collection`, no Space scoping).
 Each slot is thereby declared positively by the member set of its envelope:
 `resource` marks a resource slot, `collection` the Collection `/meta` slot, and
 a content-derived envelope binds neither. The decode side enforces that both
 ways -- a resource-bound (or unmarked) envelope served into the `/meta` slot is
 refused, as is a collection-bound envelope served into a resource's slot, and a
-`was.collection` naming a different collection is refused as one Collection's
+`pws.collection` naming a different collection is refused as one Collection's
 metadata served as another's.
 
 ## The sync layer
@@ -757,11 +757,11 @@ everything a wallet needs to replicate one Space + Collection over PWS. It is
 deliberately **not** a sync engine -- it supplies the seams a change engine
 plugs into:
 
-- **`WasSyncPort`** (`types.ts`) is the injected PWS-access seam: `query` (one
+- **`PwsSyncPort`** (`types.ts`) is the injected PWS-access seam: `query` (one
   page of the change feed), `putContent`/`deleteContent`/`putMeta` (conditional
   writes), and `get` (single-resource master-state re-read for the 412-conflict
   path). Every member is required, so the port type states exactly what
-  `createWasSyncPort` (`port.ts`, bound to one Space + Collection) implements
+  `createPwsSyncPort` (`port.ts`, bound to one Space + Collection) implements
   and a consumer needs no cast or runtime probe at the seam; the feed page it
   returns types the stored bodies as `Json`.
 - **`DocCipher`** (`types.ts`) is the per-collection encrypt/decrypt seam: it
@@ -788,7 +788,7 @@ plugs into:
 
 The port's defining property: **it moves stored bodies verbatim and never
 touches keys**. Writes and single-resource reads ride the raw signed
-`was.request()` escape hatch, bypassing the codec seam entirely -- the change
+`pws.request()` escape hatch, bypassing the codec seam entirely -- the change
 feed already ships opaque stored bodies (plaintext or EDV envelope), and push
 must write those same bytes back unchanged; running them through
 `resource.put()` would re-encrypt an already-encrypted envelope. Encrypt and
@@ -850,14 +850,14 @@ nested as `meta`, and `MasterState` carries both when the server's `/meta`
 object serves them. Every feed document carries its current `etag` and
 `metaEtag`, so a push loop pins its writes from feed state alone. Two typed
 signals in `src/errors.ts` let a push loop catch exactly what it can handle:
-`WasSyncConflictError` (412, a subtype of `PreconditionFailedError`) triggers
-re-read-and-reconcile, and `WasSyncNotFoundError` (404 on delete or on a `/meta`
+`PwsSyncConflictError` (412, a subtype of `PreconditionFailedError`) triggers
+re-read-and-reconcile, and `PwsSyncNotFoundError` (404 on delete or on a `/meta`
 write, a subtype of `NotFoundError`) marks an already-gone target: a settled
 outcome for a delete, a delete race for a metadata write. A third,
-`WasSyncCheckpointError` (400 at `#/checkpoint`, a subtype of
+`PwsSyncCheckpointError` (400 at `#/checkpoint`, a subtype of
 `ValidationError`), is raised by `query` when the server did not issue the
 presented checkpoint, and tells a pull loop to restart from the beginning. A
-fourth, `WasSyncAuthError` (401, 403, or the masked 404), is opt-in under
+fourth, `PwsSyncAuthError` (401, 403, or the masked 404), is opt-in under
 `mapAuthErrors` and reports revoked access. The port's `putContent` and
 `deleteContent` also stamp the `Key-Epoch` and `Writer-Id` headers, so the
 server records which key epoch a body was encrypted under and which writing
@@ -873,7 +873,7 @@ Bypassing the codec is not bypassing the error mapper. Every failure the port
 catches goes through `mapError` first, so its signals carry the server's
 `problem+json` fields (`type`, `title`, `details`, `requestUrl`) and a `cause`,
 and a status the port has no signal of its own for -- a 500, a 507
-quota-exceeded -- still leaves this subpath as a typed `WasError`.
+quota-exceeded -- still leaves this subpath as a typed `PwsError`.
 
 `./sync` also exports the predicates that CLASSIFY those signals:
 `isSyncConflictError`, `isSyncNotFoundError`, `isSyncCheckpointError`,
@@ -1064,7 +1064,7 @@ create.
 4. **zcap action equals HTTP method.** Never switch to ezcap's default
    `read`/`write` actions.
 5. **Grants from a handle are rooted at the Space** so they are revocable at
-   `{spaceUrl}zcaps/revocations/:capId`. A bare `was.grant` with no `capability`
+   `{spaceUrl}zcaps/revocations/:capId`. A bare `pws.grant` with no `capability`
    and no `spaceUrl` roots at the target's own root capability and is not
    Space-revocable. `GrantOptions.spaceUrl` roots it at the Space; the root
    capability there is built in object form because string root-cap ids break on
@@ -1136,7 +1136,7 @@ Terminology section; entries below restate one only to say how this client uses
 it, and otherwise cover the client-side concepts this file names.
 
 - **Handle** -- a client-side object addressing one PWS node, constructed
-  without network I/O. The kinds are `WasClient` (the spaces repository),
+  without network I/O. The kinds are `PwsClient` (the spaces repository),
   `Space`, `Collection`, and `Resource`, each creating the next (`src/*.ts`).
   See The handle model.
 - **Space Metadata object** -- a Space's one "about it" document (`name`,
@@ -1172,7 +1172,7 @@ it, and otherwise cover the client-side concepts this file names.
 - **Base server URL** -- the absolute `http(s)` URL, with a trailing slash and
   no query, fragment, or userinfo, under which the spec's Server Layout places
   the server-level endpoints. The client is built from it and exposes it as
-  `was.baseServerUrl`. Avoid: `serverUrl`, `baseUrl`, host, server root. See
+  `pws.baseServerUrl`. Avoid: `serverUrl`, `baseUrl`, host, server root. See
   Service discovery.
 - **Space URL** -- the absolute URL of one Space, in canonical form (trailing
   slash, lower-case host). Either `{base}space/{space_id}/` or received from the
@@ -1183,7 +1183,7 @@ it, and otherwise cover the client-side concepts this file names.
   discovery.
 - **Single fixed Space** -- a server that is one Space with no id and no base
   server URL, such as a personal site whose Collections sit at its origin.
-  Opened with `WasClient.forSpace({ spaceUrl })`. Avoid: single-space server,
+  Opened with `PwsClient.forSpace({ spaceUrl })`. Avoid: single-space server,
   root Space. See Service discovery.
 - **Service URL** -- `{base}service`, the URL of the service description,
   derived from the base server URL by `serviceDescriptionUrl` and read with an
@@ -1198,7 +1198,7 @@ it, and otherwise cover the client-side concepts this file names.
   `HEAD` of the Space URL of a single fixed Space. Owned by the PWS spec. Avoid:
   well-known document, server metadata. See Service discovery.
 - **Service discovery** -- the client's memoized read of the service description
-  and its choice of PWS version (`src/internal/service.ts`, `was.service()`),
+  and its choice of PWS version (`src/internal/service.ts`, `pws.service()`),
   awaited before every signed request. Its result is a `ServiceInfo`. See
   Service discovery.
 - **Bound capability** -- the delegated zcap carried on a handle and inherited
@@ -1236,23 +1236,23 @@ it, and otherwise cover the client-side concepts this file names.
 - **Blinded index** -- the `indexed` entries written beside a JWE, and the
   blinded terms `Collection.find()` posts to the collection `/query` endpoint
   under the `blinded-index` profile. See The codec seam.
-- **edv cipher entry** -- the `@interop/was-client/edv/cipher` subpath
+- **edv cipher entry** -- the `@interop/pws-client/edv/cipher` subpath
   (`src/edv/cipher.ts`), the log-free part of the encrypted surface's offline
   half: the codec, the doc ciphers, the key epochs, the recipient operations,
   `resourceDescriptorStore`, and the blinding keys, with no server and no
-  resource log in the graph. `@interop/was-client/edv/core` re-exports it and
+  resource log in the graph. `@interop/pws-client/edv/core` re-exports it and
   adds the log-governed descriptor stores. See The EDV layer and Layering.
-- **edv core entry** -- the `@interop/was-client/edv/core` subpath
+- **edv core entry** -- the `@interop/pws-client/edv/core` subpath
   (`src/edv/core.ts`), the transport-free half of the encrypted surface: the edv
   cipher entry plus the log-governed descriptor stores, with no server in the
-  graph. `@interop/was-client/edv` re-exports it and adds the modules that talk
+  graph. `@interop/pws-client/edv` re-exports it and adds the modules that talk
   to a server, `collectionDescriptorStore` among them. Avoid: core entry (that
   term names the four subpaths that never reach `src/edv/`; this is a different,
   encrypted-surface entry point). See The EDV layer and Layering.
 - **`EdvCodec`** -- the encrypting `ResourceCodec` implementation
   (`src/edv/EdvCodec.ts`), reached through the `createEdvEncryption` factory
   (`src/edv/encryption.ts`). See The EDV layer.
-- **`WasTransport`** -- the EDV-native `@interop/edv-client` `Transport` that
+- **`PwsTransport`** -- the EDV-native `@interop/edv-client` `Transport` that
   maps EDV document operations onto PWS resource CRUD, one vault per collection
   (`src/edv/`). See The EDV layer.
 - **Key epoch** -- one generation of a collection's encryption key: a fresh
@@ -1267,7 +1267,7 @@ it, and otherwise cover the client-side concepts this file names.
   descriptor CAS loop runs over (`src/edv/descriptorStore.ts`), with two
   adapters: the Collection Metadata object and a plain JSON Resource. See The
   EDV layer.
-- **Envelope binding** -- the AEAD-authenticated `was` parameter in a JWE
+- **Envelope binding** -- the AEAD-authenticated `pws` parameter in a JWE
   protected header (scheme version, plus `resource` or `collection`) that ties
   an envelope to the slot it belongs in, verified on decode. See The EDV layer.
 - **`maxBlobBytes`** -- the payload size above which a binary `add()` is routed
@@ -1285,10 +1285,10 @@ it, and otherwise cover the client-side concepts this file names.
   the resource. Avoid: orphan, torn document. See The EDV layer.
 - **Chunk reaping** -- the deletion, after a replacing write is stored, of the
   prior document's chunk resources the new document does not cover
-  (`EdvCodec#reapChunks`, over `WasTransport.listChunks` / `deleteChunk`).
+  (`EdvCodec#reapChunks`, over `PwsTransport.listChunks` / `deleteChunk`).
   Avoid: garbage collection, orphan cleanup. See The EDV layer.
-- **`WasSyncPort`** -- the injected PWS-access seam for cross-replica
-  synchronization (`src/sync/types.ts`, implemented by `createWasSyncPort`): it
+- **`PwsSyncPort`** -- the injected PWS-access seam for cross-replica
+  synchronization (`src/sync/types.ts`, implemented by `createPwsSyncPort`): it
   moves stored bodies verbatim and never touches keys. Avoid: sync engine (the
   sync layer supplies seams and does not drive reconciliation). See The sync
   layer.

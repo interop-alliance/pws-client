@@ -54,7 +54,7 @@ import {
   walkPagesOrEmpty
 } from './internal/pagination.js'
 import type { PageWalk } from './internal/pagination.js'
-import { NotFoundError, WasServerError } from './errors.js'
+import { NotFoundError, PwsServerError } from './errors.js'
 import { createdId, dataOrNull, toPlainBytes } from './internal/content.js'
 import {
   readPolicy,
@@ -182,7 +182,7 @@ export class Space {
   /**
    * Reads the Space Metadata object -- the Space's description, at its `meta`
    * sub-resource. Returns `null` if the space is missing or not
-   * visible to you (WAS returns 404 for both not-found and unauthorized).
+   * visible to you (PWS returns 404 for both not-found and unauthorized).
    *
    * @returns {Promise<SpaceMetadata | null>}
    */
@@ -280,7 +280,7 @@ export class Space {
    *
    * Fails closed when the current description is unreadable and the caller did
    * not supply a full description (both `name` and `controller`), mirroring
-   * {@link Collection.configure}: WAS returns 404 for both not-found and
+   * {@link Collection.configure}: PWS returns 404 for both not-found and
    * unauthorized, so a write-capable but not read-capable caller invoking
    * `configure({ name })` would otherwise merge forward from a `null` current --
    * silently defaulting `controller` to the wrapped signer's DID (a stealth
@@ -416,7 +416,7 @@ export class Space {
    * with its own prior discovery may read it as absence.
    *
    * The capability is the one the handle was opened with
-   * (`was.spaceAt(url, { capability })`), so a delegated DELETE-only capability
+   * (`pws.spaceAt(url, { capability })`), so a delegated DELETE-only capability
    * is supplied by opening the handle with it.
    *
    * @returns {Promise<{ outcome: 'deleted' | 'not-found' }>}
@@ -736,8 +736,8 @@ export class Space {
    * caller on a server that still treats the route as controller-only.
    * `fromCapability` refuses a grant whose target is the reserved `replicas`
    * sub-resource (`{spaceUrl}replicas`), so a holder of such a grant opens
-   * the handle with `was.space(id, { capability })` (or
-   * `was.spaceAt(url, { capability })`) and calls the replica methods on it.
+   * the handle with `pws.space(id, { capability })` (or
+   * `pws.spaceAt(url, { capability })`) and calls the replica methods on it.
    *
    * Returns the stored record, as the server serves it back. The registration
    * is per-server state: it is not replicated or exported, and deleting the
@@ -780,7 +780,7 @@ export class Space {
    * registration with its pull capability. Takes the authority
    * {@link registerReplica} describes; returns `null` if the Space is
    * missing or the caller holds none (404 conflation caveat). A 2xx with no
-   * JSON body throws `WasServerError` rather than reading as an empty
+   * JSON body throws `PwsServerError` rather than reading as an empty
    * listing.
    *
    * @returns {Promise<ReplicaListing | null>}
@@ -798,7 +798,7 @@ export class Space {
    * (`GET /space/:id/replicas/:replicaId`). Takes the authority
    * {@link registerReplica} describes; returns `null` if the registration or
    * the Space is missing, or the caller holds none (404 conflation caveat).
-   * A 2xx with no JSON body throws `WasServerError`.
+   * A 2xx with no JSON body throws `PwsServerError`.
    *
    * @param replicaId {string}
    * @returns {Promise<ReplicaRegistration | null>}
@@ -1063,7 +1063,7 @@ export class Space {
    * Guards the JSON-mislabel edge: `@interop/http-client` pre-consumes a
    * response body into `.data` for JSON content-types, so a non-conformant
    * server that labels the tar archive `application/json` would leave us a dead
-   * stream. Detecting the consumed body here fails with a typed `WasServerError`
+   * stream. Detecting the consumed body here fails with a typed `PwsServerError`
    * naming the mislabeled content-type, rather than a raw "body stream already
    * read" `TypeError` downstream.
    *
@@ -1079,7 +1079,7 @@ export class Space {
     if (response.bodyUsed || response.data !== undefined) {
       const contentType =
         response.headers.get('content-type') ?? 'an unknown content-type'
-      throw new WasServerError(
+      throw new PwsServerError(
         `Export response body was already consumed (mislabeled as ` +
           `${contentType}); expected application/x-tar.`
       )
@@ -1138,7 +1138,7 @@ export class Space {
     if (response.body === null) {
       // A body-less 2xx (204, or an exotic fetch impl) -- fail with a typed
       // error rather than returning a null stream.
-      throw new WasServerError('Export response carried no body stream.')
+      throw new PwsServerError('Export response carried no body stream.')
     }
     return response.body as ReadableStream<Uint8Array>
   }

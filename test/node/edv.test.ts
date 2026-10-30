@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Unit tests for the EDV-over-WAS transport mapping. These stub the WAS signed-
- * request layer (no network, no crypto) and assert that `WasTransport` maps EDV
- * `insert` / `update` / `get` onto the right WAS method + resource path +
+ * Unit tests for the EDV-over-PWS transport mapping. These stub the PWS signed-
+ * request layer (no network, no crypto) and assert that `PwsTransport` maps EDV
+ * `insert` / `update` / `get` onto the right PWS method + resource path +
  * content type, and normalizes server responses into the
  * error names `EdvClientCore` dispatches on (`DuplicateError`,
  * `InvalidStateError`, `NotFoundError`). They also cover the blinded-index
@@ -21,10 +21,10 @@ import type {
 } from '@interop/data-integrity-core'
 
 import { spaceUrlFor } from '../helpers/stubClient.js'
-import { WasTransport, JOSE_CONTENT_TYPE } from '../../src/edv/index.js'
+import { PwsTransport, JOSE_CONTENT_TYPE } from '../../src/edv/index.js'
 
 /**
- * A minimal encrypted-document fixture (the envelope shape a WAS server stores).
+ * A minimal encrypted-document fixture (the envelope shape a PWS server stores).
  */
 function encryptedDoc(id = 'zDocId1'): IEncryptedDocument {
   return {
@@ -83,26 +83,26 @@ function writeResponse(etag?: string): HttpResponse {
 }
 
 function transport(request: ReturnType<typeof vi.fn>, contentType?: string) {
-  return new WasTransport({
-    was: { request } as never,
+  return new PwsTransport({
+    pws: { request } as never,
     spaceUrl: spaceUrlFor('space 1'),
     collectionId: 'docs',
     contentType
   })
 }
 
-describe('WasTransport -- construction', () => {
+describe('PwsTransport -- construction', () => {
   it('reports its Space URL in canonical form', () => {
-    const built = new WasTransport({
-      was: { request: vi.fn() } as never,
-      spaceUrl: 'https://WAS.example:443/space/s',
+    const built = new PwsTransport({
+      pws: { request: vi.fn() } as never,
+      spaceUrl: 'https://PWS.example:443/space/s',
       collectionId: 'docs'
     })
-    expect(built.spaceUrl).toBe('https://was.example/space/s/')
+    expect(built.spaceUrl).toBe('https://pws.example/space/s/')
   })
 })
 
-describe('WasTransport -- insert', () => {
+describe('PwsTransport -- insert', () => {
   /**
    * A request stub whose PUT answers `putStatus` (or succeeds when undefined).
    *
@@ -136,7 +136,7 @@ describe('WasTransport -- insert', () => {
     await transport(request).insert({ encrypted: doc })
     const put = request.mock.calls.at(-1)![0] as Record<string, unknown>
     expect(put.method).toBe('PUT')
-    expect(put.url).toBe('https://was.example/space/space%201/docs/zAbc')
+    expect(put.url).toBe('https://pws.example/space/space%201/docs/zAbc')
     expect((put.headers as Record<string, string>)['content-type']).toBe(
       'application/json'
     )
@@ -173,7 +173,7 @@ describe('WasTransport -- insert', () => {
   })
 })
 
-describe('WasTransport — update', () => {
+describe('PwsTransport — update', () => {
   it('PUTs the envelope (upsert, no existence check)', async () => {
     const request = vi.fn(async (_input: Record<string, unknown>) =>
       writeResponse()
@@ -184,7 +184,7 @@ describe('WasTransport — update', () => {
     expect(request).toHaveBeenCalledOnce()
     const put = request.mock.calls[0]![0] as Record<string, unknown>
     expect(put.method).toBe('PUT')
-    expect(put.url).toBe('https://was.example/space/space%201/docs/zUpd')
+    expect(put.url).toBe('https://pws.example/space/space%201/docs/zUpd')
     expect(decodeBody(put.body)).toEqual(doc)
   })
 
@@ -211,8 +211,8 @@ describe('WasTransport — update', () => {
     const request = vi.fn(async (_input: Record<string, unknown>) =>
       writeResponse(acked.shift())
     )
-    const pinned = new WasTransport({
-      was: { request } as never,
+    const pinned = new PwsTransport({
+      pws: { request } as never,
       spaceUrl: spaceUrlFor('space 1'),
       collectionId: 'docs',
       baseline: { id: 'zUpd', etag: '"b1"' }
@@ -234,8 +234,8 @@ describe('WasTransport — update', () => {
     const request = vi.fn(async (_input: Record<string, unknown>) =>
       writeResponse()
     )
-    const pinned = new WasTransport({
-      was: { request } as never,
+    const pinned = new PwsTransport({
+      pws: { request } as never,
       spaceUrl: spaceUrlFor('space 1'),
       collectionId: 'docs',
       baseline: { id: 'zOther', etag: '"b1"' }
@@ -248,7 +248,7 @@ describe('WasTransport — update', () => {
   })
 })
 
-describe('WasTransport -- chunk listing and delete (listChunks / deleteChunk)', () => {
+describe('PwsTransport -- chunk listing and delete (listChunks / deleteChunk)', () => {
   it('GETs the chunks/ container and returns its entries', async () => {
     const chunks = [
       {
@@ -268,7 +268,7 @@ describe('WasTransport -- chunk listing and delete (listChunks / deleteChunk)', 
     const get = request.mock.calls[0]![0] as { url: string; method: string }
     expect(get.method).toBe('GET')
     expect(get.url).toBe(
-      'https://was.example/space/space%201/docs/doc1/chunks/'
+      'https://pws.example/space/space%201/docs/doc1/chunks/'
     )
   })
 
@@ -297,17 +297,17 @@ describe('WasTransport -- chunk listing and delete (listChunks / deleteChunk)', 
       }
     expect(callOf(0).method).toBe('DELETE')
     expect(callOf(0).url).toBe(
-      'https://was.example/space/space%201/docs/doc1/chunks/2'
+      'https://pws.example/space/space%201/docs/doc1/chunks/2'
     )
     expect(callOf(0).headers).toEqual({ 'if-match': '"7"' })
     expect(callOf(1).url).toBe(
-      'https://was.example/space/space%201/docs/doc1/chunks/3'
+      'https://pws.example/space/space%201/docs/doc1/chunks/3'
     )
     expect(callOf(1).headers).toBeUndefined()
   })
 })
 
-describe('WasTransport — get', () => {
+describe('PwsTransport — get', () => {
   it('GETs and returns the parsed envelope', async () => {
     const doc = encryptedDoc('zGet')
     const request = vi.fn(async (_input: Record<string, unknown>) =>
@@ -318,7 +318,7 @@ describe('WasTransport — get', () => {
     expect(result).toEqual(doc)
     const get = request.mock.calls[0]![0] as Record<string, unknown>
     expect(get.method).toBe('GET')
-    expect(get.url).toBe('https://was.example/space/space%201/docs/zGet')
+    expect(get.url).toBe('https://pws.example/space/space%201/docs/zGet')
   })
 
   it('falls back to response.json() when data is absent', async () => {
@@ -339,7 +339,7 @@ describe('WasTransport — get', () => {
   })
 })
 
-describe('WasTransport -- find (blinded-index query)', () => {
+describe('PwsTransport -- find (blinded-index query)', () => {
   /**
    * A request stub for the `find` path: the POST `/query` answers with `body`.
    *
@@ -370,7 +370,7 @@ describe('WasTransport -- find (blinded-index query)', () => {
 
     const call = postCall(request)
     expect(call.method).toBe('POST')
-    expect(call.url).toBe('https://was.example/space/space%201/docs/query')
+    expect(call.url).toBe('https://pws.example/space/space%201/docs/query')
   })
 
   it('sends { profile: "blinded-index", ...query } as the json body', async () => {
@@ -481,7 +481,7 @@ describe('WasTransport -- find (blinded-index query)', () => {
   })
 })
 
-describe('WasTransport -- updateIndex (unsupported, sharpened message)', () => {
+describe('PwsTransport -- updateIndex (unsupported, sharpened message)', () => {
   it('rejects with NotSupportedError pointing at update()', async () => {
     await expect(transport(vi.fn()).updateIndex()).rejects.toMatchObject({
       name: 'NotSupportedError',
@@ -490,7 +490,7 @@ describe('WasTransport -- updateIndex (unsupported, sharpened message)', () => {
   })
 })
 
-describe('WasTransport -- chunked streams (storeChunk / getChunk)', () => {
+describe('PwsTransport -- chunked streams (storeChunk / getChunk)', () => {
   const chunk = {
     sequence: 0,
     index: 2,
@@ -523,7 +523,7 @@ describe('WasTransport -- chunked streams (storeChunk / getChunk)', () => {
     }
     expect(put.method).toBe('PUT')
     expect(put.url).toBe(
-      'https://was.example/space/space%201/docs/doc1/chunks/2'
+      'https://pws.example/space/space%201/docs/doc1/chunks/2'
     )
     expect(put.headers['content-type']).toBe('application/octet-stream')
     expect(decodeBody(put.body)).toEqual(chunk)
@@ -546,7 +546,7 @@ describe('WasTransport -- chunked streams (storeChunk / getChunk)', () => {
     }
     expect(get.method).toBe('GET')
     expect(get.url).toBe(
-      'https://was.example/space/space%201/docs/doc1/chunks/2'
+      'https://pws.example/space/space%201/docs/doc1/chunks/2'
     )
   })
 

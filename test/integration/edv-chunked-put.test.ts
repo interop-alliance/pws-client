@@ -3,7 +3,7 @@
  */
 /**
  * Integration test: `resource.put()` over a stored encrypted document, end to
- * end against a live WAS server. A chunked document replaced by a shorter one
+ * end against a live PWS server. A chunked document replaced by a shorter one
  * keeps only the chunks the new document covers, one replaced by an inline
  * document keeps none, and an inline document replaced by a large blob gains
  * chunks -- each read back byte-exact through the ordinary `get()`, with the
@@ -15,7 +15,7 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { EdvClientCore } from '@interop/edv-client'
 
-import type { Space, Collection, WasClient } from '../../src/index.js'
+import type { Space, Collection, PwsClient } from '../../src/index.js'
 import { bytesOf } from '../helpers/bytes.js'
 import {
   chunkedClient,
@@ -34,7 +34,7 @@ const MAX_BLOB_BYTES = 4 * 1024
 const CHUNK_SIZE = 8 * 1024
 
 describeLive('resource.put() over a stored document (live server)', () => {
-  let was: WasClient
+  let pws: PwsClient
   let space: Space
   let collection: Collection
 
@@ -44,9 +44,9 @@ describeLive('resource.put() over a stored document (live server)', () => {
       maxBlobBytes: MAX_BLOB_BYTES,
       chunkSize: CHUNK_SIZE
     })
-    was = client.was
+    pws = client.pws
     ;({ space, collection } = await provisionVault({
-      was,
+      pws,
       kak: client.kak,
       name: 'EDV Chunked Put Integration'
     }))
@@ -68,7 +68,7 @@ describeLive('resource.put() over a stored document (live server)', () => {
    * @returns {Promise<number | undefined>}
    */
   function chunk(resourceId: string, chunkIndex: number) {
-    return chunkStatus({ was, spaceUrl: space.url, resourceId, chunkIndex })
+    return chunkStatus({ pws, spaceUrl: space.url, resourceId, chunkIndex })
   }
 
   it('shrinks a chunked document and reaps the chunks beyond the new count', async () => {

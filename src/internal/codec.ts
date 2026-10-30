@@ -336,7 +336,7 @@ export async function resolveCodec(
   }
   // 3. Otherwise the Collection's declared `encryption` descriptor decides -- but
   // only if we could actually read the Collection Metadata object. An
-  // unreadable object (a resource-scoped capability cannot GET it, and WAS
+  // unreadable object (a resource-scoped capability cannot GET it, and PWS
   // masks that as a 404) is ambiguous: it is indistinguishable from "absent",
   // so an encryption-capable client fails closed rather than silently
   // downgrading to plaintext and writing the caller's secret as server-visible
@@ -535,8 +535,8 @@ async function buildEncryptingCodec(
   if (!context.encryption) {
     throw new EncryptionError(
       `Collection ${where} is encrypted (scheme "${scheme}") but this client ` +
-        'has no encryption provider. Construct the WasClient with an ' +
-        '`encryption` provider (see @interop/was-client/edv).'
+        'has no encryption provider. Construct the PwsClient with an ' +
+        '`encryption` provider (see @interop/pws-client/edv).'
     )
   }
   const codec = await context.encryption.codecFor({

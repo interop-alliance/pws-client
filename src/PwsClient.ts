@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The top-level WAS client. Wraps an ezcap `ZcapClient` (which holds the active
- * signer) and exposes the WAS containment model
+ * The top-level PWS client. Wraps an ezcap `ZcapClient` (which holds the active
+ * signer) and exposes the PWS containment model
  * (`SpacesRepository > Space > Collection > Resource`) through lazy
  * navigational handles. Also hosts the general delegation primitive
  * (`grant`), capability-rebuilding (`fromCapability`), the signed
@@ -13,13 +13,13 @@
  * A server that addresses Spaces by id is identified by its base server URL,
  * under which the spec's Server Layout fixes `{base}service`, `{base}spaces/`
  * and `{base}space/{space_id}/`. The client is built from that base
- * (`new WasClient({ baseServerUrl })`) and constructs the three itself;
+ * (`new PwsClient({ baseServerUrl })`) and constructs the three itself;
  * `space(id)` opens a Space by id. A Space URL the client is handed (the
  * `Location` of the create response, a capability's target, a DID, a stored
  * pointer) is authoritative as given: `spaceAt(url)` opens it, and nothing
  * rewrites it to fit the base. A server that is one fixed Space, with no id
  * and no base server URL, is opened from the Space URL alone
- * (`WasClient.forSpace({ spaceUrl })`); that client finds the service
+ * (`PwsClient.forSpace({ spaceUrl })`); that client finds the service
  * description through the `service` link and refuses the id-addressed
  * operations.
  */
@@ -62,7 +62,7 @@ import {
   IncompatibleServerError,
   NotSupportedError,
   ValidationError,
-  WasServerError
+  PwsServerError
 } from './errors.js'
 import { zcapClientForSigner } from './zcapClient.js'
 import type { EncryptionProvider } from './codec.js'
@@ -85,23 +85,23 @@ import type {
 } from './types.js'
 
 /**
- * The module-private key under which {@link WasClient.forSpace} hands the
+ * The module-private key under which {@link PwsClient.forSpace} hands the
  * constructor a Space URL in place of a base server URL. A `unique symbol`
  * keeps that arm off the public constructor: a caller holding a Space URL goes
  * through `forSpace`, which documents what such a client can and cannot do.
  */
-const fixedSpace: unique symbol = Symbol('WasClient.forSpace')
+const fixedSpace: unique symbol = Symbol('PwsClient.forSpace')
 
-export class WasClient {
+export class PwsClient {
   /**
    * The base server URL the client was built from, in canonical form
    * (trailing slash supplied): the URL under which the server lays out
    * `service`, `spaces/` and `space/{space_id}/`. `undefined` for a client
-   * built by {@link WasClient.forSpace}, which has none.
+   * built by {@link PwsClient.forSpace}, which has none.
    */
   readonly baseServerUrl?: string
   /**
-   * The Space URL a client built by {@link WasClient.forSpace} was opened on,
+   * The Space URL a client built by {@link PwsClient.forSpace} was opened on,
    * in canonical form. `undefined` for a client built from a base server URL.
    */
   readonly spaceUrl?: string
@@ -114,12 +114,12 @@ export class WasClient {
    *   absolute http(s) URL with no query, fragment, or userinfo, under which
    *   the server serves `service`, `spaces/` and `space/{space_id}/`. A
    *   missing trailing slash is supplied. For a server that is one fixed
-   *   Space with no base, use {@link WasClient.forSpace} instead
+   *   Space with no base, use {@link PwsClient.forSpace} instead
    * @param options.zcapClient {ZcapClient}   an ezcap client holding the signer
    * @param [options.encryption] {EncryptionProvider}   the keystore that
    *   supplies keys for collections declared encrypted (by their `encryption`
    *   descriptor or a per-handle override); built by the
-   *   `@interop/was-client/edv` subpath. Omit for plaintext-only clients. It
+   *   `@interop/pws-client/edv` subpath. Omit for plaintext-only clients. It
    *   does not decide *which* collections are encrypted -- that is the
    *   descriptor/override -- so a missing key for an encrypted collection fails
    *   closed rather than silently downgrading to plaintext.
@@ -156,7 +156,7 @@ export class WasClient {
    * `https://alice.example/posts/`, `https://alice.example/images/`, ...).
    * The service description is found by following the `service` link on an
    * unsigned `HEAD` of the Space URL. The Space itself is
-   * `was.spaceAt(was.spaceUrl)`, and `collectionAt(url)` opens one of its
+   * `pws.spaceAt(pws.spaceUrl)`, and `collectionAt(url)` opens one of its
    * Collections directly.
    *
    * Such a client has no base server URL, so `space(id)`, `createSpace()` and
@@ -176,7 +176,7 @@ export class WasClient {
    * @param [options.encryption] {EncryptionProvider}   see the constructor
    * @param [options.serviceDescription] {ServiceDescription}   see the
    *   constructor; not checked against the Space URL, which names no server
-   * @returns {WasClient}
+   * @returns {PwsClient}
    * @throws {ValidationError}   when `spaceUrl` is not a Space URL, or neither
    *   or both of `zcapClient` and `signer` are given
    */
@@ -192,13 +192,13 @@ export class WasClient {
     signer?: ISigner
     encryption?: EncryptionProvider
     serviceDescription?: ServiceDescription
-  }): WasClient {
+  }): PwsClient {
     if ((zcapClient === undefined) === (signer === undefined)) {
       throw new ValidationError(
-        'WasClient.forSpace takes exactly one of `zcapClient` and `signer`.'
+        'PwsClient.forSpace takes exactly one of `zcapClient` and `signer`.'
       )
     }
-    return new WasClient({
+    return new PwsClient({
       [fixedSpace]: spaceUrl,
       zcapClient:
         zcapClient ?? zcapClientForSigner({ signer: signer as ISigner }),
@@ -222,7 +222,7 @@ export class WasClient {
    * @param [options.encryption] {EncryptionProvider}   see the constructor
    * @param [options.serviceDescription] {ServiceDescription}   see the
    *   constructor
-   * @returns {WasClient}
+   * @returns {PwsClient}
    */
   static fromSigner({
     baseServerUrl,
@@ -234,8 +234,8 @@ export class WasClient {
     signer: ISigner
     encryption?: EncryptionProvider
     serviceDescription?: ServiceDescription
-  }): WasClient {
-    return new WasClient({
+  }): PwsClient {
+    return new PwsClient({
       baseServerUrl,
       zcapClient: zcapClientForSigner({ signer }),
       encryption,
@@ -322,7 +322,7 @@ export class WasClient {
   }
 
   /**
-   * Reads the server's service description and selects the WAS version this
+   * Reads the server's service description and selects the PWS version this
    * client speaks with it. A client built from a base server URL reads
    * `{base}service` with an unsigned `GET` and checks that the document
    * describes that base (its `url` and `spaces` members agree with the
@@ -393,7 +393,7 @@ export class WasClient {
     if (spacesUrl === undefined) {
       throw new NotSupportedError(
         `The server at "${description.url}" does not implement the Spaces ` +
-          `Repository: its WAS ${version} service description entry has no ` +
+          `Repository: its PWS ${version} service description entry has no ` +
           '`spaces` URL.'
       )
     }
@@ -532,7 +532,7 @@ export class WasClient {
    * @returns {Promise<Space>}
    * @throws {NotSupportedError}   when the server has no Spaces Repository, or
    *   the client was built by {@link forSpace}
-   * @throws {WasServerError}   when the create response carries no `Location`
+   * @throws {PwsServerError}   when the create response carries no `Location`
    */
   async createSpace(
     desc: {
@@ -559,7 +559,7 @@ export class WasClient {
     // URL by the handle, so the response body's `id` goes unread.
     const location = response?.headers.get('location')
     if (!location) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The Create Space response from "${spacesUrl}" carries no ` +
           '`Location` header, so the new Space cannot be located.'
       )
@@ -589,7 +589,7 @@ export class WasClient {
    * @returns {Promise<SpaceListing>}
    * @throws {NotSupportedError}   when the server has no Spaces Repository, or
    *   the client was built by {@link forSpace}
-   * @throws {WasServerError}   when the listing cannot be read in full
+   * @throws {PwsServerError}   when the listing cannot be read in full
    */
   async listSpaces(): Promise<SpaceListing> {
     const spacesUrl = await this.#spacesRepositoryUrl('listSpaces')
@@ -602,7 +602,7 @@ export class WasClient {
     // body did not parse as JSON. Report it as one, rather than as a
     // `TypeError` from destructuring `null`.
     if (walk === null) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The space listing at "${spacesUrl}" answered with no JSON body.`
       )
     }
@@ -726,7 +726,7 @@ export class WasClient {
    * capability (whose id encodes the Space URL), so a capability from any
    * server locates its own Space with no out-of-band base. The root's target
    * is taken to be the Space URL: a Space URL has no shape of its own, so a
-   * chain rooted elsewhere (a bare `was.grant({ target })` for a server with
+   * chain rooted elsewhere (a bare `pws.grant({ target })` for a server with
    * no Space hierarchy roots at its target) is read as if that target were
    * the Space, and the server refuses the handle's requests. See `spaceUrlOf`
    * on the `./paths` entry.
@@ -777,7 +777,7 @@ export class WasClient {
         `invocationTarget "${target}" addresses a reserved ` +
           'sub-resource, which has no navigational handle. Invoke it via the ' +
           'owning handle instead (e.g. `space.getPolicy()` / ' +
-          '`resource.meta()`), or use the `was.request()` escape hatch.'
+          '`resource.meta()`), or use the `pws.request()` escape hatch.'
       )
     }
     const context = this.#context
@@ -843,7 +843,7 @@ export class WasClient {
    * The general revocation primitive -- the inverse of {@link grant}. Reads
    * the owning Space off the capability's delegation chain (a Space-rooted
    * chain starts at the Space's root capability) and submits it to that
-   * Space's revocation endpoint. Equivalent to `was.spaceAt(url).revoke(zcap)`.
+   * Space's revocation endpoint. Equivalent to `pws.spaceAt(url).revoke(zcap)`.
    * The chain root's target is taken to be the Space (see `spaceUrlOf` on the
    * `./paths` entry); the server refuses a chain not rooted exactly in it.
    *

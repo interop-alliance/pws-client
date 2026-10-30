@@ -14,13 +14,13 @@
  *
  * This reuses `EdvClientCore`'s transport-free `documentCipher` (its public
  * `EdvDocumentCipher` -- the same JWE machinery as the standalone
- * `WasTransport`), but here the WAS Resource CRUD -- the transport role -- is
- * played by core was-client's `Collection`/`Resource` I/O, so the codec is a
+ * `PwsTransport`), but here the PWS Resource CRUD -- the transport role -- is
+ * played by core pws-client's `Collection`/`Resource` I/O, so the codec is a
  * pure encode/decode transform and needs no transport of its own.
  *
  * Scope (documents-only):
  *
- * - **Restrict-mode ids.** `add()` mints a 128-bit multibase EDV id; the WAS
+ * - **Restrict-mode ids.** `add()` mints a 128-bit multibase EDV id; the PWS
  *   resource id IS that EDV id. A *create* by `put(id, ...)` accepts only an
  *   EDV-format id -- a human-readable id is rejected (it would leak onto the
  *   URL). Carry a human-readable label inside the encrypted content instead.
@@ -41,7 +41,7 @@
  *   any `ReadableStream` (whose size is unknown), is auto-routed by `add()` and
  *   `put()` alike to the chunked-stream path instead: `encode` returns a
  *   multi-request plan the write path executes, storing one document plus its
- *   chunk resources over a `WasTransport` supplied by the injected
+ *   chunk resources over a `PwsTransport` supplied by the injected
  *   `CodecTransportFactory`. A `put()` over a chunked document is a plan too,
  *   whatever its payload: the prior document's chunks that the new one does
  *   not cover are reaped after the write. Reads reassemble transparently, so
@@ -66,7 +66,7 @@
  *   transparently via `meta()`. The Collection-level `/meta` surface
  *   (`Collection.meta()` / `setMeta()`) runs through the same pair, with no
  *   resource id to bind: its envelope binds the collection id
- *   (`was.collection`) instead, and the decode side refuses both a
+ *   (`pws.collection`) instead, and the decode side refuses both a
  *   resource-bound envelope served into that slot and a collection-bound one
  *   served into a resource's.
  */
@@ -109,7 +109,7 @@ import {
   QuotaExceededError,
   UnknownEpochError,
   ValidationError,
-  WasError
+  PwsError
 } from '../errors.js'
 import {
   blobBytes,
@@ -122,8 +122,8 @@ import type { WritePrecondition } from '../internal/conditional.js'
 import type {
   ChunkListEntry,
   StoredDocument,
-  WasTransport
-} from './WasTransport.js'
+  PwsTransport
+} from './PwsTransport.js'
 import { isEncryptedEnvelope } from '../sync/envelope.js'
 import { isIntegrityError, isKeyUnwrapError } from '../sync/predicates.js'
 import { epochWriteStandIn, resolveEpochKeys } from './epochKeys.js'
@@ -176,7 +176,7 @@ export const DEFAULT_MAX_BLOB_BYTES = 512 * 1024
 const CHUNKED_ENCODING = 'chunked'
 
 /**
- * Builds the `WasTransport` a codec's chunked-stream paths drive, over the
+ * Builds the `PwsTransport` a codec's chunked-stream paths drive, over the
  * signed requester core of one request. Injected into {@link EdvCodec} by the
  * build that knows where the Collection lives (a Space on a server); a codec
  * built without one has no server behind it. It refuses the chunked write, and
@@ -186,13 +186,13 @@ const CHUNKED_ENCODING = 'chunked'
  * @param options.context {CodecRequestContext}   the signed-request context
  * @param [options.documentHeaders] {Record<string, string>}   extra headers
  *   for document writes (the `Key-Epoch` stamp the codec seam applies)
- * @returns {WasTransport}
+ * @returns {PwsTransport}
  */
 export type CodecTransportFactory = (options: {
   context: CodecRequestContext
   documentHeaders?: Record<string, string>
   baseline?: StoredDocument
-}) => WasTransport
+}) => PwsTransport
 
 /**
  * What an update knows about the stored document it replaces, read off the
@@ -210,7 +210,7 @@ type PriorDocument = {
 
 /**
  * A stored envelope once opened: its decrypted members, the key it was
- * unwrapped with, the verified `was` binding and the resource id that binding
+ * unwrapped with, the verified `pws` binding and the resource id that binding
  * carries (the only trustworthy one on a stored document).
  */
 type OpenedEnvelope = {
@@ -237,7 +237,7 @@ const REAP_CONCURRENCY = 8
  * its 0-based index, and the source resolves the parsed chunk or `undefined`
  * when it holds none at that index (the read then fails with
  * `NotFoundError`). Every check the network read applies still applies: the
- * sealed chunk count, the bound id, and each chunk's `was` binding.
+ * sealed chunk count, the bound id, and each chunk's `pws` binding.
  *
  * @param options {object}
  * @param options.docId {string}   the document's AEAD-bound resource id
@@ -261,7 +261,7 @@ export type ChunkSource = (options: {
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 /**
- * Builds the AEAD-bound `was` protected-header parameter: the scheme version
+ * Builds the AEAD-bound `pws` protected-header parameter: the scheme version
  * and key epoch always, and then exactly one slot marker -- the resource id
  * when it is known at encrypt time (absent for a content-derived id, which
  * does not exist until after encryption), or the collection id for the
@@ -269,7 +269,7 @@ const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
  * both the content and the metadata write paths bind.
  *
  * @param options {object}
- * @param options.version {number}   the EDV-over-WAS scheme version
+ * @param options.version {number}   the EDV-over-PWS scheme version
  * @param [options.resource] {string}   the resource id the envelope is bound to
  * @param [options.collection] {string}   the collection id the envelope is
  *   bound to (the Collection metadata slot only, never alongside `resource`)
@@ -277,7 +277,7 @@ const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
  * @returns {{ v: number, resource?: string, collection?: string,
  *   epoch?: string }}
  */
-function wasParam({
+function pwsParam({
   version,
   resource,
   collection,
@@ -305,7 +305,7 @@ function wasParam({
  * `err.name === 'KeyMissError'` rather than `instanceof`: name-dispatch
  * survives pnpm installing two copies of the cipher package (a second copy's
  * `KeyMissError` is a distinct class but carries the same `name`), so
- * was-client need not import the class at all.
+ * pws-client need not import the class at all.
  *
  * Also true for a {@link KeyUnwrapError} raised by a candidate itself -- a lazy
  * epoch key whose recipient entry turned out malformed when its first decrypt
@@ -399,7 +399,7 @@ export class EdvCodec implements ResourceCodec {
   readonly #readKeys: IKeyAgreementKey[]
   /**
    * The key-epoch id writes stamp (the descriptor's `currentEpoch`). Every
-   * envelope seals to an epoch key and binds this id as `was.epoch`
+   * envelope seals to an epoch key and binds this id as `pws.epoch`
    * (epoch-from-birth: there is no epoch-less encrypted collection).
    */
   readonly #writeEpoch: string
@@ -420,14 +420,14 @@ export class EdvCodec implements ResourceCodec {
   readonly #chunkSize?: number
   readonly #idDerivation: 'random' | 'content'
   /**
-   * The EDV-over-WAS scheme version this codec binds into every envelope's
-   * `was.v` protected-header parameter (the descriptor's `version`,
+   * The EDV-over-PWS scheme version this codec binds into every envelope's
+   * `pws.v` protected-header parameter (the descriptor's `version`,
    * {@link EDV_SCHEME_VERSION} when absent). Read side rejects an envelope
    * stamped with a greater version.
    */
   readonly #version: number
   /**
-   * Builds the `WasTransport` the chunked-stream paths drive, or `undefined`
+   * Builds the `PwsTransport` the chunked-stream paths drive, or `undefined`
    * on a codec with no server behind it (the local-replica cipher builds).
    * The factory is the codec's only way to address a resource by path, so a
    * codec built without one cannot reach the network at all -- there is no id
@@ -436,7 +436,7 @@ export class EdvCodec implements ResourceCodec {
   readonly #transportFactory?: CodecTransportFactory
   /**
    * The id of the Collection this codec was built for. It is bound into the
-   * Collection metadata envelope's `was.collection` on write and required to
+   * Collection metadata envelope's `pws.collection` on write and required to
    * match on read, and it labels decrypt-routing errors
    * ({@link UnknownEpochError}).
    */
@@ -482,7 +482,7 @@ export class EdvCodec implements ResourceCodec {
    *   written under an older epoch still decrypts.
    * @param options.writeEpoch {string}   the key-epoch id to stamp on writes
    *   (the `currentEpoch`), surfaced as {@link EncodedWrite.epoch} and bound
-   *   into every envelope's `was.epoch`, which the decode side checks against
+   *   into every envelope's `pws.epoch`, which the decode side checks against
    *   the decrypting key's epoch unconditionally.
    * @param options.contentType {string}            stored envelope content type
    * @param options.maxBlobBytes {number}   the size above which a binary write
@@ -495,14 +495,14 @@ export class EdvCodec implements ResourceCodec {
    * @param options.idDerivation {string}           how `add()` mints a document
    *   id: `'random'` (classic `generateId()`) or `'content'` (derived from the
    *   JWE ciphertext, content-addressed)
-   * @param [options.version] {number}   the EDV-over-WAS scheme version to bind
-   *   into each envelope's `was.v` (defaults to {@link EDV_SCHEME_VERSION})
+   * @param [options.version] {number}   the EDV-over-PWS scheme version to bind
+   *   into each envelope's `pws.v` (defaults to {@link EDV_SCHEME_VERSION})
    * @param [options.transportFactory] {CodecTransportFactory}   builds the
    *   transport the chunked-stream path drives; omitted by a build with no
    *   server behind it, which then refuses the chunked write and reads a
    *   chunked document only from a `chunkSource`
    * @param options.collectionId {string}   the Collection this codec reads and
-   *   writes: bound into the Collection metadata envelope's `was.collection`
+   *   writes: bound into the Collection metadata envelope's `pws.collection`
    *   (and checked on read), and it labels decrypt-routing errors
    * @param options.epochIds {string[]}   the id of every epoch the descriptor
    *   lists (held by this reader or not); decrypt routing checks it to tell a
@@ -777,7 +777,7 @@ export class EdvCodec implements ResourceCodec {
         // state that recomputation updates.
         ...(prior?.indexed !== undefined && { indexed: prior.indexed })
       },
-      // Bind an AEAD-authenticated `was` parameter into the JWE protected
+      // Bind an AEAD-authenticated `pws` parameter into the JWE protected
       // header: the scheme version, the resource id when known at encrypt time
       // (omitted for a content-derived id, which does not exist until after
       // encryption), and the write epoch. A server that swaps two envelopes
@@ -849,7 +849,7 @@ export class EdvCodec implements ResourceCodec {
   }
 
   /**
-   * Builds the `WasTransport` the chunked-stream paths drive, over the signed
+   * Builds the `PwsTransport` the chunked-stream paths drive, over the signed
    * requester core supplied and this codec's injected factory.
    *
    * @param context {CodecRequestContext}
@@ -857,13 +857,13 @@ export class EdvCodec implements ResourceCodec {
    *   document writes (the `Key-Epoch` stamp the codec seam applies)
    * @param [baseline] {StoredDocument}   the stored document the transport's
    *   first update replaces, which it pins that update to
-   * @returns {WasTransport}
+   * @returns {PwsTransport}
    */
   #transportFor(
     context: CodecRequestContext,
     documentHeaders?: Record<string, string>,
     baseline?: StoredDocument
-  ): WasTransport {
+  ): PwsTransport {
     if (this.#transportFactory === undefined) {
       throw new NotSupportedError(
         `Collection "${this.#collectionId}" has no server behind it: this ` +
@@ -890,7 +890,7 @@ export class EdvCodec implements ResourceCodec {
    * document id is minted before the plan is returned, so the caller can
    * report it without waiting for the write.
    *
-   * The `was` binding, the recipients and the write epoch are exactly the
+   * The `pws` binding, the recipients and the write epoch are exactly the
    * single-document path's, and `additionalProtectedParams` carries the binding
    * into both the document envelope and every chunk's AAD. `content` stays
    * empty: the bytes are the chunks, and `meta` records the plaintext content
@@ -1041,7 +1041,7 @@ export class EdvCodec implements ResourceCodec {
    *   in the write, for the plaintext content type
    * @param options.prior {PriorDocument | null}   the stored document the
    *   write replaces, or `null` for a create
-   * @param options.write {(transport: WasTransport) => Promise<number>}   the
+   * @param options.write {(transport: PwsTransport) => Promise<number>}   the
    *   write itself, resolving the chunk count the stored document covers
    * @returns {ChunkedWrite}
    */
@@ -1054,7 +1054,7 @@ export class EdvCodec implements ResourceCodec {
     id: string
     meta: Record<string, unknown>
     prior: PriorDocument | null
-    write: (transport: WasTransport) => Promise<number>
+    write: (transport: PwsTransport) => Promise<number>
   }): ChunkedWrite {
     return {
       chunked: true,
@@ -1108,7 +1108,7 @@ export class EdvCodec implements ResourceCodec {
    * stale chunks stay until the resource is deleted, which takes them.
    *
    * @param options {object}
-   * @param options.transport {WasTransport}   the transport the write ran on
+   * @param options.transport {PwsTransport}   the transport the write ran on
    * @param options.id {string}   the document id
    * @param options.keep {number}   the chunk count the stored document covers
    * @returns {Promise<void>}
@@ -1118,7 +1118,7 @@ export class EdvCodec implements ResourceCodec {
     id,
     keep
   }: {
-    transport: WasTransport
+    transport: PwsTransport
     id: string
     keep: number
   }): Promise<void> {
@@ -1215,7 +1215,7 @@ export class EdvCodec implements ResourceCodec {
    * @param options {object}
    * @param options.err {unknown}   the failure from the chunked write
    * @param options.id {string}     the document id the write targeted
-   * @param options.transport {WasTransport}   the transport the write ran on
+   * @param options.transport {PwsTransport}   the transport the write ran on
    * @param options.replace {boolean}   whether the write replaced a stored
    *   document (no stub delete) rather than created one
    * @returns {Promise<Error>}   the error to throw, carrying `err` as its cause
@@ -1229,7 +1229,7 @@ export class EdvCodec implements ResourceCodec {
   }: {
     err: unknown
     id: string
-    transport: WasTransport
+    transport: PwsTransport
     replace: boolean
   }): Promise<Error> {
     // The transport rethrows a 412 or 409 as the named error the EDV core
@@ -1321,7 +1321,7 @@ export class EdvCodec implements ResourceCodec {
   /**
    * The recipient/AAD wiring every write seals with: the epoch recipients, the
    * key resolver that resolves them, the blinding key the caller decided on,
-   * and the AEAD-bound `was` protected-header parameter carrying this codec's
+   * and the AEAD-bound `pws` protected-header parameter carrying this codec's
    * scheme version, the write epoch, and the caller's slot marker. Spread into
    * each `encrypt`/`insert` call so the single-document, chunked and metadata
    * write paths cannot drift apart.
@@ -1335,7 +1335,7 @@ export class EdvCodec implements ResourceCodec {
    * @param options.hmac {BlindingKey | undefined}   the blinding key to index
    *   with, or `undefined` to emit no blinded entries
    * @returns {{ recipients: IRecipientTemplate[], keyResolver: IKeyResolver,
-   *   hmac: BlindingKey, additionalProtectedParams: { was: object } }}
+   *   hmac: BlindingKey, additionalProtectedParams: { pws: object } }}
    */
   #sealParams({
     resource,
@@ -1346,7 +1346,7 @@ export class EdvCodec implements ResourceCodec {
     collection?: string
     hmac: BlindingKey | undefined
   }) {
-    const was = wasParam({
+    const pws = pwsParam({
       version: this.#version,
       ...(resource !== undefined && { resource }),
       ...(collection !== undefined && { collection }),
@@ -1356,7 +1356,7 @@ export class EdvCodec implements ResourceCodec {
       recipients: this.#recipients,
       keyResolver: this.#edv.keyResolver,
       hmac,
-      additionalProtectedParams: { was }
+      additionalProtectedParams: { pws }
     }
   }
 
@@ -1494,11 +1494,11 @@ export class EdvCodec implements ResourceCodec {
       return {
         kind: 'chunked',
         read: {
-          // Address the chunk resources by the AEAD-bound `was.resource` id,
+          // Address the chunk resources by the AEAD-bound `pws.resource` id,
           // not by the envelope's cleartext `id`: a server that serves
           // document A's authentic envelope with the cleartext id swapped to B
           // would otherwise have the read fetch (and cleanly decrypt) B's
-          // chunks, exactly the envelope swap the `was.resource` binding
+          // chunks, exactly the envelope swap the `pws.resource` binding
           // exists to detect.
           id: decrypted.resourceId,
           chunks: (decrypted.stream as { chunks?: unknown } | undefined)
@@ -1554,9 +1554,9 @@ export class EdvCodec implements ResourceCodec {
    * the caller's `chunkSource`, as the stream is read.
    *
    * Only AEAD-authenticated inputs are trusted -- the sealed chunk count and
-   * the `was.resource` id the envelope is bound to, never the envelope's
+   * the `pws.resource` id the envelope is bound to, never the envelope's
    * cleartext `id` -- and the decrypt uses the very key that opened the
-   * document envelope. Each chunk must also carry the envelope's own `was`
+   * document envelope. Each chunk must also carry the envelope's own `pws`
    * binding in its protected header (the writer seals it into every chunk),
    * so a genuine chunk of another resource, or one sealed under another
    * epoch, is refused with {@link EncryptionError} before it is decrypted. A
@@ -1566,14 +1566,14 @@ export class EdvCodec implements ResourceCodec {
    * stream keeps the fail-closed contract {@link decode} documents.
    *
    * @param options {object}
-   * @param [options.id] {string}   the AEAD-bound resource id (= WAS resource
+   * @param [options.id] {string}   the AEAD-bound resource id (= PWS resource
    *   id, the parent of the chunk resources)
    * @param options.chunks {unknown}   the sealed chunk count
    * @param [options.meta] {Record<string, unknown>}   the decrypted meta
    * @param options.keyId {string}   the id of the key that decrypted the
    *   document envelope
    * @param options.binding {Record<string, unknown>}   the envelope's verified
-   *   `was` binding, which every chunk must carry
+   *   `pws` binding, which every chunk must carry
    * @param [options.context] {CodecRequestContext}   the signed-request context
    * @param [options.chunkSource] {ChunkSource}   serves the chunks in place of
    *   `context`
@@ -1608,7 +1608,7 @@ export class EdvCodec implements ResourceCodec {
     if (id === undefined) {
       throw new EncryptionError(
         'Cannot read this resource: the stored chunked document binds no ' +
-          '`was.resource` id, so its chunk resources cannot be addressed. ' +
+          '`pws.resource` id, so its chunk resources cannot be addressed. ' +
           "Only the envelope's AEAD-bound id may address them -- the cleartext " +
           'id on the envelope is server-controlled and could point the read at ' +
           "another document's chunks."
@@ -1649,7 +1649,7 @@ export class EdvCodec implements ResourceCodec {
   /**
    * Opens a stored envelope: asserts it IS an EDV envelope, decrypts it with
    * whichever read key its JWE recipient names, and only then verifies the
-   * AEAD-authenticated `was` binding (decrypt success is what proves the
+   * AEAD-authenticated `pws` binding (decrypt success is what proves the
    * protected header authentic, so the order is load-bearing). The one opening
    * shared by {@link decode} and {@link decodeMeta}.
    *
@@ -1663,7 +1663,7 @@ export class EdvCodec implements ResourceCodec {
    *   {@link decodeMeta} whose caller states the Collection slot
    * @returns {Promise<object>}   the decrypted document (`content`, `meta`, the
    *   AEAD-authenticated `stream` state where one was sealed, `keyId`, the
-   *   verified `was` `binding`, and the AEAD-bound `resourceId` the envelope
+   *   verified `pws` `binding`, and the AEAD-bound `resourceId` the envelope
    *   declares, where it binds one)
    */
   async #openEnvelope({
@@ -1718,7 +1718,7 @@ export class EdvCodec implements ResourceCodec {
    * key-wrap integrity check surfaces the {@link IntegrityError} it raised.
    *
    * Also returns the `id` of the key that actually decrypted the envelope (its
-   * JWE recipient `kid`), so {@link _verifyBinding} can check a `was.epoch`
+   * JWE recipient `kid`), so {@link _verifyBinding} can check a `pws.epoch`
    * binding against the epoch of the decrypting key.
    *
    * @param encryptedDoc {IEncryptedDocument}
@@ -1805,26 +1805,26 @@ export class EdvCodec implements ResourceCodec {
   }
 
   /**
-   * Verifies the AEAD-authenticated `was` binding on a successfully-decrypted
+   * Verifies the AEAD-authenticated `pws` binding on a successfully-decrypted
    * envelope (spec "Request Body Integrity"'s envelope half). Decrypt success
    * proves the protected header authentic, so this runs only after a decrypt
    * succeeds. Enforces, in order:
    *
-   * - No `was` parameter at all: refused -- every envelope binds `was`
+   * - No `pws` parameter at all: refused -- every envelope binds `pws`
    *   (epoch-from-birth left no legacy era), so its absence means a writer this
    *   scheme does not admit -- {@link EncryptionError}.
-   * - `was.v` missing or not a number: refused like a missing `was` (every
+   * - `pws.v` missing or not a number: refused like a missing `pws` (every
    *   envelope stamps its scheme version) -- {@link EncryptionError}. Greater
    *   than this codec's scheme version: a future-scheme envelope this client
    *   does not implement -- {@link EncryptionError}.
    * - Then the slot markers, which declare positively which of the profile's
-   *   slots the envelope was written for -- `was.resource` a resource slot,
-   *   `was.collection` the Collection metadata slot, neither a content-derived
+   *   slots the envelope was written for -- `pws.resource` a resource slot,
+   *   `pws.collection` the Collection metadata slot, neither a content-derived
    *   content envelope. A read of the Collection metadata slot
    *   (`collectionSlot`) is checked by `#verifyCollectionSlot`, a read of a
    *   resource slot by `#verifyResourceSlot`.
-   * - Finally, unconditionally: `was.epoch` missing or not a string: refused
-   *   like a missing `was` -- {@link EncryptionError}. Present, it must equal
+   * - Finally, unconditionally: `pws.epoch` missing or not a string: refused
+   *   like a missing `pws` -- {@link EncryptionError}. Present, it must equal
    *   the epoch (the `did:key` before the `#`) of the key that actually
    *   decrypted -- a mismatch is a replay under a different epoch's key --
    *   {@link IntegrityError}. The check is unconditional: there is no
@@ -1832,13 +1832,13 @@ export class EdvCodec implements ResourceCodec {
    *
    * @param options {object}
    * @param options.jwe {unknown}   the envelope's JWE (its `protected` header is
-   *   parsed for `was`)
+   *   parsed for `pws`)
    * @param [options.expectedId] {string}   the resource id the read targeted
    * @param [options.collectionSlot] {boolean}   the read addressed the
    *   Collection metadata slot
    * @param options.keyId {string}   the id of the key that decrypted, for the
    *   epoch check
-   * @returns {Promise<Record<string, unknown>>}   the verified `was` binding.
+   * @returns {Promise<Record<string, unknown>>}   the verified `pws` binding.
    *   Its `resource` member, where present, is the bound resource id; it is
    *   absent for a content-derived content envelope and for the Collection
    *   metadata slot.
@@ -1854,93 +1854,93 @@ export class EdvCodec implements ResourceCodec {
     collectionSlot?: boolean
     keyId: string
   }): Promise<Record<string, unknown>> {
-    const was = parseWasHeader(jwe)
-    if (was === undefined) {
+    const pws = parsePwsHeader(jwe)
+    if (pws === undefined) {
       throw new EncryptionError(
-        'Cannot decrypt this resource: its envelope carries no `was` binding ' +
-          'in the JWE protected header. Every EDV-over-WAS envelope binds the ' +
+        'Cannot decrypt this resource: its envelope carries no `pws` binding ' +
+          'in the JWE protected header. Every EDV-over-PWS envelope binds the ' +
           'scheme version and key epoch at encrypt time; an envelope without ' +
           'the binding was written by a writer this scheme does not admit.'
       )
     }
-    if (typeof was.v !== 'number') {
+    if (typeof pws.v !== 'number') {
       throw new EncryptionError(
-        'Cannot decrypt this resource: its envelope binds no `was.v` scheme ' +
-          'version. Every EDV-over-WAS envelope stamps the scheme version at ' +
+        'Cannot decrypt this resource: its envelope binds no `pws.v` scheme ' +
+          'version. Every EDV-over-PWS envelope stamps the scheme version at ' +
           'encrypt time; an envelope without the stamp was written by a ' +
           'writer this scheme does not admit.'
       )
     }
-    if (was.v > this.#version) {
+    if (pws.v > this.#version) {
       throw new EncryptionError(
         `Cannot decrypt this resource: its envelope is stamped with ` +
-          `EDV-over-WAS scheme version ${was.v}, which this client (version ` +
+          `EDV-over-PWS scheme version ${pws.v}, which this client (version ` +
           `${this.#version}) does not implement. Upgrade the client.`
       )
     }
     if (collectionSlot) {
-      this.#verifyCollectionSlot(was)
+      this.#verifyCollectionSlot(pws)
     } else {
-      await this.#verifyResourceSlot({ was, expectedId, jwe })
+      await this.#verifyResourceSlot({ pws, expectedId, jwe })
     }
-    if (typeof was.epoch !== 'string') {
+    if (typeof pws.epoch !== 'string') {
       throw new EncryptionError(
-        'Cannot decrypt this resource: its envelope binds no `was.epoch`. ' +
-          'Every EDV-over-WAS envelope seals to a key epoch and binds its id ' +
+        'Cannot decrypt this resource: its envelope binds no `pws.epoch`. ' +
+          'Every EDV-over-PWS envelope seals to a key epoch and binds its id ' +
           'at encrypt time; an envelope without the binding was written by a ' +
           'writer this scheme does not admit.'
       )
     }
     const decryptedEpoch = keyId.split('#')[0]
-    if (decryptedEpoch !== was.epoch) {
+    if (decryptedEpoch !== pws.epoch) {
       throw new IntegrityError(
         `Cannot decrypt this resource: its envelope is bound to key epoch ` +
-          `"${was.epoch}" but was decrypted with a key from epoch ` +
+          `"${pws.epoch}" but was decrypted with a key from epoch ` +
           `"${decryptedEpoch}". The server replayed it under a different ` +
           'epoch.'
       )
     }
-    return was
+    return pws
   }
 
   /**
    * The slot-marker half of `#verifyBinding` for a read of the Collection
    * metadata slot. Enforces:
    *
-   * - `was.resource` present: refused outright -- a resource's envelope was
+   * - `pws.resource` present: refused outright -- a resource's envelope was
    *   served in the Collection's metadata slot, which belongs to no resource --
    *   {@link IntegrityError}.
-   * - `was.collection` missing or not a string: refused -- the envelope belongs
+   * - `pws.collection` missing or not a string: refused -- the envelope belongs
    *   to some other slot, notably a content-derived content envelope, whose
    *   member set is otherwise identical -- {@link IntegrityError}.
-   * - `was.collection` not this codec's collection id: one Collection's
+   * - `pws.collection` not this codec's collection id: one Collection's
    *   metadata served as another's -- {@link IntegrityError}.
    *
-   * @param was {Record<string, unknown>}   the parsed `was` protected-header
+   * @param pws {Record<string, unknown>}   the parsed `pws` protected-header
    *   parameter
    * @returns {void}
    */
-  #verifyCollectionSlot(was: Record<string, unknown>): void {
-    if (typeof was.resource === 'string') {
+  #verifyCollectionSlot(pws: Record<string, unknown>): void {
+    if (typeof pws.resource === 'string') {
       throw new IntegrityError(
         `Cannot decrypt this Collection's metadata: the stored envelope is ` +
-          `bound to resource "${was.resource}", but the Collection metadata ` +
+          `bound to resource "${pws.resource}", but the Collection metadata ` +
           "slot belongs to no resource. The server swapped a resource's " +
           "metadata envelope into the Collection's metadata slot."
       )
     }
-    if (typeof was.collection !== 'string') {
+    if (typeof pws.collection !== 'string') {
       throw new IntegrityError(
         `Cannot decrypt this Collection's metadata: the stored envelope ` +
-          'binds no `was.collection`, so it was written for some other slot ' +
+          'binds no `pws.collection`, so it was written for some other slot ' +
           '(a content envelope, whose binding is otherwise identical). The ' +
           "server served a foreign envelope in the Collection's metadata slot."
       )
     }
-    if (was.collection !== this.#collectionId) {
+    if (pws.collection !== this.#collectionId) {
       throw new IntegrityError(
         `Cannot decrypt this Collection's metadata: the stored envelope is ` +
-          `bound to collection "${was.collection}", not to the requested ` +
+          `bound to collection "${pws.collection}", not to the requested ` +
           `collection ("${this.#collectionId}"). The server served one ` +
           "Collection's metadata as another's."
       )
@@ -1951,10 +1951,10 @@ export class EdvCodec implements ResourceCodec {
    * The slot-marker half of `#verifyBinding` for a read of a resource slot
    * (content or resource metadata). Enforces:
    *
-   * - `was.collection` present: refused before any id comparison -- the
+   * - `pws.collection` present: refused before any id comparison -- the
    *   Collection's metadata envelope was served in a resource slot --
    *   {@link IntegrityError}.
-   * - `was.resource` present and the expected id known: a mismatch is a
+   * - `pws.resource` present and the expected id known: a mismatch is a
    *   server-side swap of two resources' envelopes -- {@link IntegrityError}.
    * - `resource` absent (a content-derived write) and the expected
    *   id known: the envelope's ciphertext must re-derive to the expected id
@@ -1962,7 +1962,7 @@ export class EdvCodec implements ResourceCodec {
    *   copied under a different id -- {@link IntegrityError}.
    *
    * @param options {object}
-   * @param options.was {Record<string, unknown>}   the parsed `was`
+   * @param options.pws {Record<string, unknown>}   the parsed `pws`
    *   protected-header parameter
    * @param [options.expectedId] {string}   the resource id the read targeted
    * @param options.jwe {unknown}   the envelope's JWE, whose ciphertext the
@@ -1970,30 +1970,30 @@ export class EdvCodec implements ResourceCodec {
    * @returns {Promise<void>}
    */
   async #verifyResourceSlot({
-    was,
+    pws,
     expectedId,
     jwe
   }: {
-    was: Record<string, unknown>
+    pws: Record<string, unknown>
     expectedId?: string
     jwe: unknown
   }): Promise<void> {
     // A resource slot (content or resource metadata). The Collection's own
     // metadata envelope has no business here, whatever id it names, so it is
     // refused before any resource-id comparison.
-    if (was.collection !== undefined) {
+    if (pws.collection !== undefined) {
       throw new IntegrityError(
         `Cannot decrypt this resource: the stored envelope is bound to ` +
-          `collection "${String(was.collection)}", but a resource's slot ` +
+          `collection "${String(pws.collection)}", but a resource's slot ` +
           'belongs to no collection binding. The server served the ' +
           "Collection's own metadata envelope in a resource's slot."
       )
     }
-    if (typeof was.resource === 'string') {
-      if (expectedId !== undefined && was.resource !== expectedId) {
+    if (typeof pws.resource === 'string') {
+      if (expectedId !== undefined && pws.resource !== expectedId) {
         throw new IntegrityError(
           `Cannot decrypt this resource: the stored envelope is bound to a ` +
-            `different resource id ("${was.resource}") than the one requested ` +
+            `different resource id ("${pws.resource}") than the one requested ` +
             `("${expectedId}"). The server swapped two resources' envelopes.`
         )
       }
@@ -2036,7 +2036,7 @@ export class EdvCodec implements ResourceCodec {
     // minted fresh each write, since the metadata envelope is never updated in
     // place (concurrency is the server's plaintext `ETag`, Decision 3).
     const id = (await this.#edv.generateId()) as string
-    // Bind the `was` parameter to the caller's stated slot (not the metadata
+    // Bind the `pws` parameter to the caller's stated slot (not the metadata
     // envelope's own random EDV id): a resource slot binds the RESOURCE id, so
     // a server-side swap of two resources' metadata is AEAD-detected on decode
     // (a Resource-level write always knows that id at encrypt time; it is
@@ -2044,7 +2044,7 @@ export class EdvCodec implements ResourceCodec {
     // and binds this collection's id instead, so it too is declared
     // positively -- a content envelope (which binds neither marker) served in
     // the Collection metadata slot is then detected. It seals to the current
-    // epoch key like every write, so it binds `was.epoch` like every write.
+    // epoch key like every write, so it binds `pws.epoch` like every write.
     const encrypted = await documentCipher.encrypt({
       doc: { id, content: custom as Record<string, unknown> },
       ...this.#sealParams({
@@ -2052,7 +2052,7 @@ export class EdvCodec implements ResourceCodec {
           ? { collection: this.#collectionId }
           : { resource: slot.id }),
         // Deliberately un-blinded, even on a searchable collection: this
-        // envelope is the WAS `/meta` value, not part of the resource's content
+        // envelope is the PWS `/meta` value, not part of the resource's content
         // document, and it is stored in a different slot the search endpoint
         // never reads. The `meta.*` attribute paths a declared index may name
         // address the *content document's* own `meta` (the content type and
@@ -2346,7 +2346,7 @@ export class EdvCodec implements ResourceCodec {
 /**
  * The inputs of a chunked document's read, produced by opening its envelope:
  * the AEAD-bound resource id, the sealed chunk count, the decrypted meta, the
- * id of the key that opened the envelope, the verified `was` binding every
+ * id of the key that opened the envelope, the verified `pws` binding every
  * chunk must carry, and where the chunks come from.
  */
 interface ChunkedRead {
@@ -2397,7 +2397,7 @@ function chunkDecryptErrors({
       try {
         result = await reader.read()
       } catch (err) {
-        if (err instanceof WasError) {
+        if (err instanceof PwsError) {
           // Already one of this library's errors: not the cipher's.
           throw err
         }
@@ -2427,11 +2427,11 @@ function chunkDecryptErrors({
 /**
  * The edv-client `Transport` a chunked read runs on. It serves only
  * `getChunk`, the one method `EdvClientCore.getStream` calls, from the fetch
- * the codec hands it: the server's chunk resources through a `WasTransport`,
+ * the codec hands it: the server's chunk resources through a `PwsTransport`,
  * or a caller's {@link ChunkSource}. Every other `Transport` method keeps the
  * base class's not-implemented refusal.
  *
- * Before a chunk reaches the decrypt stream, its protected-header `was`
+ * Before a chunk reaches the decrypt stream, its protected-header `pws`
  * binding must equal the envelope's. The writer seals the same binding into
  * the envelope and into every chunk, but the decrypt stream accepts each
  * chunk under its own header and its own wrapped key, so without this check a
@@ -2452,7 +2452,7 @@ class ChunkReadTransport extends Transport {
    * @param options.fetchChunk {function}   resolves one chunk by document id
    *   and index, or throws `NotFoundError`
    * @param options.binding {Record<string, unknown>}   the envelope's verified
-   *   `was` binding
+   *   `pws` binding
    */
   constructor({
     fetchChunk,
@@ -2485,11 +2485,11 @@ class ChunkReadTransport extends Transport {
       throw new TypeError('"docId" and "chunkIndex" are required.')
     }
     const chunk = await this.#fetchChunk({ docId, chunkIndex })
-    const was = parseWasHeader((chunk as { jwe?: unknown } | null)?.jwe)
-    if (was === undefined || !sameBinding(was, this.#binding)) {
+    const pws = parsePwsHeader((chunk as { jwe?: unknown } | null)?.jwe)
+    if (pws === undefined || !sameBinding(pws, this.#binding)) {
       throw new EncryptionError(
         `Cannot read this resource: chunk ${chunkIndex} of resource ` +
-          `"${docId}" is not bound to it. The \`was\` binding in the chunk's ` +
+          `"${docId}" is not bound to it. The \`pws\` binding in the chunk's ` +
           "protected header differs from the document envelope's, so the " +
           'chunk belongs to another resource or was sealed under another ' +
           'key epoch.'
@@ -2500,7 +2500,7 @@ class ChunkReadTransport extends Transport {
 }
 
 /**
- * Whether two `was` bindings carry the same members with the same values. The
+ * Whether two `pws` bindings carry the same members with the same values. The
  * binding is a flat record of strings and numbers, so a member-by-member
  * comparison is exact, and a nested value never compares equal.
  *
@@ -2537,16 +2537,16 @@ function decodeUtf8(bytes: Uint8Array): string | null {
 }
 
 /**
- * Parses the `was` binding out of a JWE's protected header. The header is
+ * Parses the `pws` binding out of a JWE's protected header. The header is
  * base64url (no padding) JSON; a successful decrypt has already proven it
- * authentic, so this parse is trusted. Returns the `was` object, or `undefined`
- * when the header is absent/unparseable or carries no `was` member (the caller
+ * authentic, so this parse is trusted. Returns the `pws` object, or `undefined`
+ * when the header is absent/unparseable or carries no `pws` member (the caller
  * refuses such an envelope).
  *
  * @param jwe {unknown}
  * @returns {Record<string, unknown> | undefined}
  */
-function parseWasHeader(jwe: unknown): Record<string, unknown> | undefined {
+function parsePwsHeader(jwe: unknown): Record<string, unknown> | undefined {
   const protectedHeader = (jwe as { protected?: unknown } | null)?.protected
   if (typeof protectedHeader !== 'string') {
     return undefined
@@ -2563,11 +2563,11 @@ function parseWasHeader(jwe: unknown): Record<string, unknown> | undefined {
   } catch {
     return undefined
   }
-  const was = (parsed as { was?: unknown } | null)?.was
-  if (was === null || typeof was !== 'object') {
+  const pws = (parsed as { pws?: unknown } | null)?.pws
+  if (pws === null || typeof pws !== 'object') {
     return undefined
   }
-  return was as Record<string, unknown>
+  return pws as Record<string, unknown>
 }
 
 /**
@@ -2601,7 +2601,7 @@ export interface EdvKeys {
  * which holds its keys already.
  *
  * @param options {object}
- * @param options.collectionId {string}   the collection's WAS id
+ * @param options.collectionId {string}   the collection's PWS id
  * @param [options.label] {string}   how the collection is named in errors;
  *   defaults to its id alone, which is all a build with no Space knows
  * @param [options.transportFactory] {CodecTransportFactory}   builds the
@@ -2751,7 +2751,7 @@ export function descriptorDefect(
     descriptorVersion > EDV_SCHEME_VERSION
   ) {
     return (
-      `declares EDV-over-WAS scheme version ${descriptorVersion}, which ` +
+      `declares EDV-over-PWS scheme version ${descriptorVersion}, which ` +
       `this client (version ${EDV_SCHEME_VERSION}) does not implement. ` +
       'Upgrade the client.'
     )

@@ -1,13 +1,13 @@
 # 0002: A server is identified by its service URL, and a Space by its own URL
 
-- Status: superseded by 0003 (2026-10-29). Accepted 2026-10-28; the was-client
-  conventions shipped in was-client 0.100.0, and the wallet-side conventions
+- Status: superseded by 0003 (2026-10-29). Accepted 2026-10-28; the pws-client
+  conventions shipped in pws-client 0.100.0, and the wallet-side conventions
   below were settled by the maintainer the same day.
 - Date: 2026-10-27 (amended 2026-10-28)
 - Driving work: the cleanup of the dcw connections-directory change, which found
   every consumer appending `/spaces/` to a stored server base URL, and the spec
   reading that followed.
-- Affects: `@interop/was-client` (`WasClient`, `paths`, `internal/service`,
+- Affects: `@interop/pws-client` (`PwsClient`, `paths`, `internal/service`,
   `grant`, `testing`), `@interop/wallet-core` (the did:webvh template and its
   inverse, `verifyAccountLog`, the keyring account pointer, `AccountLogPointer`,
   every `storageServerUrl` / `wasServerUrl` / `host` parameter, the `was-link`
@@ -26,7 +26,7 @@ The spec states that a client cannot derive the server root from a URL it holds.
 Nothing in it requires `/space/{id}/` to sit beside `/spaces/` under one root,
 and a single-tenant server has no `/spaces/` at all.
 
-The ecosystem assumed otherwise. was-client 0.99 takes the Spaces URL as
+The ecosystem assumed otherwise. pws-client 0.99 takes the Spaces URL as
 `serverUrl`, strips its final `spaces` segment to get a `baseUrl`, and assembles
 every Space, collection, resource, and `did.jsonl` URL, and every zcap
 `invocationTarget`, beneath that base. wallet-core, freewallet, and dcw store
@@ -44,7 +44,7 @@ description, or a Spaces Repository URL (from which a HEAD request yields the
 
 ## Decision
 
-1. A server is identified by its service URL. `WasClient` is constructed from
+1. A server is identified by its service URL. `PwsClient` is constructed from
    `{ serviceUrl }` or `{ spacesUrl }` (settled 2026-10-28: both arms stay on
    the constructor; a client built from `spacesUrl` discovers the service
    description through the `service` link, and the description's `spaces` member
@@ -63,7 +63,7 @@ description, or a Spaces Repository URL (from which a HEAD request yields the
    belongs to is read off its delegation chain, whose root is the Space's root
    capability id (`spaceUrlOf`), so `fromCapability` and `revoke` need no base.
    A grant names the Space it is rooted in through `GrantOptions.spaceUrl` (the
-   handle sugar fills it); a bare `was.grant({ target })` roots at the target's
+   handle sugar fills it); a bare `pws.grant({ target })` roots at the target's
    own root capability and is not Space-revocable (settled 2026-10-28).
 
 3. The one derivation that remains is DID to Space URL, defined by the did:webvh
@@ -110,18 +110,18 @@ description, or a Spaces Repository URL (from which a HEAD request yields the
 
 ## Consequences
 
-- A breaking was-client release (0.100.0), followed by wallet-core (WC-307),
+- A breaking pws-client release (0.100.0), followed by wallet-core (WC-307),
   wallet-request (WR-4), freewallet (FW-694), was-react (WR-98), and dcw
   (DCW-104); the teaching server's testing counterpart is WSS-234. The teaching
   server's testing counterpart changes its return value; the server itself
   already sends the `service` link on every response.
 - Every stored account pointer, invitation QR, and dcw profile row changes
-  meaning. Greenfield: no migration; test profiles and dev WAS data are
+  meaning. Greenfield: no migration; test profiles and dev PWS data are
   re-created.
 - Sub-path mounts become representable end to end, in the DID, the log location
   check, and the zcap targets. The teaching server does not yet support one, so
   the proof is a separate item there.
-- Consumers may rely on: a `WasClient` never builds a URL above a Space; a Space
+- Consumers may rely on: a `PwsClient` never builds a URL above a Space; a Space
   handle's URL is byte-identical to what the server advertised; a did:webvh
   minted by wallet-core resolves to its log with no out-of-band base.
 - The `did:webvh` identifier is longer for a sub-path mount, and a host

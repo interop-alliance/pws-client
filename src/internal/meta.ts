@@ -21,7 +21,7 @@
  * validator) is still stated in one place, shared by `Collection`'s read and
  * write paths and by the codec resolver's descriptor discovery.
  */
-import { NotFoundError, WasServerError } from '../errors.js'
+import { NotFoundError, PwsServerError } from '../errors.js'
 import { compareAndSwap } from './cas.js'
 import type { StoredCollectionMetadata } from './describe.js'
 import { collectionMetaUrl } from './paths.js'
@@ -105,7 +105,7 @@ export async function readMeta<
     // dereferencing `metadata.custom` off `undefined` as a raw `TypeError`.
     // (Kept distinct from the `null` return, which means the target is missing
     // or not visible -- not that the server answered malformed.)
-    throw new WasServerError(
+    throw new PwsServerError(
       `Metadata response for ${subject} carried no JSON body ` +
         `(content-type ` +
         `"${response.headers.get('content-type') ?? 'unknown'}").`
@@ -242,7 +242,7 @@ export async function patchCustom(
           throw new NotFoundError(
             `${operation} failed: the metadata is not readable, so there is ` +
               'nothing to patch -- the target does not exist, or it is not ' +
-              'visible with this capability (WAS returns 404 for both).'
+              'visible with this capability (PWS returns 404 for both).'
           )
         }
         if (
@@ -277,7 +277,7 @@ export async function patchCustom(
 /**
  * Reads the Collection Metadata object with its `ETag` validator, in the
  * stored wire form. Returns `null` if the collection is missing or not visible
- * to you (WAS returns 404 for both not-found and unauthorized); `etag` is
+ * to you (PWS returns 404 for both not-found and unauthorized); `etag` is
  * absent against a backend that does not version the object.
  *
  * Also `null` when the capability's invocation target does not contain the

@@ -25,9 +25,9 @@ export type SingleWriteCodec = Omit<ResourceCodec, 'encode'> & {
 }
 
 /**
- * An in-memory WAS backend for the chunked-blob tests: it answers the request
+ * An in-memory PWS backend for the chunked-blob tests: it answers the request
  * context a handle hands the codec, storing every `PUT` body under its path and
- * serving it back on `GET`. That is the whole surface `WasTransport` needs, so
+ * serving it back on `GET`. That is the whole surface `PwsTransport` needs, so
  * a chunked write plan and a chunked read run end to end with no network.
  *
  * It also answers `DELETE` (dropping the stored body), which the chunked

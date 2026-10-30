@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 150
+nextAvailableId: 151
 
 <!-- roadmap-order:index:start -->
 
@@ -23,9 +23,9 @@ Ready:
 - WCL-56 [M] The write epoch goes stale with no signal on any write path
 - WCL-96 [M] `resourceDescriptorStore.read()` reads a masked 404 as "no
   descriptor yet"
-- WCL-60 [L] `was.v` is taken from the unauthenticated descriptor, and
+- WCL-60 [L] `pws.v` is taken from the unauthenticated descriptor, and
   `constants.ts` documents the opposite
-- WCL-95 [L] `WasTransport` hardening -- feature gate, response validation, and
+- WCL-95 [L] `PwsTransport` hardening -- feature gate, response validation, and
   409 mapping
 
 **Correctness and consistency**
@@ -111,6 +111,7 @@ Ready:
 
 Ready:
 
+- WCL-150 [M] Migrate the consumers to `@interop/pws-client`
 - WCL-80 [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by
   the seam but never invoked
 - WCL-88 [L] Record the upstream-owned `NotFoundError` / `DuplicateError` names
@@ -127,7 +128,7 @@ Waiting on another repo:
 
 Ready:
 
-- WCL-108 [M] Gate the blinded-index query on the WAS-EC service-description
+- WCL-108 [M] Gate the blinded-index query on the PWS-EC service-description
   version entry
 - WCL-115 [M] `AbortSignal` on `Space.exportStream()` and the request path
   beneath it
@@ -150,11 +151,11 @@ Ready:
 
 <!-- roadmap-order:index:end -->
 
-Open work items for the `@interop/was-client` library, measured against
+Open work items for the `@interop/pws-client` library, measured against
 `spec.md` in the
 [w3c-ccg/portable-web-spaces-spec](https://github.com/w3c-ccg/portable-web-spaces-spec)
-repo and the `web-spaces-server` feature set. The item structure is shared
-with the freewallet, web-spaces-server, was-react, and isomorphic-lib-template
+repo and the `web-spaces-server` feature set. The item structure is shared with
+the freewallet, web-spaces-server, was-react, and isomorphic-lib-template
 roadmaps; this file was converted to it on 2026-08-12 and re-sectioned by kind
 of work on 2026-10-04.
 
@@ -194,7 +195,7 @@ A section whose intro carries the `<!-- roadmap-order: by-id -->` marker is
 ordered by id instead. A title reads
 `### WCL-N: [P] [blocks N] [after WCL-X] Title`: `[P]` is the item's `priority`
 field as `[H]`, `[M]` or `[L]`, and every marker is computed, so none is edited
-by hand. `blocked-by` is the source of truth for ordering (a `WAS-`, `WASS-`,
+by hand. `blocked-by` is the source of truth for ordering (a `WSS-`, `WASS-`,
 `WC-`, `FW-`, `SC-` or `WS-` id counts as an open external blocker), and
 `blocks:` is derived. `--check` reports without writing.
 
@@ -211,7 +212,7 @@ predicate that fails open, or an input that reaches further than it should.
 - labels: encryption, streams, security, integrity
 - touches:
   - "@interop/edv-client": `getStream` needs to accept and enforce an expected
-    chunk binding, or was-client wraps the transport it is handed
+    chunk binding, or pws-client wraps the transport it is handed
   - encrypted-collections spec: whether the chunk-to-parent binding rule is
     normative is spec text this would add
 - acceptance:
@@ -224,9 +225,9 @@ predicate that fails open, or an input that reaches further than it should.
 
 Each chunk's AAD is the chunk's own transmitted protected header plus its index,
 so it binds position and nothing else, and the header it binds is the one the
-server just handed over. The chunk header does carry `was.resource` -- verified,
+server just handed over. The chunk header does carry `pws.resource` -- verified,
 because `_updateStream` forwards the additional protected parameters -- but
-nothing in was-client or edv-client ever parses a chunk header, so the binding
+nothing in pws-client or edv-client ever parses a chunk header, so the binding
 is written and never read. Reproduced: a server that serves document A's
 authentic envelope and answers A's chunk URLs with B's stored chunk bodies makes
 `decode(A, idA, ctx)` return B's plaintext, typed with A's sealed content type,
@@ -234,7 +235,7 @@ with no error raised.
 
 This is adjacent to archived WCL-15's F1, which recorded the same AAD limitation
 but whose landed fix closed only the addressing half: chunks are now fetched by
-the AEAD-bound `was.resource` rather than the cleartext id. The response-content
+the AEAD-bound `pws.resource` rather than the cleartext id. The response-content
 half is still open. The fix is read-side and changes no stored bytes, since the
 binding is already present in every chunk header. It becomes a permanent wire
 decision only if a new header member is added instead of reading the existing
@@ -248,13 +249,13 @@ discovered-from: whole-codebase review, 2026-09-11.
 - priority: medium
 - labels: encryption, security, conditional-writes, spec
 - touches:
-  - was-client: `src/edv/EdvCodec.ts` -- `wasParam`, `#sealParams`, `decode`,
+  - pws-client: `src/edv/EdvCodec.ts` -- `pwsParam`, `#sealParams`, `decode`,
     and the file header's "Enforced sequence" paragraph, which currently reads
     as a rollback guard
-  - encrypted-collections-spec: the `was` parameter's member list, if the
+  - encrypted-collections-spec: the `pws` parameter's member list, if the
     binding is to be normative
   - web-spaces-server, wallet-core, freewallet: any other writer or reader of
-    the `was` header, once a member is added
+    the `pws` header, once a member is added
 - acceptance:
   - [ ] A replayed older envelope is refused on decode, or the "Enforced
         sequence" prose is rewritten so it no longer implies replay resistance
@@ -262,14 +263,14 @@ discovered-from: whole-codebase review, 2026-09-11.
         lands: the member name, its placement, and whether envelopes written
         before the change stay readable
 
-`wasParam` emits exactly `v`, `resource` or `collection`, and `epoch`. The
-parsed `was` header carries no `sequence` member. `sequence` lives only on the
+`pwsParam` emits exactly `v`, `resource` or `collection`, and `epoch`. The
+parsed `pws` header carries no `sequence` member. `sequence` lives only on the
 cleartext envelope, where `#assertEnvelope` type-checks it and `decode` never
 reads it. Proven: an old envelope decodes without complaint after a newer one
 exists, and a write on top of the replayed envelope re-issues the next sequence,
 so the codec counts up from whatever the server hands back. The only live
 rollback guard is the server-supplied ETag, which the same adversary controls.
-Binding `sequence` into `was` is a permanent wire artifact. It changes stored
+Binding `sequence` into `pws` is a permanent wire artifact. It changes stored
 bytes and is likely a scheme-version question, so it needs the maintainer's
 byte-level sign-off before anything is coded; no encoding is proposed here.
 
@@ -317,7 +318,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 - priority: medium
 - labels: encryption, key-epochs, codec-seam, security
 - touches:
-  - was-client: `src/edv/EdvCodec.ts` (`#writeEpoch`, `#recipients`),
+  - pws-client: `src/edv/EdvCodec.ts` (`#writeEpoch`, `#recipients`),
     `src/internal/codec.ts` (`CodecHolder`), `src/edv/acquire.ts`,
     `src/edv/refreshingDocCipher.ts`, and the unqualified guarantee text in
     ARCHITECTURE.md and beside `removeRecipient`
@@ -368,7 +369,7 @@ discovered-from: whole-codebase review, 2026-09-11.
         reporting a lost compare-and-swap race or creating over the live roster
 
 `resource.getWithEtag()` resolves `null` for both "absent" and "exists but not
-readable with this capability", because WAS masks unauthorized as 404, and the
+readable with this capability", because PWS masks unauthorized as 404, and the
 adapter maps that straight to `null`. `compareAndSwap` then takes the absent
 branch and creates. This contradicts ARCHITECTURE.md invariant 1 and the repo's
 own policy statement in `internal/describe.ts`. The sibling
@@ -384,7 +385,7 @@ the unreadable-host refusal.
 
 discovered-from: whole-codebase review, 2026-09-11.
 
-### WCL-60: [L] `was.v` is taken from the unauthenticated descriptor, and `constants.ts` documents the opposite
+### WCL-60: [L] `pws.v` is taken from the unauthenticated descriptor, and `constants.ts` documents the opposite
 
 - status: todo
 - priority: low
@@ -400,7 +401,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 `descriptorDefect` refuses only a version greater than `EDV_SCHEME_VERSION`, so
 a lowered one is accepted wholesale. Proven: a descriptor with `version: 0`
 yields a codec that refuses every honestly written v1 envelope and stamps
-`was.v: 0` on its own writes. Today that is denial of service on a plain,
+`pws.v: 0` on its own writes. Today that is denial of service on a plain,
 non-log-governed descriptor. The substantive risk arrives with a v2 that
 tightens the binding, when the same field pins a capable client back to v1
 semantics. Note the spec makes the descriptor's `version` authoritative for both
@@ -408,11 +409,11 @@ the stamp and the decode limit, so stamping `EDV_SCHEME_VERSION` unconditionally
 would be the non-conformant move; the actionable half is refusing a decrease,
 which 57 implements in the pin helper. The doc fix is unconditional and belongs
 here: `constants.ts:17-21` claims the constant is bound into every envelope's
-`was.v` so descriptor and envelopes can never disagree, which is inaccurate.
+`pws.v` so descriptor and envelopes can never disagree, which is inaccurate.
 
 discovered-from: whole-codebase review, 2026-09-11.
 
-### WCL-95: [L] `WasTransport` hardening -- feature gate, response validation, and 409 mapping
+### WCL-95: [L] `PwsTransport` hardening -- feature gate, response validation, and 409 mapping
 
 - status: todo
 - priority: low
@@ -436,11 +437,11 @@ delegated zcap that cannot read the backend descriptor makes `find()` and
 already uses it -- archived WCL-15's F4 wired the codec gate and left the
 transport's. `get()` casts the response body to `IEncryptedDocument` unchecked
 and never compares the returned id to the requested one; at the EDV-native level
-there is no `was.resource` AEAD binding to catch a swap, so a server answering
+there is no `pws.resource` AEAD binding to catch a swap, so a server answering
 document A's GET with document B's envelope goes undetected. The non-conditional
 `insert()` maps a 404 from its HEAD probe to "absent" and then PUTs with no
 precondition, which is the exact combination `upsertResource` refuses on the
-codec path, because WAS masks unauthorized as 404. `getChunk` is the only body
+codec path, because PWS masks unauthorized as 404. `getChunk` is the only body
 read in the file that calls `JSON.parse(await response.text())` instead of
 `readJsonData`, which is latent only because the chunk content type is
 `application/octet-stream`. And both `insert` and `update` register every 409 as
@@ -540,10 +541,10 @@ review, 2026-09-11.
 
 `#idDerivation` is consulted only when minting an id. Proven on a codec with
 `idDerivation: 'content'`: `encode({ id, data, current })` succeeds, the new
-envelope binds `was.resource` to the old id, and re-deriving the id from the new
+envelope binds `pws.resource` to the old id, and re-deriving the id from the new
 ciphertext yields a different one. The stored document's id no longer derives
 from its ciphertext, and a reader cannot notice, because the presence of
-`was.resource` makes `#verifyResourceSlot` take the id-comparison branch instead
+`pws.resource` makes `#verifyResourceSlot` take the id-comparison branch instead
 of re-deriving. `src/sync/types.ts:196-200` documents the opposite contract: a
 content-addressed cipher either omits `encryptUpdate` or throws.
 
@@ -585,7 +586,7 @@ decision, so ask before coding it. discovered-from: whole-codebase review,
 - priority: medium
 - labels: errors, zcap, space, api
 - touches:
-  - was-client: `Space.deleteWithOutcome` (`src/Space.ts:335`), the `send()`
+  - pws-client: `Space.deleteWithOutcome` (`src/Space.ts:335`), the `send()`
     status shortcut in `src/internal/request.ts` that swallows a 404 before
     `mapError` runs, and the two `instanceof NotFoundError` branches in
     `src/sync/port.ts` (`:164`, `:302`)
@@ -621,7 +622,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 - priority: medium
 - labels: encryption, provisioning, fail-closed, api
 - touches:
-  - was-client: `Space.createCollection` (`src/Space.ts:406-432`), which parses
+  - pws-client: `Space.createCollection` (`src/Space.ts:406-432`), which parses
     the create response and then keeps only its id
   - web-spaces-server: confirm the description echo on Create Collection is
     contractual rather than incidental (`SpaceRequest.ts:525`)
@@ -634,7 +635,7 @@ discovered-from: whole-codebase review, 2026-09-11.
   - [ ] A create that declared `encryption` and got none back fails closed
         rather than returning an encrypting handle
   - [ ] A create response whose id differs from an explicitly requested `id` is
-        refused with a `WasServerError`
+        refused with a `PwsServerError`
   - [ ] The created description is returned to the caller, saving every consumer
         the `describe()` round trip
 
@@ -746,7 +747,7 @@ the descriptor invariants, and silently rolled back (a revoked reader
 re-admitted) by one that does not.
 
 No sound client-side remedy exists today, which is why this is filed rather than
-patched: WAS v0.5 defines no partial-update form for the object (`PUT` is always
+patched: PWS v0.5 defines no partial-update form for the object (`PUT` is always
 a full replacement, `PATCH` is named as a possible future addition), and
 re-reading and retrying on the 400 races identically with no validator to pin
 the retry to. The candidate fixes are therefore upstream or refusals: a spec
@@ -773,7 +774,7 @@ discovered-from: code review of the v0.5 path-layout diff (WCL-41), 2026-09-12.
         that they surface on write-shaped calls only
   - [ ] The chosen direction is applied consistently across the `read: true`
         call sites in `Collection`, `Resource`, `internal/meta.ts`,
-        `internal/pagination.ts`, `WasClient` and `internal/write.ts`
+        `internal/pagination.ts`, `PwsClient` and `internal/write.ts`
 
 `send()`'s short-circuit is evaluated on the raw error before `mapError` ever
 runs: `(input.read || input.idempotent) && httpStatus(err) === 404` returns
@@ -799,12 +800,12 @@ with the `deleteWithOutcome` item (the same raw-status short-circuit ahead of
 - labels: correctness, errors
 - acceptance:
   - [x] A followed `next` page that resolves to `null` ends the walk with a
-        `WasServerError` rather than a silently short listing
+        `PwsServerError` rather than a silently short listing
   - [x] No buffered listing (`collectPages`, behind `Collection.list()`,
         `Space.collections()`, `publicListCollection()` and `listSpaces()`)
         asserts a truncated count as `totalItems`
   - [ ] A non-JSON body or a 200 carrying well-formed JSON that is not a listing
-        surfaces as a typed `WasError` from the public walk
+        surfaces as a typed `PwsError` from the public walk
 
 Reproduced against a local server: page 1 carrying 100 items and
 `totalItems: 250`, then a 404 on page 2, makes `listSpaces()` resolve
@@ -812,7 +813,7 @@ Reproduced against a local server: page 1 carrying 100 items and
 page with `read: true`, so `send` maps the 404 to `null` and `walkPages` could
 not tell that from end-of-list. `collectPages` then recomputed `totalItems` from
 the truncated set, for every buffered listing. Done so far (2026-10-27):
-`walkPages` fails with `WasServerError` on a `null` followed page and on a
+`walkPages` fails with `PwsServerError` on a `null` followed page and on a
 `next` back to an already-walked page, so the recompute in `collectPages` only
 ever sees a complete walk. Still open: the read-shaped flag belongs on the first
 page alone, and the untyped failures below. The same walk is also the landing
@@ -821,7 +822,7 @@ unconditionally with no content-type gate and casts the body to a listing, so an
 HTML interstitial escapes as `SyntaxError` and a wrong-shape JSON body as
 `TypeError: page.items is not iterable`. Gate on content type the way
 `parseResource` does, and treat a body without an array `items` as
-`WasServerError`, matching how `listSpaces` already treats a bodyless first
+`PwsServerError`, matching how `listSpaces` already treats a bodyless first
 page.
 
 discovered-from: whole-codebase review, 2026-09-11.
@@ -1007,7 +1008,7 @@ error class; it adds no binding check. discovered-from: whole-codebase review,
 - labels: sync, changes-feed, correctness
 - acceptance:
   - [ ] A non-empty page whose returned checkpoint equals the checkpoint that
-        same call requested raises `WasServerError` naming the feed URL
+        same call requested raises `PwsServerError` naming the feed URL
   - [ ] The guard is stateless within the port, so a driver re-issuing an
         identical pull after a transient failure or a restart is unaffected
 
@@ -1077,7 +1078,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 
 Two edge cases in `internal/paths.ts`. `parseSpaceTarget` does a `startsWith`
 against the raw server-URL string before any normalization, so
-`https://was.example:443/space/s` and `https://WAS.example/space/s` both fail
+`https://pws.example:443/space/s` and `https://PWS.example/space/s` both fail
 the prefix test even though they normalize to the same origin. The same call
 feeds `fromCapability` and `spaceIdOf`, so a mis-serialized `invocationTarget`
 makes a capability both unusable and unrevocable through this client. The
@@ -1104,7 +1105,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 - labels: errors, encryption
 - discovered-from: 2026-08-21 cleanup review of `src/`
 - touches:
-  - was-client: `didKeyRecipient.ts` and `epochCrypto.ts` throw sites
+  - pws-client: `didKeyRecipient.ts` and `epochCrypto.ts` throw sites
   - freewallet, dcw: any consumer matching these failures on `err.constructor`
     or on the bare message rather than on a class
 - acceptance:
@@ -1143,7 +1144,7 @@ cleanup pass. The shared `DID_KEY_PREFIX` half of this finding already landed in
 
 discovered-from: WCL-2. Harmless today -- routed blobs declare no indexable
 attributes, so the extra hmac application emits nothing meaningful -- but it
-means the WAS codec cannot fully control `indexed` emission on the chunked path
+means the PWS codec cannot fully control `indexed` emission on the chunked path
 without this upstream fix.
 
 ## Spec and protocol
@@ -1158,13 +1159,13 @@ without this upstream fix.
 - blocked-by: WASS-60 (the spec text; drafted for 0002 on 2026-10-28, redrafted
   to the 0003 layout on the spec's `clarify-url-derivation` branch 2026-10-29)
 - touches:
-  - was-client: the 0002 shape SHIPPED in 0.100.0 (2026-10-28):
-    `src/WasClient.ts` (`serviceUrl` / `spacesUrl` arms, `spaceAt`,
+  - pws-client: the 0002 shape SHIPPED in 0.100.0 (2026-10-28):
+    `src/PwsClient.ts` (`serviceUrl` / `spacesUrl` arms, `spaceAt`,
     `createSpace` from `Location`), `src/paths.ts` and `src/internal/paths.ts`
     (`*Url` builders beneath a Space URL), `src/internal/service.ts`,
     `src/internal/grant.ts` (`GrantOptions.spaceUrl`), `src/internal/revoke.ts`
     (`spaceUrlOf`), the EDV and sync seams, docs. The 0003 shape is the
-    remaining work here: `src/WasClient.ts` (`baseServerUrl` arm, `space(id)`,
+    remaining work here: `src/PwsClient.ts` (`baseServerUrl` arm, `space(id)`,
     the fixed-Space entry point, the description consistency check),
     `src/paths.ts` (server-level builders from a base server URL),
     `src/internal/service.ts` (direct read from `{base}service`; HEAD discovery
@@ -1183,10 +1184,10 @@ without this upstream fix.
     (`profile_sync` stores `baseServerUrl`)
   - storage-core: `ORIGIN_ROOT_RESERVED_COLLECTION_IDS` and optional
     `SpaceMetadata.id` landed locally 2026-10-29 (0.42.0, unpublished;
-    was-client consumes it via `link:` until it is on npm)
-  - web-spaces-server: WSS-234 (re-scoped 2026-10-29: `startTestServer`
-    returns the base server URL; the server confirms the fixed layout and
-    reserves `service`, `spaces` and `space` at a root-mounted Space)
+    pws-client consumes it via `link:` until it is on npm)
+  - web-spaces-server: WSS-234 (re-scoped 2026-10-29: `startTestServer` returns
+    the base server URL; the server confirms the fixed layout and reserves
+    `service`, `spaces` and `space` at a root-mounted Space)
   - portable-web-spaces-spec: WASS-60 (drafted 2026-10-28 for 0002; reverse per
     0003: Reading This Document, Service Description and Spaces Repositories
     state the fixed layout under a base server URL, the reserved segments gain
@@ -1235,8 +1236,8 @@ reading that followed, and the wallet-core port of 2026-10-29.
     `https://w3id.org/pws/encrypted-collections` `0.1` entry
     (`blinded-index-query`, `governed-history-logs`); see
     `https://interop-alliance.github.io/portable-wallet-profile-spec/#entry-as-shorthand`
-  - web-spaces-server: WSS-243 lists the entry; this item's tests need a
-    server past that item (the pair rule of LEARNINGS.md applies)
+  - web-spaces-server: WSS-243 lists the entry; this item's tests need a server
+    past that item (the pair rule of LEARNINGS.md applies)
   - was-conformance-suite: PWSCS-33 is the server-side counterpart and does not
     gate this item
   - wallet-core: the caller that decides whether a server can host an account;
@@ -1283,9 +1284,9 @@ once the spec or the server has settled them.
     Metadata operations state what a `/meta` write leaves (the Resource's
     `updatedAt` and `ETag`) but not what a content write does to the `/meta`
     validator, nor whether the validator exists before any `/meta` write
-  - web-spaces-server: 0.42.1 serves a `/meta` `ETag` from the Resource's
-    first write; its unreleased changelog has the validator cover both records
-    and move on a content write
+  - web-spaces-server: 0.42.1 serves a `/meta` `ETag` from the Resource's first
+    write; its unreleased changelog has the validator cover both records and
+    move on a content write
 - acceptance:
   - [ ] The spec states whether a `/meta` `ETag` is present before any metadata
         write, and whether a content write advances it
@@ -1322,7 +1323,7 @@ settled in a test.
   - web-spaces-server: WSS-112 lists the entry and moves the members; this
     item's tests need a server past that item (the pair rule of LEARNINGS.md
     applies)
-  - was-client (this repo): README.md and ARCHITECTURE.md (the Service
+  - pws-client (this repo): README.md and ARCHITECTURE.md (the Service
     description and Service discovery glossary entries around lines 790-794, and
     the `src/internal/service.ts` paragraph around line 148) describe the
     one-key selection this item widens
@@ -1360,7 +1361,7 @@ the place the spec now says to look.
   0012
 - blocked-by: WSS-194
 - touches:
-  - was-client: `src/sync/provisioning.ts` -- the `'edv'` branch that runs when
+  - pws-client: `src/sync/provisioning.ts` -- the `'edv'` branch that runs when
     the Collection exists without a descriptor (the compare-and-swap write of
     `EDV_DESCRIPTOR` onto the read-back description), the module header's "late
     in-place declaration" paragraph, and `EDV_DESCRIPTOR`'s comment ("or not yet
@@ -1412,8 +1413,8 @@ already takes for a key rotation it cannot express as an epoch.
     `ReplicaStallReason` is a closed set a reader extends with "unrecognized")
   - web-spaces-server: WSS-238 (serves the member on the core entry)
   - freewallet / wallet-core: whatever reads the replica server's DID off
-    `was.service()` before delegating the pull capability (FW-638, FW-688)
-  - was-client (this repo): `src/types.ts` (`ServiceInfo` docs), `src/Space.ts`
+    `pws.service()` before delegating the pull capability (FW-638, FW-688)
+  - pws-client (this repo): `src/types.ts` (`ServiceInfo` docs), `src/Space.ts`
     (the `registerReplica` and `replicaStatus` JSDoc), ARCHITECTURE.md (the
     replication paragraph), README's replication example if it reads the DID
 - acceptance:
@@ -1453,10 +1454,9 @@ reading rules. Related: WCL-143 (the live tests).
     documents `If-None-Match: *` and its 412; the Space Data Model gains the
     server-managed validator, Read Space the `ETag`, Update Space both
     preconditions)
-  - web-spaces-server: WSS-90 (shipped 2026-09-07 for 0.29.0: both
-    preconditions on Update Space and Update Collection, the Space `ETag`;
-    publish pending)
-  - was-client: `Space.describeWithEtag` / `replaceDescription` and
+  - web-spaces-server: WSS-90 (shipped 2026-09-07 for 0.29.0: both preconditions
+    on Update Space and Update Collection, the Space `ETag`; publish pending)
+  - pws-client: `Space.describeWithEtag` / `replaceDescription` and
     `Collection.replaceDescription`'s `ifNoneMatch` (shipped 2026-09-07 for
     0.53.0)
   - freewallet, dcw: waived -- `ensureSpace` and `ensureSpaceAndCollection` keep
@@ -1595,7 +1595,7 @@ behavior change.
   - [ ] A concurrent write between the read and the `PUT` surfaces as
         `PreconditionFailedError`
   - [ ] Under a delegated replicas-route grant held through
-        `was.space(id, { capability })`, `replicas`, `replica`, `replicaStatus`,
+        `pws.space(id, { capability })`, `replicas`, `replica`, `replicaStatus`,
         `pauseReplica`, `resumeReplica`, `replaceReplicaCapability` and
         `deregisterReplica` succeed, and a delegated `registerReplica` naming an
         unregistered `fromSpace` is refused
@@ -1608,6 +1608,34 @@ only when its `server` Space holds a verifying did:webvh log listing the
 seed-derived key under `capabilityInvocation`. The provisioner for that lives in
 the server's own test helpers until WSS-228 exports it, and the delegated route
 is not served until WSS-226.
+
+### WCL-150: [M] Migrate the consumers to `@interop/pws-client`
+
+- status: todo
+- priority: medium
+- labels: cross-repo, breaking
+- discovered-from: the package rename to `@interop/pws-client`, 2026-10-30
+- touches:
+  - wallet-core: imports, `PwsClient` types, and the sync error re-exports in
+    `src/sync/`
+  - freewallet: imports, and the name matching in `src/lib/storageErrors.ts`
+  - was-react: imports, and the error handling in `src/storage/wasSyncPort.ts`
+  - was-sync: imports, and the error handling in `src/types.ts` and
+    `src/controller.ts`
+  - dcw, wallet-backup, wallet-request, did-cli-typescript: imports
+  - was-conformance-suite: the `peerDependencies` range and the harness types
+  - web-spaces-server: the `devDependencies` entry
+- acceptance:
+  - [ ] `@interop/pws-client` is published to npm
+  - [ ] Each repo under `touches:` has an item filed, or the migration landed
+
+Each consumer needs the new package name, the `Pws*` names, the `pws` option
+key, and the new error `name` strings. A consumer that matches an error by its
+old `name` still compiles and silently stops matching, so grep for the quoted
+strings as well as the imports. The `pws` binding also makes existing encrypted
+data unreadable. `WasEpochConfiguration` stays as it is: both specs and
+wallet-core's wire constants list it as permanent, so it is not a rename
+candidate.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked
 
@@ -1644,17 +1672,17 @@ review, 2026-09-11.
 - labels: errors, encryption, upstream
 - acceptance:
   - [ ] decisions/0001 records the collision under its Revisit Criterion 1: two
-        names this package emits are owned upstream, carry no `WasError` fields,
+        names this package emits are owned upstream, carry no `PwsError` fields,
         and are deliberately not renamed
-  - [ ] The `WasTransport` header says the same, so the next reader does not
+  - [ ] The `PwsTransport` header says the same, so the next reader does not
         file the rename
 
-`WasTransport.namedError` mints plain `Error`s whose `name` is `NotFoundError`
-or `DuplicateError`. They are not `WasError`s, carry no `status`, `type` or
+`PwsTransport.namedError` mints plain `Error`s whose `name` is `NotFoundError`
+or `DuplicateError`. They are not `PwsError`s, carry no `status`, `type` or
 `requestUrl`, and answer a name match identically to the real classes. The
 obvious fix is actively harmful. Upstream `@interop/edv-client`'s own
 `HttpsTransport` sets exactly these strings and `EdvClientCore` dispatches on
-them, so `WasTransport` is implementing an upstream contract verbatim and a
+them, so `PwsTransport` is implementing an upstream contract verbatim and a
 rename would silently break that dispatch. decisions/0001 already has the slot
 for this: Revisit Criterion 1 covers two packages needing error classes that
 carry the same `name`, and says the answer is decided in that record. So this is
@@ -1669,13 +1697,13 @@ review, 2026-09-11.
 - priority: low
 - labels: encryption, conditional-writes
 - acceptance:
-  - [ ] `WasTransport.update()`'s docstring agrees with the module header about
+  - [ ] `PwsTransport.update()`'s docstring agrees with the module header about
         preconditions, and the unreachable 412 arm is gone
   - [ ] The `DescriptorRefreshPolicy` class docstring scopes its guarantee to a
         refresh that succeeded
 
 Two docstrings that overclaim, both against behavior the code states
-deliberately elsewhere. `WasTransport.update()` sends no precondition, so no
+deliberately elsewhere. `PwsTransport.update()` sends no precondition, so no
 server can 412 it and the `412` to `InvalidStateError` arm is unreachable on
 every backend. That is not an oversight: the module header says advisory writes
 are the profile's contract for `update` ("the EDV `sequence` is not enforced"),
@@ -1703,9 +1731,9 @@ discovered-from: whole-codebase review, 2026-09-11.
     chunks at or past the new count through optional `listChunks` /
     `deleteChunk` transport methods, and report the sealed chunk count in a
     typed result
-  - was-client: `src/edv/EdvCodec.ts` (`#writePlan`, `#replacingWrite`,
+  - pws-client: `src/edv/EdvCodec.ts` (`#writePlan`, `#replacingWrite`,
     `#reapChunks`, `#reapFailed`, the `prior.chunked` plumbing) and
-    `src/edv/WasTransport.ts` (`listChunks`, `deleteChunk`)
+    `src/edv/PwsTransport.ts` (`listChunks`, `deleteChunk`)
 - acceptance:
   - [ ] The EDV core owns the whole chunk lifecycle of a replacing write (write,
         count, reaping of the prior document's leftover chunks), given a
@@ -1720,7 +1748,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 The chunk lifecycle of a chunked document is owned by `EdvClientCore` upstream
 (it writes the document, streams the chunks, seals the count), but the cleanup
 half of a replacing write lives in this client: `#reapChunks` lists and deletes
-the chunks the new document does not cover, over two `WasTransport` methods the
+the chunks the new document does not cover, over two `PwsTransport` methods the
 EDV `Transport` contract does not know, and the chunk count it keeps is read off
 the core's result through a cast. `#replacingWrite` exists only because the core
 cannot write an inline document over a chunked one and reap for it. Any other
@@ -1739,7 +1767,7 @@ section is ordered by id, not by dependency.
 
 <!-- roadmap-order: by-id -->
 
-### WCL-108: [M] Gate the blinded-index query on the WAS-EC service-description version entry
+### WCL-108: [M] Gate the blinded-index query on the PWS-EC service-description version entry
 
 - status: todo
 - priority: medium
@@ -1756,10 +1784,10 @@ section is ordered by id, not by dependency.
     `PwsVersionEntry` minus `spaces`, so a reuse may do; decide when the parsing
     below is written
 - acceptance:
-  - [ ] `src/internal/service.ts` reads the WAS-EC version entry alongside the
+  - [ ] `src/internal/service.ts` reads the PWS-EC version entry alongside the
         PWS one, exposing its tokens without conflating them with the
         server-wide `features` of the core entry
-  - [ ] `WasTransport.find()` and `Collection.find()` consult it and refuse with
+  - [ ] `PwsTransport.find()` and `Collection.find()` consult it and refuse with
         `NotSupportedError` before the `POST .../query` when the server
         advertises no `blinded-index-query`, so a capable-looking server that
         has not enabled the profile fails with a named cause rather than a bare
@@ -1775,23 +1803,23 @@ section is ordered by id, not by dependency.
         them, so the chunked write path gates on the entry's presence or on
         nothing at all
   - [ ] README.md and ARCHITECTURE.md's "Conditional writes" section record
-        where the WAS-EC tokens live, beside the `changes-query` note WCL-106
+        where the PWS-EC tokens live, beside the `changes-query` note WCL-106
         added
   - [ ] A CHANGELOG.md entry, under a new version, dated TBD
   - [ ] `touches:` entries resolved
 
 Context: WCL-106 deleted the backend-descriptor probe outright, which took the
-`blinded-index-query` gate in `WasTransport.find()` with it. Nothing is broken
+`blinded-index-query` gate in `PwsTransport.find()` with it. Nothing is broken
 by that -- serving the profile is a conformance requirement, and a server that
 does not implement it answers `501`, which is what `Collection.find()` has
 always relied on. What is lost is the sharper client-side error: a refusal that
 names the missing affordance, raised before a request goes out. Re-adding it is
-a new mechanism reading a new source (the WAS-EC version entry in the service
+a new mechanism reading a new source (the PWS-EC version entry in the service
 description), not a restoration of the deleted probe, which is why it is a
 separate item rather than an open box on WCL-106.
 
 The gate is worth having only if it is cheap. The service description is already
-discovered once per client and memoized (`WasClient.service()`), so reading one
+discovered once per client and memoized (`PwsClient.service()`), so reading one
 more entry from it costs no round trip -- unlike the per-collection descriptor
 read the old probe paid for. That is the argument for doing this at all, and
 ECS-9 landed on 2026-09-16.
@@ -1808,7 +1836,7 @@ discovered-from: WCL-106.
     `fetch`
   - `@interop/ezcap`: `ZcapClient.request({ signal })` must pass it through to
     http-client
-  - was-client: `send()` / `rawRequest()` carry `signal` in `SendInput`;
+  - pws-client: `send()` / `rawRequest()` carry `signal` in `SendInput`;
     `#exportResponse()` and `exportStream({ signal })` thread it
   - freewallet: `WASRemoteStore.exportSpace` drops its
     `pipeThrough(..., { signal })` wrap once the request itself is cancellable
@@ -1824,14 +1852,14 @@ wrap itself (freewallet's backup export does, over `pipeThrough` with a
 The seam is one optional `signal` on `SendInput`, forwarded unchanged to
 `fetch`, so a cancel aborts the request wherever it is: pending, headers
 received, or mid-body. The abort surfaces as the signal's own reason (an
-`AbortError` by default), not as a `WasError`, so a host tells a cancel from a
+`AbortError` by default), not as a `PwsError`, so a host tells a cancel from a
 failure without unwrapping.
 
 - acceptance:
   - [ ] `exportStream({ signal })` aborts a pending request, and the returned
         stream errors with the signal's reason when aborted mid-body
-  - [ ] The abort reason is not wrapped in a `WasError`
-  - [ ] http-client and ezcap releases carry the pass-through, and was-client's
+  - [ ] The abort reason is not wrapped in a `PwsError`
+  - [ ] http-client and ezcap releases carry the pass-through, and pws-client's
         dependency ranges name them
   - [ ] freewallet's `exportSpace` passes the signal down and drops its
         stream-side wrap
@@ -1849,7 +1877,7 @@ parked and gains acceptance criteria when promoted to `todo`.
 - discovered-from: code review of the Spaces Repository `serverUrl` change,
   2026-10-11
 
-The `WasClient` constructor takes the server's Spaces Repository URL and derives
+The `PwsClient` constructor takes the server's Spaces Repository URL and derives
 `baseUrl` as its parent. The spec leaves the `spaces` endpoint optional, so a
 server without one has no URL the constructor accepts; a consumer would have to
 invent a `/spaces/` URL that does not exist. Parked because no server in this
@@ -1918,7 +1946,7 @@ than filed as work.
 discovered-from: WCL-116. Chunking is the better answer for very large files:
 each chunk is its own signed request with its own `Digest`, so memory stays
 constant, a failure costs one chunk rather than the whole file, and an upload
-can resume. was-client routes an oversize write to chunks only on the
+can resume. pws-client routes an oversize write to chunks only on the
 encrypted-Collection path (`EdvCodec`, see WCL-12 and WCL-13). A plaintext
 Collection has no defined chunked representation: nothing says how a plain `GET`
 of the Resource returns the reassembled bytes, how the chunk count and order are
@@ -2032,9 +2060,9 @@ why it is deferred past the first encrypted increment.
 - **No `collection.revoke()` / `resource.revoke()` sugar.** Revocation is
   Space-scoped, so those would ignore their receiver's own path and use only its
   `spaceId` -- `collection.revoke(zcap)` is exactly `space.revoke(zcap)`, and
-  `Resource` has no `grant()` to mirror. `was.revoke()` already covers the
+  `Resource` has no `grant()` to mirror. `pws.revoke()` already covers the
   convenience case by deriving the Space from the capability.
-- **The bare `was.grant({ target })` shape stays.** A grant with no `spaceUrl`
+- **The bare `pws.grant({ target })` shape stays.** A grant with no `spaceUrl`
   and no `capability` is rooted at the target's own root capability. It is the
   shape for a server at the basic conformance level (fixed collections, or
   resources alone), where there is no Space container to root a chain in. Such a
@@ -2062,11 +2090,11 @@ why it is deferred past the first encrypted increment.
   the epoch key -- so re-wrapping keys to a changed reader set is a single
   conditional descriptor write (`addRecipient` / `removeRecipient` /
   `replaceRecipient`), not a per-Resource operation. And an envelope cannot be
-  moved to a new epoch without re-encryption: `was.epoch` is bound into the
+  moved to a new epoch without re-encryption: `pws.epoch` is bound into the
   AEAD-authenticated protected header precisely to detect epoch swap/rollback,
-  the WAS-EC profile declares pushed envelopes immutable, and re-encryption
+  the PWS-EC profile declares pushed envelopes immutable, and re-encryption
   would change content-derived resource ids. The re-encrypt-history variant is
-  explicitly outside the WAS-EC profile (its rotation-limitations section) and
+  explicitly outside the PWS-EC profile (its rotation-limitations section) and
   an explicit non-goal in freewallet and wallet-core; the residual exposure is
   the documented honest ceiling of prospective rotation.
 - **The encryption switch is keys alone, not "feature AND keys".** A handle

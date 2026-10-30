@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import { ValidationError, WasClient, allowsAction } from '../../src/index.js'
+import { ValidationError, PwsClient, allowsAction } from '../../src/index.js'
 import { rootCapabilityId } from '../../src/paths/index.js'
 import {
   clientWithRequestSpy,
@@ -28,15 +28,15 @@ interface DelegateArgs {
 }
 
 /**
- * Builds a `WasClient` over a stub `ZcapClient` that records the most recent
+ * Builds a `PwsClient` over a stub `ZcapClient` that records the most recent
  * `delegate(...)` call and echoes its args back as the delegated zcap.
  *
  * @returns {object}
- * @returns return.client {WasClient}
+ * @returns return.client {PwsClient}
  * @returns return.lastDelegate {function} returns the captured delegate args
  */
 function clientWithDelegateSpy(): {
-  client: WasClient
+  client: PwsClient
   lastDelegate: () => DelegateArgs | undefined
 } {
   let captured: DelegateArgs | undefined
@@ -46,8 +46,8 @@ function clientWithDelegateSpy(): {
       captured = args
       return { ...args, allowedAction: args.allowedActions }
     }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  const client = new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  const client = new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
@@ -55,13 +55,13 @@ function clientWithDelegateSpy(): {
   return { client, lastDelegate: () => captured }
 }
 
-describe('was.grant (delegation)', () => {
+describe('pws.grant (delegation)', () => {
   it('normalizes lowercase actions to uppercase before signing', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     await client.grant({
       to: 'did:example:bob',
       actions: ['get'],
-      target: 'https://was.example/space/s/c/r'
+      target: 'https://pws.example/space/s/c/r'
     })
     expect(lastDelegate()?.allowedActions).toEqual(['GET'])
   })
@@ -74,7 +74,7 @@ describe('was.grant (delegation)', () => {
     await client.grant({
       to: 'did:example:bob',
       actions: ['GET', 'head'],
-      target: 'https://was.example/space/s/c/'
+      target: 'https://pws.example/space/s/c/'
     })
     expect(lastDelegate()?.allowedActions).toEqual(['GET', 'HEAD'])
   })
@@ -86,13 +86,13 @@ describe('was.grant (delegation)', () => {
     await client.grant({
       to: 'did:example:bob',
       actions: ['GET', 'put'],
-      target: 'https://was.example/space/s',
+      target: 'https://pws.example/space/s',
       expires,
       capability: parent as never
     })
     const args = lastDelegate()
     expect(args?.controller).toBe('did:example:bob')
-    expect(args?.invocationTarget).toBe('https://was.example/space/s')
+    expect(args?.invocationTarget).toBe('https://pws.example/space/s')
     expect(args?.allowedActions).toEqual(['GET', 'PUT'])
     expect(args?.expires).toBe(expires)
     expect(args?.capability).toBe(parent)
@@ -124,7 +124,7 @@ describe('grant rooting (revocability)', () => {
 
     const args = lastDelegate()
     expect(args?.capability).toBe(spaceRoot)
-    expect(args?.invocationTarget).toBe('https://was.example/space/s/c/')
+    expect(args?.invocationTarget).toBe('https://pws.example/space/s/c/')
   })
 
   it('roots a space grant at itself', async () => {
@@ -135,7 +135,7 @@ describe('grant rooting (revocability)', () => {
 
     const args = lastDelegate()
     expect(args?.capability).toBe(spaceRoot)
-    expect(args?.invocationTarget).toBe('https://was.example/space/s/')
+    expect(args?.invocationTarget).toBe('https://pws.example/space/s/')
   })
 
   it('roots a handle grant at its space when the target is narrowed', async () => {
@@ -143,12 +143,12 @@ describe('grant rooting (revocability)', () => {
     await client.spaceAt(spaceUrlFor('s')).grant({
       to: 'did:example:bob',
       actions: ['GET'],
-      target: 'https://was.example/space/s/c/r'
+      target: 'https://pws.example/space/s/c/r'
     })
 
     expect(lastDelegate()?.capability).toBe(spaceRoot)
     expect(lastDelegate()?.invocationTarget).toBe(
-      'https://was.example/space/s/c/r'
+      'https://pws.example/space/s/c/r'
     )
   })
 
@@ -157,12 +157,12 @@ describe('grant rooting (revocability)', () => {
     await client.spaceAt(spaceUrlFor('s')).grant({
       to: 'did:example:bob',
       actions: ['GET'],
-      target: 'https://was.example/space/s'
+      target: 'https://pws.example/space/s'
     })
 
     expect(lastDelegate()?.capability).toBe(spaceRoot)
     expect(lastDelegate()?.invocationTarget).toBe(
-      'https://was.example/space/s/'
+      'https://pws.example/space/s/'
     )
   })
 
@@ -172,7 +172,7 @@ describe('grant rooting (revocability)', () => {
       client.spaceAt(spaceUrlFor('s')).grant({
         to: 'did:example:bob',
         actions: ['GET'],
-        target: 'https://was.example/space/s?x=1'
+        target: 'https://pws.example/space/s?x=1'
       })
     ).rejects.toBeInstanceOf(ValidationError)
     expect(lastDelegate()).toBeUndefined()
@@ -184,7 +184,7 @@ describe('grant rooting (revocability)', () => {
       client.spaceAt(spaceUrlFor('s')).grant({
         to: 'did:example:bob',
         actions: ['GET'],
-        target: 'https://was.example/space/s/../other/'
+        target: 'https://pws.example/space/s/../other/'
       })
     ).rejects.toBeInstanceOf(ValidationError)
     expect(lastDelegate()).toBeUndefined()
@@ -196,7 +196,7 @@ describe('grant rooting (revocability)', () => {
       client.spaceAt(spaceUrlFor('s')).grant({
         to: 'did:example:bob',
         actions: ['GET'],
-        target: 'https://was.example/space/s-evil/'
+        target: 'https://pws.example/space/s-evil/'
       })
     ).rejects.toBeInstanceOf(ValidationError)
     expect(lastDelegate()).toBeUndefined()
@@ -211,7 +211,7 @@ describe('grant rooting (revocability)', () => {
         .grant({
           to: 'did:example:bob',
           actions: ['GET'],
-          target: 'https://was.example/space/other/c/'
+          target: 'https://pws.example/space/other/c/'
         })
     ).rejects.toBeInstanceOf(ValidationError)
     expect(lastDelegate()).toBeUndefined()
@@ -228,14 +228,14 @@ describe('grant rooting (revocability)', () => {
     expect(lastDelegate()?.capability).toBe(held)
   })
 
-  it('roots a was.grant with no spaceUrl at the target itself', async () => {
+  it('roots a pws.grant with no spaceUrl at the target itself', async () => {
     // With no `spaceUrl` and no parent, the client does not guess a Space
     // from the target's shape: ezcap's default root names the target, which
     // is the same `urn:zcap:root:` id spelled out here.
     const { client, lastDelegate } = clientWithDelegateSpy()
     for (const target of [
-      'https://was.example/space/s/c/r',
-      'https://was.example/kms/keystores/k1',
+      'https://pws.example/space/s/c/r',
+      'https://pws.example/kms/keystores/k1',
       'https://elsewhere.example/space/s/c'
     ]) {
       await client.grant({ to: 'did:example:bob', actions: ['GET'], target })
@@ -245,31 +245,31 @@ describe('grant rooting (revocability)', () => {
     }
   })
 
-  it('roots a was.grant with spaceUrl at that Space', async () => {
+  it('roots a pws.grant with spaceUrl at that Space', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     await client.grant({
       to: 'did:example:bob',
       actions: ['GET'],
-      target: 'https://was.example/space/s/c/r',
+      target: 'https://pws.example/space/s/c/r',
       spaceUrl: spaceUrlFor('s')
     })
 
     expect(lastDelegate()?.capability).toBe(spaceRoot)
     expect(lastDelegate()?.invocationTarget).toBe(
-      'https://was.example/space/s/c/r'
+      'https://pws.example/space/s/c/r'
     )
   })
 
   it('canonicalizes spaceUrl before minting the root id', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     for (const spaceUrl of [
-      'https://was.example/space/s',
-      'https://WAS.example:443/space/s//'
+      'https://pws.example/space/s',
+      'https://PWS.example:443/space/s//'
     ]) {
       await client.grant({
         to: 'did:example:bob',
         actions: ['GET'],
-        target: 'https://was.example/space/s/c/',
+        target: 'https://pws.example/space/s/c/',
         spaceUrl
       })
       expect(lastDelegate()?.capability).toBe(spaceRoot)
@@ -279,8 +279,8 @@ describe('grant rooting (revocability)', () => {
   it('throws ValidationError when target is outside spaceUrl', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     for (const target of [
-      'https://was.example/space/other/c/r',
-      'https://was.example/space/s2/c/',
+      'https://pws.example/space/other/c/r',
+      'https://pws.example/space/s2/c/',
       'https://elsewhere.example/space/s/c/'
     ]) {
       await expect(
@@ -301,15 +301,15 @@ describe('grant rooting (revocability)', () => {
       client.grant({
         to: 'did:example:bob',
         actions: ['GET'],
-        target: 'https://was.example/space/s/c/',
-        spaceUrl: 'https://was.example/space/s/?q=1'
+        target: 'https://pws.example/space/s/c/',
+        spaceUrl: 'https://pws.example/space/s/?q=1'
       })
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
   it('keeps a path prefix the Space URL carries in the root id', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
-    const spaceUrl = 'https://host.example/was/space/s/'
+    const spaceUrl = 'https://host.example/pws/space/s/'
 
     await client
       .spaceAt(spaceUrl)
@@ -320,10 +320,10 @@ describe('grant rooting (revocability)', () => {
       })
 
     expect(lastDelegate()?.capability).toBe(
-      `urn:zcap:root:${encodeURIComponent('https://host.example/was/space/s/')}`
+      `urn:zcap:root:${encodeURIComponent('https://host.example/pws/space/s/')}`
     )
     expect(lastDelegate()?.invocationTarget).toBe(
-      'https://host.example/was/space/s/c/'
+      'https://host.example/pws/space/s/c/'
     )
   })
 })
@@ -331,14 +331,14 @@ describe('grant rooting (revocability)', () => {
 /**
  * Two hygiene properties of the entry point itself: a grant that names nothing
  * to delegate is refused as a `ValidationError` (ezcap would answer a raw
- * `TypeError`, which a consumer catching `WasError` never sees), and
+ * `TypeError`, which a consumer catching `PwsError` never sees), and
  * delegating never touches the invocation signer -- so a client built for
  * delegation alone can still hand out capabilities.
  */
 describe('allowsAction', () => {
   const zcap = (allowedAction?: string | string[]) =>
     ({
-      invocationTarget: 'https://was.example/space/s/c/',
+      invocationTarget: 'https://pws.example/space/s/c/',
       allowedAction
     }) as never
 
@@ -359,7 +359,7 @@ describe('allowsAction', () => {
   })
 })
 
-describe('was.grant input validation', () => {
+describe('pws.grant input validation', () => {
   it('throws ValidationError when neither target nor capability is given', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     await expect(
@@ -377,8 +377,8 @@ describe('was.grant input validation', () => {
         captured = args
         return args
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
@@ -388,22 +388,22 @@ describe('was.grant input validation', () => {
     await client.grant({
       to: 'did:example:bob',
       actions: ['GET'],
-      target: 'https://was.example/space/s/c/r'
+      target: 'https://pws.example/space/s/c/r'
     })
     expect(captured?.controller).toBe('did:example:bob')
 
     await client
       .spaceAt(spaceUrlFor('s'))
       .grant({ to: 'did:example:bob', actions: ['GET'] })
-    expect(captured?.invocationTarget).toBe('https://was.example/space/s/')
+    expect(captured?.invocationTarget).toBe('https://pws.example/space/s/')
   })
 })
 
-describe('was.request action normalization', () => {
+describe('pws.request action normalization', () => {
   it('signs a lowercase method under the uppercase action grant() delegates', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.request({
-      url: 'https://was.example/space/s/c/r',
+      url: 'https://pws.example/space/s/c/r',
       method: 'put'
     })
     expect(lastRequest()?.method).toBe('PUT')
@@ -413,7 +413,7 @@ describe('was.request action normalization', () => {
   it('uppercases an explicit lowercase action', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.request({
-      url: 'https://was.example/space/s/c/r',
+      url: 'https://pws.example/space/s/c/r',
       method: 'GET',
       action: 'head'
     })

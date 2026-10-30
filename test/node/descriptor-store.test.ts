@@ -319,7 +319,7 @@ describe('resourceDescriptorStore', () => {
 
 describe('casUpdateDescriptor conflict matching', () => {
   /**
-   * A conflict minted by a consumer's own copy of `@interop/was-client`: the
+   * A conflict minted by a consumer's own copy of `@interop/pws-client`: the
    * same `name` as ours, but a foreign class that `instanceof` rejects.
    */
   class ForeignPreconditionFailedError extends Error {

@@ -3,7 +3,7 @@
  */
 /**
  * Integration test: multi-recipient encrypted Collections and key epochs, end
- * to end against a live WAS server. Several readers each hold their own X25519
+ * to end against a live PWS server. Several readers each hold their own X25519
  * key-agreement key; a per-epoch collection key is wrapped to each of them on
  * the Collection's `encryption` descriptor, and resources are encrypted under
  * the `currentEpoch`. Proves the whole feature, and in particular the removal
@@ -31,7 +31,7 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import type { HttpResponse } from '@interop/http-client'
 import { isResourceChange } from '@interop/storage-core'
 
-import { WasClient, KeyUnwrapError } from '../../src/index.js'
+import { PwsClient, KeyUnwrapError } from '../../src/index.js'
 import type {
   Collection,
   CollectionEncryption,
@@ -57,7 +57,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
   let readerC: Party
   // A plaintext owner client, to fetch the raw stored ciphertext (the "hand it
   // the bytes" party for the read-axis assertions).
-  let ownerPlain: WasClient
+  let ownerPlain: PwsClient
   let space: Space
   let spaceUrl: string
   let zcapB: IDelegatedZcap
@@ -73,7 +73,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
    * @returns {Collection}
    */
   function ownerVault(): Collection {
-    return owner.was.spaceAt(spaceUrl).collection(collectionId)
+    return owner.pws.spaceAt(spaceUrl).collection(collectionId)
   }
 
   /**
@@ -83,7 +83,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
    * @returns {Promise<IDelegatedZcap>}
    */
   async function grantTo(to: string): Promise<IDelegatedZcap> {
-    return owner.was
+    return owner.pws
       .spaceAt(spaceUrl)
       .collection(collectionId)
       .grant({
@@ -137,7 +137,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
    * @returns {Promise<CollectionEncryption>}
    */
   async function currentDescriptor(): Promise<CollectionEncryption> {
-    const described = await owner.was
+    const described = await owner.pws
       .spaceAt(spaceUrl)
       .collection(collectionId)
       .describe()
@@ -149,12 +149,12 @@ describeLive('multi-recipient key epochs (live server)', () => {
     readerA = await makeParty({ baseServerUrl: baseServerUrl! })
     readerB = await makeParty({ baseServerUrl: baseServerUrl! })
     readerC = await makeParty({ baseServerUrl: baseServerUrl! })
-    ownerPlain = WasClient.fromSigner({
+    ownerPlain = PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: owner.signer
     })
 
-    space = await owner.was.createSpace({ name: 'Key Epochs Integration' })
+    space = await owner.pws.createSpace({ name: 'Key Epochs Integration' })
     spaceUrl = space.url
     await space.createCollection({
       id: collectionId,
@@ -189,10 +189,10 @@ describeLive('multi-recipient key epochs (live server)', () => {
 
   it('two recipients both decrypt the same resource, each with its own key', async () => {
     const zcapA = await grantTo(readerA.did)
-    const asA = readerA.was
+    const asA = readerA.pws
       .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapA })
-    const asB = readerB.was
+    const asB = readerB.pws
       .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapB })
     expect(await asA.get(doc1Id)).toEqual({ note: 'first', n: 1 })
@@ -225,7 +225,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
     const doc2 = await ownerVault().add({ note: 'second', n: 2 })
 
     const zcapC = await grantTo(readerC.did)
-    const asC = readerC.was
+    const asC = readerC.pws
       .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapC })
     // Reads the pre-add resource (escrow of the prior epoch)...
@@ -242,7 +242,7 @@ describeLive('multi-recipient key epochs (live server)', () => {
     const rotated = await removeRecipient({
       resolveRecipientKey: trustRosterDidKeys,
       collection: ownerVault(),
-      space: owner.was.spaceAt(spaceUrl),
+      space: owner.pws.spaceAt(spaceUrl),
       recipientId: readerB.recipient.id,
       revoke: zcapB
     })
@@ -256,9 +256,9 @@ describeLive('multi-recipient key epochs (live server)', () => {
 
     // (a) Pull axis: readerB's capability is dead. Read with a plaintext client
     // over readerB's identity (no descriptor discovery) to isolate the pull
-    // axis -- the server simply will not serve the bytes anymore (WAS masks
+    // axis -- the server simply will not serve the bytes anymore (PWS masks
     // unauthorized as 404, surfaced as null by get()).
-    const plaintextB = WasClient.fromSigner({
+    const plaintextB = PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: readerB.signer
     })
@@ -286,10 +286,10 @@ describeLive('multi-recipient key epochs (live server)', () => {
     })
 
     // (d) The remaining readers read everything, before and after the rotation.
-    const asA = readerA.was
+    const asA = readerA.pws
       .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapA })
-    const asC = readerC.was
+    const asC = readerC.pws
       .spaceAt(spaceUrl)
       .collection(collectionId, { capability: zcapC })
     expect(await asA.get(doc1Id)).toEqual({ note: 'first', n: 1 })

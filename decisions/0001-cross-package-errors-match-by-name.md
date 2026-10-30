@@ -2,25 +2,25 @@
 
 - Status: accepted
 - Date: 2026-09-05
-- Driving work: the extraction design for the WAS replication driver for
+- Driving work: the extraction design for the PWS replication driver for
   RxDB, approved 2026-09-05. Extracted at that design's approval, from the
   invariant it widened and the convention it asked to be signed off.
-- Affects: `@interop/was-client` (`src/errors.ts`, `src/sync/index.ts`),
+- Affects: `@interop/pws-client` (`src/errors.ts`, `src/sync/index.ts`),
   `@interop/wallet-core` (`sync/types.ts`, `push.ts`, `remint.ts`,
   `descriptors`), `@interop/was-sync` (the RxDB driver's push and pull
   handlers and its controller core), freewallet, was-react, dcw.
 
 ## Context
 
-was-client owns the errors the replication port throws:
-`WasSyncConflictError` (412), `WasSyncNotFoundError` (404),
-`WasSyncAuthError` (401, 403, and the masked 404), `UnknownEpochError`, and
+pws-client owns the errors the replication port throws:
+`PwsSyncConflictError` (412), `PwsSyncNotFoundError` (404),
+`PwsSyncAuthError` (401, 403, and the masked 404), `UnknownEpochError`, and
 `KeyUnwrapError`. Every consumer has to tell them apart. A 412 is a
 conflict to reconcile, an unknown epoch is a descriptor to refresh, a
 `KeyUnwrapError` is a row this reader was never a recipient of.
 
 `instanceof` cannot carry that classification across a package boundary. A
-consumer's tree can resolve two copies of was-client -- through a `link:`
+consumer's tree can resolve two copies of pws-client -- through a `link:`
 reference, a caret range on a 0.x minor, or a peer a package declared as a
 dependency -- and then the class the error was constructed from is not the
 class the reader imported. The check returns false, quietly, and the caller
@@ -30,15 +30,15 @@ missed 412 turns a conflict the push loop would settle into a fatal cycle
 error.
 
 The classification was also spread across two packages. wallet-core
-defined three predicates over classes was-client owns, and freewallet
+defined three predicates over classes pws-client owns, and freewallet
 imported one predicate from wallet-core while importing the classes
-themselves from was-client. The RxDB driver's merge base used raw
+themselves from pws-client. The RxDB driver's merge base used raw
 `instanceof` in three places, which was safe only while the driver and the
 port sat inside one package with one resolved copy between them.
 
 ## Decision
 
-was-client owns the sync error classes and the predicates that recognize
+pws-client owns the sync error classes and the predicates that recognize
 them. Every consumer package classifies through those predicates, which
 match on `err.name` alone.
 
@@ -47,7 +47,7 @@ match on `err.name` alone.
   value and compares it to one string. The three that lived in
   wallet-core's `sync/types.ts` move here beside the classes, with their
   suite; `isSyncAuthError` is new.
-- No consumer uses `instanceof` on a was-client error class. That covers
+- No consumer uses `instanceof` on a pws-client error class. That covers
   the base classes too, so a 412 is not recognized by catching
   `PreconditionFailedError` from another package.
 - Any error class a package in this ecosystem owns assigns its `name`
@@ -85,14 +85,14 @@ search for a wrapped auth error; at the leaf, it decides by name.
 
 ## Consequences
 
-- Each error's `name` string is part of was-client's public contract.
+- Each error's `name` string is part of pws-client's public contract.
   Changing one is a breaking change for every consumer, whatever the
   TypeScript class is called.
-- A consumer surviving a duplicate was-client copy is now a testable
+- A consumer surviving a duplicate pws-client copy is now a testable
   property: an error minted by one copy and classified by another still
   routes correctly. The extraction's suite asserts exactly that.
 - The subtype relationships stay useful and stay local. A caller inside
-  was-client, or one that knowingly resolves a single copy, may still catch
+  pws-client, or one that knowingly resolves a single copy, may still catch
   `PreconditionFailedError` or `AuthRequiredError`. That is a convenience
   for one tree rather than the cross-package contract.
 - Name matching survives a boundary that loses the prototype but keeps the
@@ -100,7 +100,7 @@ search for a wrapped auth error; at the leaf, it decides by name.
   plain object with the same `name`. It does not survive a structured
   clone. The structured-clone algorithm copies an `Error` as `name`,
   `message` and `stack` only, and keeps the `name` only for the native
-  error names, so a `WasSyncConflictError` posted to a worker arrives as
+  error names, so a `PwsSyncConflictError` posted to a worker arrives as
   `name: 'Error'` with `status` dropped and only `message` intact. A
   boundary that marshals through `postMessage`, `structuredClone`, or a
   `BroadcastChannel` therefore has to carry the classification by hand:
@@ -110,10 +110,10 @@ search for a wrapped auth error; at the leaf, it decides by name.
   `requestUrl` when the receiver reports them. The predicates then match
   the rebuilt plain object, which is already their contract. No consumer
   crosses such a boundary today (checked 2026-10-23 across was-sync,
-  wallet-core, freewallet, was-react and dcw), so was-client ships no
+  wallet-core, freewallet, was-react and dcw), so pws-client ships no
   serialization envelope for it; the first consumer that does adds one
   here rather than inventing a shape of its own.
-- `UnknownEpochError` extends `WasError` like every other error the
+- `UnknownEpochError` extends `PwsError` like every other error the
   client raises, so `mapError` passes it through unchanged instead of
   re-wrapping it under a name no predicate matches. Its `collectionId` and
   `kids` are own properties, so the descriptor to refresh is read, not
@@ -121,7 +121,7 @@ search for a wrapped auth error; at the leaf, it decides by name.
 - The rule binds how a consumer classifies rather than where every
   predicate has to live. `isKeyUnwrapError` stays in
   `@interop/wallet-core/descriptors`, even though `KeyUnwrapError` is
-  defined in was-client's `errors.ts`, because it classifies a
+  defined in pws-client's `errors.ts`, because it classifies a
   roster-membership failure the wallet layer's refresh policy owns and no
   replication driver dispatches on it. It matches by name like the rest.
 - Predicates are boolean rather than type guards, so a caller wanting the
@@ -135,9 +135,9 @@ Reopen this decision when one or more of the following holds:
 1. Two packages in the ecosystem need error classes that would carry the
    same `name`. Then the answer is a namespaced name value, decided here,
    rather than a return to `instanceof`.
-2. Every consumer resolves was-client through an install-time single-copy
+2. Every consumer resolves pws-client through an install-time single-copy
    guarantee the tooling enforces, and something arrives that names cannot
    express (a typed payload a caller must read off the class). Both halves
    have to hold; the first alone does not reopen it.
-3. The sync errors stop being was-client's. If the classes move, the
+3. The sync errors stop being pws-client's. If the classes move, the
    predicates move with them, and this record moves to the owning repo.

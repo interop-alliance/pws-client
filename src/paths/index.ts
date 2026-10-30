@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/paths` subpath entry: the WAS URL grammar as
+ * The `@interop/pws-client/paths` subpath entry: the PWS URL grammar as
  * standalone functions, for a consumer that has to form a URL beneath a Space
  * or a zcap `invocationTarget` without going through a navigational handle.
  *

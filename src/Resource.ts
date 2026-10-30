@@ -191,7 +191,7 @@ export class Resource {
   /**
    * Reads the resource, auto-parsing JSON to an object and returning binary as
    * a `Blob`. Returns `null` if the resource is missing or not visible to you
-   * (WAS returns 404 for both not-found and unauthorized).
+   * (PWS returns 404 for both not-found and unauthorized).
    *
    * @returns {Promise<Json | Blob | null>}
    */
@@ -323,7 +323,7 @@ export class Resource {
    * Creates or replaces the resource by id (upsert). JSON for plain
    * objects/arrays, binary for `Blob`/`Uint8Array` (or, on an encrypted
    * collection, a `ReadableStream<Uint8Array>`). Throws `NotFoundError` if
-   * the parent collection does not exist (WAS does not auto-create parents).
+   * the parent collection does not exist (PWS does not auto-create parents).
    *
    * For binary data with no explicit `contentType` (and no `Blob.type`), the
    * content-type is guessed from the resource id's file extension for common

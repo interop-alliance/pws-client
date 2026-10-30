@@ -50,7 +50,7 @@ import {
 import { addRecipient, initRecipients } from '../../src/edv/recipients.js'
 import type { RecipientPublicKey } from '../../src/edv/recipients.js'
 
-const LOG_URL = 'https://was.example/space/s1/vault/meta/log'
+const LOG_URL = 'https://pws.example/space/s1/vault/meta/log'
 const LOG_ID = 'space/s1/vault/meta/log'
 
 /**
@@ -516,7 +516,7 @@ describe('logGovernedCollectionDescriptorStore over a governed collection', () =
       ...(await fake.describeWithEtag()).description.encryption!,
       history: {
         method: RESOURCE_LOG_METHOD,
-        resource: 'https://was.example/space/s1/key-map/vault.jsonl'
+        resource: 'https://pws.example/space/s1/key-map/vault.jsonl'
       }
     }
     const err = await logGovernedCollectionDescriptorStore(storeOptions)

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * `mapError`: the translation of a thrown ky/ezcap error into the `WasError`
+ * `mapError`: the translation of a thrown ky/ezcap error into the `PwsError`
  * subclass that represents it. It dispatches on the full problem-type URI in
  * the server's `application/problem+json` body (the shared `ProblemTypes`
  * registry from `@interop/storage-core`), then on the HTTP status, and strips
@@ -28,9 +28,9 @@ import {
   PreconditionFailedError,
   QuotaExceededError,
   ValidationError,
-  WasError,
-  WasServerError,
-  type WasErrorOptions
+  PwsError,
+  PwsServerError,
+  type PwsErrorOptions
 } from '../errors.js'
 
 /**
@@ -51,13 +51,13 @@ interface HttpClientError {
 }
 
 /**
- * A `WasError` subclass constructor (the base and every subclass share this
+ * A `PwsError` subclass constructor (the base and every subclass share this
  * `(message, options)` signature).
  */
-type WasErrorClass = new (
+type PwsErrorClass = new (
   message: string,
-  options?: WasErrorOptions
-) => WasError
+  options?: PwsErrorOptions
+) => PwsError
 
 // Client-side hygiene limit on a server-supplied problem-type URI.
 const MAX_TYPE_LENGTH = 2048
@@ -75,14 +75,14 @@ function problemFragment(problemType: string): string {
 }
 
 /**
- * Maps each problem-type URI to the `WasError` subclass that represents it.
+ * Maps each problem-type URI to the `PwsError` subclass that represents it.
  * Keyed by the full URIs of the shared `ProblemTypes` registry from
  * `@interop/storage-core`, so the kinds stay in lockstep with the server and a
  * foreign namespace that reuses a fragment does not match. A `Map` (rather than
  * a plain object) means a `type` such as `x#constructor` cannot resolve to an
  * inherited property.
  */
-const ERROR_CLASS_BY_TYPE = new Map<string, WasErrorClass>([
+const ERROR_CLASS_BY_TYPE = new Map<string, PwsErrorClass>([
   [ProblemTypes.NOT_FOUND, NotFoundError],
   [ProblemTypes.CAPABILITY_REVOKED, CapabilityRevokedError],
   [ProblemTypes.CAPABILITY_EXPIRED, CapabilityExpiredError],
@@ -110,12 +110,12 @@ const ERROR_CLASS_BY_TYPE = new Map<string, WasErrorClass>([
   [ProblemTypes.PAYLOAD_TOO_LARGE, PayloadTooLargeError],
   [ProblemTypes.QUOTA_EXCEEDED, QuotaExceededError],
   [ProblemTypes.UNSUPPORTED_OPERATION, NotImplementedError],
-  [ProblemTypes.STORAGE_ERROR, WasServerError],
-  [ProblemTypes.INTERNAL_ERROR, WasServerError]
+  [ProblemTypes.STORAGE_ERROR, PwsServerError],
+  [ProblemTypes.INTERNAL_ERROR, PwsServerError]
 ])
 
 /**
- * Translates a thrown ky/ezcap error into the appropriate `WasError` subclass,
+ * Translates a thrown ky/ezcap error into the appropriate `PwsError` subclass,
  * carrying through the server's `problem+json` fields. Dispatches on the
  * full problem-type URI in `type` when it is a known `ProblemTypes` entry,
  * falling back to the HTTP status otherwise. Server strings (`type`, `title`,
@@ -123,10 +123,10 @@ const ERROR_CLASS_BY_TYPE = new Map<string, WasErrorClass>([
  * and length-capped; a non-string `type` or `title` is dropped.
  *
  * @param err {unknown}   the caught error
- * @returns {WasError}
+ * @returns {PwsError}
  */
-export function mapError(err: unknown): WasError {
-  if (err instanceof WasError) {
+export function mapError(err: unknown): PwsError {
+  if (err instanceof PwsError) {
     return err
   }
 
@@ -137,7 +137,7 @@ export function mapError(err: unknown): WasError {
   const title = cleanText(data?.title, MAX_TEXT_LENGTH)
   // Guard with `Array.isArray`, not just optional chaining: a non-conformant
   // `problem+json` body with `errors` as a non-array (e.g. `"boom"`) is truthy,
-  // so `?.map` would throw a `TypeError` and mask the real `WasError`. Each
+  // so `?.map` would throw a `TypeError` and mask the real `PwsError`. Each
   // entry is likewise unvalidated server JSON (may be `null` or a primitive),
   // so read it defensively; an entry without a string `detail` is dropped, and
   // a non-string `pointer` is dropped from its entry.
@@ -169,7 +169,7 @@ export function mapError(err: unknown): WasError {
   const baseMessage =
     typeof httpError.message === 'string'
       ? httpError.message
-      : 'WAS request failed'
+      : 'PWS request failed'
   // Without a server title, name the problem kind for readability.
   const message =
     title ?? (fragment === '' ? baseMessage : `${baseMessage} (${fragment})`)
@@ -215,8 +215,8 @@ export function mapError(err: unknown): WasError {
   }
 
   if (typeof status === 'number' && status >= 500) {
-    return new WasServerError(message, options)
+    return new PwsServerError(message, options)
   }
 
-  return new WasError(message, options)
+  return new PwsError(message, options)
 }

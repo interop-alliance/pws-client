@@ -1,4 +1,23 @@
-# @interop/was-client Changelog
+# @interop/pws-client Changelog
+
+## 0.104.0 - TBD
+
+### Changed
+
+- **BREAKING**: Rename the package from `@interop/was-client` to
+  `@interop/pws-client`, following the spec's rename to Portable Web Spaces.
+- **BREAKING**: Rename the `Was*` public API to `Pws*`: `PwsClient`,
+  `PwsTransport`, `pwsTransportFactory`, `pwsDescriptorSource`,
+  `createPwsSyncPort`, `PwsSyncPort`, `PwsError`, `PwsServerError`, and the
+  `PwsSync*Error` classes. The errors' `name` strings change with them, so
+  name-based matching needs the new values. The `was` option on the seams that
+  take a client is now `pws`.
+- **BREAKING**: Encrypted envelopes bind the `pws` JWE protected-header
+  parameter (previously `was`), as the Encrypted Collections profile specifies.
+  Decrypt refuses envelopes written by earlier versions.
+- The default Space name in `ensureSpace` provisioning is `PWS Space`.
+- The `WasEpochConfiguration` state type is unchanged. It is a permanent wire
+  constant of the PWS and Encrypted Collections specs.
 
 ## 0.103.0 - 2026-10-30
 

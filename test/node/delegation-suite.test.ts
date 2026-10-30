@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Tests for the cryptosuite `WasClient.fromSigner` signs delegation proofs
+ * Tests for the cryptosuite `PwsClient.fromSigner` signs delegation proofs
  * with. The client signs with `eddsa-jcs-2022`, which canonicalizes with JCS
  * rather than URDNA2015, so delegating never runs a JSON-LD canonicalization
  * and never needs a document loader to serve the suite's context.
@@ -37,10 +37,10 @@ import type {
   IRemoteDocument
 } from '@interop/data-integrity-core'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { IDelegatedZcap, ISigner } from '../../src/index.js'
 
-const SERVER_URL = 'https://was.example'
+const SERVER_URL = 'https://pws.example'
 const SPACE_URL = `${SERVER_URL}/space/space-1/`
 const TARGET_URL = `${SPACE_URL}notes/`
 
@@ -146,7 +146,7 @@ function serveSpaceRoot(controller: string): string {
 
 /**
  * Verifies a delegated zcap against a chain rooted at the Space, with both
- * suites offered. `allowTargetAttenuation` matches how the WAS server verifies:
+ * suites offered. `allowTargetAttenuation` matches how the PWS server verifies:
  * a Space-rooted grant carries the narrower target as an attenuated
  * `invocationTarget` (see `internal/grant.ts`).
  *
@@ -190,12 +190,12 @@ describe('fromSigner delegation proofs', () => {
   it('signs with eddsa-jcs-2022 under the loader the client actually gets', async () => {
     const alice = await signingKey()
     const rootId = serveSpaceRoot(alice.did)
-    const was = WasClient.fromSigner({
+    const pws = PwsClient.fromSigner({
       baseServerUrl: `${SERVER_URL}/`,
       signer: alice.signer
     })
 
-    const zcap = await was.grant({
+    const zcap = await pws.grant({
       to: 'did:example:bob',
       actions: ['get'],
       target: TARGET_URL,
@@ -216,7 +216,7 @@ describe('fromSigner delegation proofs', () => {
     const alice = await signingKey()
     const bob = await signingKey()
     const rootId = serveSpaceRoot(alice.did)
-    const parent = await WasClient.fromSigner({
+    const parent = await PwsClient.fromSigner({
       baseServerUrl: `${SERVER_URL}/`,
       signer: alice.signer
     }).grant({
@@ -226,7 +226,7 @@ describe('fromSigner delegation proofs', () => {
       spaceUrl: SPACE_URL
     })
 
-    const child = await WasClient.fromSigner({
+    const child = await PwsClient.fromSigner({
       baseServerUrl: `${SERVER_URL}/`,
       signer: bob.signer
     }).grant({
@@ -254,7 +254,7 @@ describe('fromSigner delegation proofs', () => {
       allowedActions: ['GET']
     })) as IDelegatedZcap
 
-    const child = await WasClient.fromSigner({
+    const child = await PwsClient.fromSigner({
       baseServerUrl: `${SERVER_URL}/`,
       signer: bob.signer
     }).grant({
@@ -273,7 +273,7 @@ describe('fromSigner delegation proofs', () => {
   it('pins the reverse mixed link: an old-suite client cannot re-delegate a JCS-signed parent on its default loader', async () => {
     const alice = await signingKey()
     const bob = await signingKey()
-    const parent = await WasClient.fromSigner({
+    const parent = await PwsClient.fromSigner({
       baseServerUrl: `${SERVER_URL}/`,
       signer: alice.signer
     }).grant({
@@ -288,7 +288,7 @@ describe('fromSigner delegation proofs', () => {
     // branch nor jsigs' strict loader serves it, so the failure is at signing
     // time on the old client, before any server sees the chain. The fix is on
     // that client -- a loader that serves the data-integrity context, or the
-    // suite bump -- so this asserts the hazard rather than a WAS client
+    // suite bump -- so this asserts the hazard rather than a PWS client
     // behavior. It flipping to a pass means the hazard is gone.
     await expect(
       legacySuiteClient(bob.signer).delegate({

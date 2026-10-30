@@ -30,7 +30,7 @@
  * only decrypts bytes it already holds -- `@interop/wallet-backup` opening an
  * archive, say -- never evaluates one. That rule is walked over runtime edges
  * only: a type-only import is erased at build time, and `edv/EdvCodec.ts`
- * legitimately names `WasTransport` as a type. The core-entry rule above
+ * legitimately names `PwsTransport` as a type. The core-entry rule above
  * deliberately counts type imports instead, since a type reach into `edv/` is
  * the first step of a runtime one.
  *
@@ -224,13 +224,13 @@ const RUNTIME_SPECIFIER =
   /(?:import|export)\s+(?!type\s)[^'"]*?from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]/g
 
 /**
- * Modules the transport-free entry must not reach at runtime: the WAS-backed
+ * Modules the transport-free entry must not reach at runtime: the PWS-backed
  * EDV transport, the signed-request wrapper, and the four handle classes.
  */
 const TRANSPORT_MODULES = [
-  'edv/WasTransport.ts',
+  'edv/PwsTransport.ts',
   'internal/request.ts',
-  'WasClient.ts',
+  'PwsClient.ts',
   'Space.ts',
   'Collection.ts',
   'Resource.ts'
@@ -430,7 +430,7 @@ describe('the transport-free edv entry', () => {
     // The other half of the split: what `./edv/core` leaves out is exactly
     // what `./edv` adds.
     const reached = runtimeGraphFrom('edv/index.ts').modules
-    expect(reached.has('edv/WasTransport.ts')).toBe(true)
+    expect(reached.has('edv/PwsTransport.ts')).toBe(true)
   })
 })
 

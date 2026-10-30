@@ -12,8 +12,8 @@
 import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import type { WasClient } from '../../src/index.js'
-import { WasServerError } from '../../src/index.js'
+import type { PwsClient } from '../../src/index.js'
+import { PwsServerError } from '../../src/index.js'
 import { clientWithStub, spaceUrlFor } from '../helpers/stubClient.js'
 import { drain } from '../helpers/bytes.js'
 
@@ -33,14 +33,14 @@ interface ExportResponse {
 }
 
 /**
- * Builds a `WasClient` whose signed `POST` returns the given canned export
+ * Builds a `PwsClient` whose signed `POST` returns the given canned export
  * response. Defaults model a conformant server: an unread `application/x-tar`
  * body carrying `TAR_BYTES`.
  *
  * @param response {ExportResponse}
- * @returns {WasClient}
+ * @returns {PwsClient}
  */
-function clientWithExportResponse(response: ExportResponse = {}): WasClient {
+function clientWithExportResponse(response: ExportResponse = {}): PwsClient {
   const bytes = response.bytes ?? TAR_BYTES
   const contentType =
     'contentType' in response ? response.contentType : 'application/x-tar'
@@ -99,11 +99,11 @@ describe('space.exportStream()', () => {
     expect(await drain(stream)).toEqual(TAR_BYTES)
   })
 
-  it('throws WasServerError when the response carries no body stream', async () => {
+  it('throws PwsServerError when the response carries no body stream', async () => {
     const client = clientWithExportResponse({ body: null })
     await expect(
       client.spaceAt(spaceUrlFor('s')).exportStream()
-    ).rejects.toBeInstanceOf(WasServerError)
+    ).rejects.toBeInstanceOf(PwsServerError)
   })
 })
 
@@ -124,7 +124,7 @@ describe('space.exportBlob()', () => {
 })
 
 describe('export mislabeled-JSON guard', () => {
-  it('throws WasServerError when the body was pre-consumed into .data', async () => {
+  it('throws PwsServerError when the body was pre-consumed into .data', async () => {
     const client = clientWithExportResponse({
       contentType: 'application/json',
       bodyUsed: true,
@@ -132,13 +132,13 @@ describe('export mislabeled-JSON guard', () => {
     })
     await expect(
       client.spaceAt(spaceUrlFor('s')).export()
-    ).rejects.toBeInstanceOf(WasServerError)
+    ).rejects.toBeInstanceOf(PwsServerError)
     await expect(
       client.spaceAt(spaceUrlFor('s')).exportStream()
-    ).rejects.toBeInstanceOf(WasServerError)
+    ).rejects.toBeInstanceOf(PwsServerError)
     await expect(
       client.spaceAt(spaceUrlFor('s')).exportBlob()
-    ).rejects.toBeInstanceOf(WasServerError)
+    ).rejects.toBeInstanceOf(PwsServerError)
   })
 
   it('names the mislabeled content-type in the error message', async () => {

@@ -3,7 +3,7 @@
  */
 /**
  * Integration test: content search on an encrypted collection, end to end
- * against a live WAS server. The collection is provisioned with a blinded-index
+ * against a live PWS server. The collection is provisioned with a blinded-index
  * key, an attribute is declared searchable, documents are written through the
  * ordinary `add()` path, and `find()` matches them -- with the server comparing
  * only opaque tokens, never learning the attribute names or the values.
@@ -28,7 +28,7 @@ import type {
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient, ValidationError } from '../../src/index.js'
+import { PwsClient, ValidationError } from '../../src/index.js'
 import type { Collection, FindPage, Space } from '../../src/index.js'
 import {
   createEdvDocCipher,
@@ -36,7 +36,7 @@ import {
   ensureFirstEpoch,
   ownerRecipient
 } from '../../src/edv/index.js'
-import { createWasSyncPort } from '../../src/sync/index.js'
+import { createPwsSyncPort } from '../../src/sync/index.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
@@ -46,12 +46,12 @@ const describeLive = baseServerUrl ? describe : describe.skip
  * signer, and returns the key-agreement key the collection's first epoch (and
  * its blinding key) will be wrapped to.
  *
- * @returns {Promise<{ encrypted: WasClient, plaintext: WasClient,
+ * @returns {Promise<{ encrypted: PwsClient, plaintext: PwsClient,
  *   kak: IKeyAgreementKey, keyResolver: IKeyResolver }>}
  */
 async function freshClients(): Promise<{
-  encrypted: WasClient
-  plaintext: WasClient
+  encrypted: PwsClient
+  plaintext: PwsClient
   kak: IKeyAgreementKey
   keyResolver: IKeyResolver
 }> {
@@ -76,12 +76,12 @@ async function freshClients(): Promise<{
     })
   })
   return {
-    encrypted: WasClient.fromSigner({
+    encrypted: PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner(),
       encryption
     }),
-    plaintext: WasClient.fromSigner({
+    plaintext: PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     }),
@@ -91,8 +91,8 @@ async function freshClients(): Promise<{
 }
 
 describeLive('blinded content search on an encrypted collection', () => {
-  let was: WasClient
-  let plaintext: WasClient
+  let pws: PwsClient
+  let plaintext: PwsClient
   let space: Space
   let collection: Collection
   let beforeDeclarationId: string
@@ -100,8 +100,8 @@ describeLive('blinded content search on an encrypted collection', () => {
   let keyResolver: IKeyResolver
 
   beforeAll(async () => {
-    ;({ encrypted: was, plaintext, kak, keyResolver } = await freshClients())
-    space = await was.createSpace({ name: 'Blinded Find Integration' })
+    ;({ encrypted: pws, plaintext, kak, keyResolver } = await freshClients())
+    space = await pws.createSpace({ name: 'Blinded Find Integration' })
     const declared = await space.createCollection({
       id: 'vault',
       name: 'Searchable Vault',
@@ -114,7 +114,7 @@ describeLive('blinded content search on an encrypted collection', () => {
       recipients: [ownerRecipient({ keyAgreementKey: kak })],
       blindedIndex: true
     })
-    collection = was.spaceAt(space.url).collection('vault')
+    collection = pws.spaceAt(space.url).collection('vault')
 
     // Written BEFORE any declaration: it carries no index token, so it must not
     // match later searches (declarations are prospective).
@@ -162,7 +162,7 @@ describeLive('blinded content search on an encrypted collection', () => {
   it('persists the schema encrypted and discoverable by a second handle', async () => {
     // A fresh handle that never declared anything learns what is searchable
     // from the collection itself -- the access-grant flow.
-    const second = was.spaceAt(space.url).collection('vault')
+    const second = pws.spaceAt(space.url).collection('vault')
     expect(await second.indexes()).toEqual([
       { attribute: 'content.type', addedIn: 1 }
     ])
@@ -230,7 +230,7 @@ describeLive('blinded content search on an encrypted collection', () => {
     // What a replica holds: the collection's descriptor and its stored `/meta`
     // (whose `custom` is the opaque metadata envelope -- the plaintext client
     // passes it through raw).
-    const description = await was
+    const description = await pws
       .spaceAt(space.url)
       .collection('vault')
       .describe()
@@ -247,8 +247,8 @@ describeLive('blinded content search on an encrypted collection', () => {
     const { id, envelope, epoch } = await cipher.encrypt({
       data: { type: 'note', title: 'pushed-by-sync' }
     })
-    const port = createWasSyncPort({
-      was,
+    const port = createPwsSyncPort({
+      pws,
       spaceUrl: space.url,
       collectionId: 'vault'
     })

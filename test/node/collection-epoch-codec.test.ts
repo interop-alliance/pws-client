@@ -21,7 +21,7 @@
 import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type {
   CollectionEncryption,
   EncryptionProvider,
@@ -98,7 +98,7 @@ describe('epoch-bearing encryption override', () => {
 
 describe('rotate-then-write on the same handle', () => {
   /**
-   * Builds a `WasClient` whose collection-description GET returns a mutable
+   * Builds a `PwsClient` whose collection-description GET returns a mutable
    * descriptor (a PUT to the description path rotates it), so a handle's
    * descriptor discovery re-reads the current epoch. `codecFor` records the
    * epoch of every codec it builds.
@@ -198,8 +198,8 @@ describe('rotate-then-write on the same handle', () => {
           }
         } as unknown as HttpResponse
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,
@@ -267,7 +267,7 @@ describe('rotate-then-write on the same handle', () => {
 
 describe('createCollection pre-seed consults the provider', () => {
   /**
-   * A `WasClient` whose collection create POST answers with the created id
+   * A `PwsClient` whose collection create POST answers with the created id
    * and whose description GET serves the declared descriptor, counting those
    * GETs: a pre-seeded handle never issues one, a discovering handle does.
    *
@@ -276,7 +276,7 @@ describe('createCollection pre-seed consults the provider', () => {
    * @returns {object}
    */
   function creatingClient(canRoute: EncryptionProvider['canRoute']): {
-    client: WasClient
+    client: PwsClient
     describeGets: () => number
     asked: unknown[]
   } {
@@ -310,7 +310,7 @@ describe('createCollection pre-seed consults the provider', () => {
           const created = { id: 'c', type: ['Collection'] }
           return {
             status: 201,
-            headers: new Headers({ location: 'https://was.example/space/s/c' }),
+            headers: new Headers({ location: 'https://pws.example/space/s/c' }),
             data: created,
             async json() {
               return created
@@ -349,8 +349,8 @@ describe('createCollection pre-seed consults the provider', () => {
           }
         } as unknown as HttpResponse
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient,

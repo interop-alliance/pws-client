@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The revocation primitive shared by `was.revoke()` and `space.revoke()` -- the
+ * The revocation primitive shared by `pws.revoke()` and `space.revoke()` -- the
  * inverse of `grant.ts`. Submits a delegated capability to its Space's
  * revocation endpoint (`POST {spaceUrl}zcaps/revocations/:capabilityId`),
  * where the URL names the capability's `id` and the body is that capability
@@ -37,7 +37,7 @@ import type { IDelegatedZcap } from '../types.js'
  * capability. Resolves on the server's 204.
  *
  * The `action` is deliberately left unset: `send()` defaults it to the HTTP
- * method, and this route expects `POST` (WAS capabilities are scoped by HTTP
+ * method, and this route expects `POST` (PWS capabilities are scoped by HTTP
  * method, unlike the webkms `/kms` revocation route's `write`).
  *
  * @param context {ClientContext}

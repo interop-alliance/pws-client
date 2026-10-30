@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Pagination helpers for WAS list responses. A paginated listing carries a
+ * Pagination helpers for PWS list responses. A paginated listing carries a
  * `next` continuation URL when more items may follow; its absence is the
  * authoritative end-of-list signal (the spec forbids inferring page count from
  * `totalItems`). `walkPages` is the single traversal core: it follows `next`
@@ -14,10 +14,10 @@
  * invocation (and, with no bound capability, a root zcap synthesized for
  * whatever URL is requested), so `walkPages` only follows a `next` that stays
  * within the first page's origin and base path, and stops after a bounded
- * number of pages. Either violation fails the walk with a `WasServerError`.
+ * number of pages. Either violation fails the walk with a `PwsServerError`.
  *
  * The helpers are generic over the listing envelope, so they serve all three
- * paginated WAS listings: List Collection items (`CollectionResourcesList`),
+ * paginated PWS listings: List Collection items (`CollectionResourcesList`),
  * List Collections (`CollectionsList`), and List Spaces (`SpaceListing`). Each
  * envelope shares the `{ items, next?, totalItems? }` shape (`PageEnvelope`)
  * that the traversal and the aggregation rely on.
@@ -30,7 +30,7 @@ import type {
 import type { ClientContext } from './request.js'
 import { send } from './request.js'
 import { dataOrNull } from './content.js'
-import { WasServerError } from '../errors.js'
+import { PwsServerError } from '../errors.js'
 import { hasUserinfo } from './layout.js'
 
 /**
@@ -64,7 +64,7 @@ export interface PageWalk<T extends PageEnvelope = CollectionResourcesList> {
 /**
  * Builds a {@link PageWalk} by fetching the first page with the same
  * `fetchPage` used for every following page -- the shared shape of the signed
- * (`Collection.#listWalk`) and unsigned (`WasClient.#publicListWalk`) walks,
+ * (`Collection.#listWalk`) and unsigned (`PwsClient.#publicListWalk`) walks,
  * which differ only in how a single page URL is fetched. Returns `null` when
  * the first page is missing/unauthorized (404 conflation caveat).
  *
@@ -89,7 +89,7 @@ export async function buildPageWalk<
 /**
  * Builds a {@link PageWalk} whose every page is fetched with the same signed,
  * null-on-404 `GET` -- the one traversal shape shared by all three authorized
- * WAS listings (Collection items, Collections, Spaces), which differ only in
+ * PWS listings (Collection items, Collections, Spaces), which differ only in
  * the first URL, the envelope type, and whether a capability is bound. Returns
  * `null` when the first page is missing/unauthorized (404 conflation caveat).
  *
@@ -128,7 +128,7 @@ export async function signedPageWalk<
  * @param options.baseUrl {string}   the URL of the page that produced it
  * @param options.firstUrl {URL}     the canonicalized first page URL
  * @returns {string} the absolute, canonicalized page URL
- * @throws {WasServerError}   when `next` is not a URL or leaves the listing
+ * @throws {PwsServerError}   when `next` is not a URL or leaves the listing
  */
 function resolveNext({
   next,
@@ -149,7 +149,7 @@ function resolveNext({
     }
     pageUrl = new URL(next, baseUrl)
   } catch (err) {
-    throw new WasServerError(
+    throw new PwsServerError(
       `The listing at "${listingUrl}" served a \`next\` link that is not a ` +
         `URL: ${JSON.stringify(next)}.`,
       { requestUrl: listingUrl, cause: err }
@@ -164,7 +164,7 @@ function resolveNext({
     pageUrl.pathname === firstUrl.pathname ||
     pageUrl.pathname.startsWith(basePath)
   if (!sameOrigin || !underBasePath || hasUserinfo(pageUrl)) {
-    throw new WasServerError(
+    throw new PwsServerError(
       `The listing at "${listingUrl}" served a \`next\` link ` +
         `("${pageUrl.toString()}") outside its origin or base path, or ` +
         'with credentials in it. It was not followed.',
@@ -184,7 +184,7 @@ function resolveNext({
  * `next`) or fails. A `next` outside the first page's origin or base path, a
  * `next` carrying a username or password, a `next` pointing at an already-seen
  * page (a cycle), a page that walks past `maxPages`, or a followed page that
- * comes back `null` (missing/unauthorized) each fail with a `WasServerError`
+ * comes back `null` (missing/unauthorized) each fail with a `PwsServerError`
  * naming the listing URL. Ending silently on any of these would hand the
  * consumer a short listing it cannot tell from a complete one.
  *
@@ -193,7 +193,7 @@ function resolveNext({
  * @param [options.maxPages] {number}   the most pages to yield, counting the
  *   first (defaults to {@link DEFAULT_MAX_PAGES})
  * @returns {AsyncGenerator<T>}
- * @throws {WasServerError}   when `next` leaves the listing, repeats a page, or
+ * @throws {PwsServerError}   when `next` leaves the listing, repeats a page, or
  *   fails to resolve, or when the page bound is hit
  */
 export async function* walkPages<
@@ -218,14 +218,14 @@ export async function* walkPages<
   while (next) {
     const pageUrl = resolveNext({ next, baseUrl, firstUrl })
     if (seen.has(pageUrl)) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The listing at "${listingUrl}" served a \`next\` link ` +
           `("${pageUrl}") back to a page already walked.`,
         { requestUrl: listingUrl }
       )
     }
     if (pageCount >= maxPages) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The listing at "${listingUrl}" did not end within ` +
           `${maxPages} pages.`,
         { requestUrl: listingUrl }
@@ -234,7 +234,7 @@ export async function* walkPages<
     seen.add(pageUrl)
     const page = await fetchPage(pageUrl)
     if (page === null) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The listing at "${listingUrl}" served a \`next\` link ` +
           `("${pageUrl}") that answered with no listing (missing or ` +
           'unauthorized).',
@@ -262,7 +262,7 @@ export async function* walkPages<
  *
  * @param walk {PageWalk<T>}
  * @returns {Promise<T>}
- * @throws {WasServerError}   when the walk cannot complete the listing
+ * @throws {PwsServerError}   when the walk cannot complete the listing
  */
 export async function collectPages<
   T extends PageEnvelope = CollectionResourcesList
@@ -287,7 +287,7 @@ export async function collectPages<
  * The buffering list surface over a possibly-absent walk: collects every page
  * into one envelope, mapping a `null` walk (missing/unauthorized listing) to
  * `null`. The shared dispatch behind `Collection.list()` and
- * `WasClient.publicListCollection()`.
+ * `PwsClient.publicListCollection()`.
  *
  * @param walk {PageWalk<T> | null}
  * @returns {Promise<T | null>}
@@ -302,7 +302,7 @@ export async function collectWalk<
  * The lazy page surface over a possibly-absent walk: yields each page, or
  * nothing for a `null` walk (which an iterator cannot distinguish from an
  * empty listing). The shared dispatch behind `Collection.listPages()` and
- * `WasClient.publicListCollectionPages()`.
+ * `PwsClient.publicListCollectionPages()`.
  *
  * @param walk {PageWalk<T> | null}
  * @returns {AsyncGenerator<T>}
@@ -318,7 +318,7 @@ export async function* walkPagesOrEmpty<
 /**
  * The lazy item surface: flattens a page iterator into its `ResourceSummary`
  * entries. The shared dispatch behind `Collection.listItems()` and
- * `WasClient.publicListCollectionItems()`.
+ * `PwsClient.publicListCollectionItems()`.
  *
  * @param pages {AsyncIterable<CollectionResourcesList>}
  * @returns {AsyncGenerator<ResourceSummary>}

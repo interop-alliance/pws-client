@@ -3,22 +3,22 @@
  */
 /**
  * An `@interop/edv-client` `Transport` that maps Encrypted Data Vault (EDV)
- * document operations onto ordinary WAS Resource CRUD -- the "EDV-over-WAS"
+ * document operations onto ordinary PWS Resource CRUD -- the "EDV-over-PWS"
  * layout profile (Layer 1). It is paired with `EdvClientCore`, which does all
  * encryption, decryption, and index blinding client-side; this transport only
- * moves opaque JWE documents to and from a WAS server, reusing the client's
- * zcap-signed request layer (`WasClient.request()`). Keys never reach the
+ * moves opaque JWE documents to and from a PWS server, reusing the client's
+ * zcap-signed request layer (`PwsClient.request()`). Keys never reach the
  * server.
  *
  * Profile decisions encoded here:
  *
- * - **Vault per Collection.** The WAS Collection is the EDV vault; each
- *   encrypted document is one WAS Resource.
- * - **Restrict-mode ids.** The WAS resource id IS the EDV document id (the
+ * - **Vault per Collection.** The PWS Collection is the EDV vault; each
+ *   encrypted document is one PWS Resource.
+ * - **Restrict-mode ids.** The PWS resource id IS the EDV document id (the
  *   128-bit multibase value `EdvClientCore.generateId()` produces), which is
  *   URL-safe and never a reserved segment.
  * - **Encrypted content type.** Documents are stored as `application/json` by
- *   default, so the profile works against an unmodified WAS server. The
+ *   default, so the profile works against an unmodified PWS server. The
  *   preferred type is `application/jose+json` (exported as
  *   `JOSE_CONTENT_TYPE`), which distinguishes EDV envelopes from plaintext
  *   application JSON in listings and metadata -- but the server must register
@@ -38,7 +38,7 @@
  * `/{id}/chunks/{n}` sub-segment, storing the chunk object as an opaque JSON
  * body -- so `EdvClientCore.insert({
  * stream })` / `update({ stream })` / `getStream` drive chunked encrypted
- * blobs over a WAS server unchanged. Two more chunk operations sit outside
+ * blobs over a PWS server unchanged. Two more chunk operations sit outside
  * the EDV contract, for the driver that replaces a chunked document:
  * `listChunks` (the `/{id}/chunks/` container listing) and `deleteChunk`,
  * with which it reaps the chunks a shorter rewrite left behind. The chunk
@@ -55,7 +55,7 @@ import type {
   IEDVQuery,
   IEncryptedDocument
 } from '@interop/data-integrity-core'
-import type { WasClient } from '../WasClient.js'
+import type { PwsClient } from '../PwsClient.js'
 import { httpStatus, NotFoundError, NotSupportedError } from '../errors.js'
 import { readJsonData } from '../internal/content.js'
 import { readEtag, writeHeaders } from '../internal/conditional.js'
@@ -111,10 +111,10 @@ const DUPLICATE_ATTRIBUTE_MESSAGE =
   'this collection.'
 
 /**
- * The subset of `WasClient` this transport depends on: the signed-request
+ * The subset of `PwsClient` this transport depends on: the signed-request
  * escape hatch. Declared structurally so tests can supply a lightweight stub.
  */
-type WasRequester = Pick<WasClient, 'request'>
+type PwsRequester = Pick<PwsClient, 'request'>
 
 /**
  * Builds an `Error` carrying the `name` that `EdvClientCore` (and the reference
@@ -167,7 +167,7 @@ function mapTransportError(
   throw err
 }
 
-export class WasTransport extends Transport {
+export class PwsTransport extends Transport {
   /**
    * The vault's Space URL, in canonical form (as every handle reports it).
    */
@@ -175,7 +175,7 @@ export class WasTransport extends Transport {
   readonly collectionId: string
   readonly contentType: string
 
-  readonly #was: WasRequester
+  readonly #pws: PwsRequester
   /**
    * Extra headers stamped on every document write (never on a chunk write).
    */
@@ -200,7 +200,7 @@ export class WasTransport extends Transport {
 
   /**
    * @param options {object}
-   * @param options.was {WasClient}          a WAS client holding the signer
+   * @param options.pws {PwsClient}          a PWS client holding the signer
    * @param options.spaceUrl {string}        the vault's Space URL
    * @param options.collectionId {string}    the vault Collection id
    * @param [options.contentType] {string}   content type for stored envelopes;
@@ -208,7 +208,7 @@ export class WasTransport extends Transport {
    *   `JOSE_CONTENT_TYPE` against a server that registers an
    *   `application/*+json` parser.
    * @param [options.documentHeaders] {Record<string, string>}   extra headers
-   *   sent with every document write, for a caller that needs the WAS-level
+   *   sent with every document write, for a caller that needs the PWS-level
    *   stamps the codec seam applies (notably `Key-Epoch`). Chunk writes do not
    *   carry them -- a chunk is an opaque body, not a resource with metadata.
    * @param [options.baseline] {StoredDocument}   the stored document the
@@ -217,14 +217,14 @@ export class WasTransport extends Transport {
    *   that creates.
    */
   constructor({
-    was,
+    pws,
     spaceUrl,
     collectionId,
     contentType = DEFAULT_CONTENT_TYPE,
     documentHeaders,
     baseline
   }: {
-    was: WasRequester
+    pws: PwsRequester
     spaceUrl: string
     collectionId: string
     contentType?: string
@@ -232,7 +232,7 @@ export class WasTransport extends Transport {
     baseline?: StoredDocument
   }) {
     super()
-    this.#was = was
+    this.#pws = pws
     this.#documentHeaders = documentHeaders ?? {}
     this.#baseline = baseline
     this.spaceUrl = canonicalSpaceUrl(spaceUrl)
@@ -253,12 +253,12 @@ export class WasTransport extends Transport {
   }
 
   /**
-   * The WAS resource URL for a document id, delegating to was-client's
+   * The PWS resource URL for a document id, delegating to pws-client's
    * internal `resourceUrl` builder so the percent-encoding and trailing-slash
    * rules stay defined in one place (no trailing slash -- get/put/delete by
    * id).
    *
-   * @param id {string}   the EDV document id (= WAS resource id)
+   * @param id {string}   the EDV document id (= PWS resource id)
    * @returns {string}
    */
   #resourceUrl(id: string): string {
@@ -270,7 +270,7 @@ export class WasTransport extends Transport {
   }
 
   /**
-   * Writes an encrypted document to its WAS resource URL as
+   * Writes an encrypted document to its PWS resource URL as
    * `application/jose+json` (the envelope serialized to bytes so the stored
    * content type is exact).
    *
@@ -286,7 +286,7 @@ export class WasTransport extends Transport {
     headers: Record<string, string> = {}
   ): Promise<HttpResponse> {
     const body = envelopeBytes(encrypted)
-    const response = await this.#was.request({
+    const response = await this.#pws.request({
       url: this.#resourceUrl(id),
       method: 'PUT',
       body,
@@ -311,7 +311,7 @@ export class WasTransport extends Transport {
    * would otherwise be orphaned.
    *
    * @param options {object}
-   * @param options.id {string}   the document id (= WAS resource id)
+   * @param options.id {string}   the document id (= PWS resource id)
    * @param [options.ifMatch] {string}   the `ETag` the stored document must
    *   still carry, so a driver deletes only the version it wrote (a 412 means
    *   another writer replaced it)
@@ -324,7 +324,7 @@ export class WasTransport extends Transport {
     id: string
     ifMatch?: string
   }): Promise<void> {
-    await this.#was.request({
+    await this.#pws.request({
       url: this.#resourceUrl(id),
       method: 'DELETE',
       headers: writeHeaders({ precondition: { ifMatch } })
@@ -334,7 +334,7 @@ export class WasTransport extends Transport {
   /**
    * @inheritdoc
    *
-   * Inserts a new encrypted document. WAS `PUT` is an upsert, so EDV insert
+   * Inserts a new encrypted document. PWS `PUT` is an upsert, so EDV insert
    * semantics (`DuplicateError` if the id already exists) need a guard: the
    * insert is a single atomic `PUT` with `If-None-Match: *`, and the server's
    * 412 maps to `DuplicateError`. A 409 (a `unique: true` blinded attribute
@@ -440,7 +440,7 @@ export class WasTransport extends Transport {
     }
     let response: HttpResponse
     try {
-      response = await this.#was.request({
+      response = await this.#pws.request({
         url: this.#resourceUrl(id),
         method: 'GET'
       })
@@ -478,14 +478,14 @@ export class WasTransport extends Transport {
     if (!query) {
       throw new TypeError('"query" is required.')
     }
-    // `returnDocuments` is a first-class `IEDVQuery` field, but the WAS profile
+    // `returnDocuments` is a first-class `IEDVQuery` field, but the PWS profile
     // has no ids-only mode, so it is dropped (whatever its value) and full
     // documents come back -- the best-effort degradation `EdvClientCore.find`
     // documents for this option.
     const { returnDocuments: _returnDocuments, ...blindedQuery } = query
     let response: HttpResponse
     try {
-      response = await this.#was.request({
+      response = await this.#pws.request({
         url: collectionQueryUrl({
           spaceUrl: this.spaceUrl,
           collectionId: this.collectionId
@@ -508,7 +508,7 @@ export class WasTransport extends Transport {
   /**
    * @inheritdoc
    *
-   * Not supported, deliberately: in the EDV-over-WAS profile, index entries
+   * Not supported, deliberately: in the EDV-over-PWS profile, index entries
    * are not a separate server-side resource -- the `indexed` array rides
    * inside the stored document envelope, and every `insert` / `update`
    * already carries it. Re-indexing a document is therefore an ordinary
@@ -517,18 +517,18 @@ export class WasTransport extends Transport {
    */
   override async updateIndex(): Promise<never> {
     throw new NotSupportedError(
-      '"updateIndex" is not supported by the EDV-over-WAS profile: index ' +
+      '"updateIndex" is not supported by the EDV-over-PWS profile: index ' +
         'entries ride inside the stored document envelope, so re-index a ' +
         'document with an ordinary "update()" of the full document.'
     )
   }
 
   /**
-   * The WAS path of one chunk of a document, delegating to the internal
+   * The PWS path of one chunk of a document, delegating to the internal
    * `resourceChunkPath` builder (member form, no trailing slash --
    * put/get/delete one chunk by index).
    *
-   * @param docId {string}       the EDV document id (= WAS resource id)
+   * @param docId {string}       the EDV document id (= PWS resource id)
    * @param chunkIndex {number}   the chunk's non-negative ordinal index
    * @returns {string}
    */
@@ -555,7 +555,7 @@ export class WasTransport extends Transport {
    * draining the stream), so a 404 here surfaces as a `NotFoundError`.
    *
    * @param options {object}
-   * @param options.docId {string}     the owning document id (= WAS resource id)
+   * @param options.docId {string}     the owning document id (= PWS resource id)
    * @param options.chunk {IEDVChunk}   the encrypted chunk to store
    * @returns {Promise<void>}
    */
@@ -570,7 +570,7 @@ export class WasTransport extends Transport {
       throw new TypeError('"chunk" is required.')
     }
     try {
-      await this.#was.request({
+      await this.#pws.request({
         url: this.#chunkUrl(docId, chunk.index),
         method: 'PUT',
         body: envelopeBytes(chunk),
@@ -614,7 +614,7 @@ export class WasTransport extends Transport {
     }
     let response: HttpResponse
     try {
-      response = await this.#was.request({
+      response = await this.#pws.request({
         url: this.#chunkUrl(docId, chunkIndex),
         method: 'GET'
       })
@@ -648,11 +648,11 @@ export class WasTransport extends Transport {
    * `NotFoundError`).
    *
    * @param options {object}
-   * @param options.id {string}   the document id (= WAS resource id)
+   * @param options.id {string}   the document id (= PWS resource id)
    * @returns {Promise<ChunkListEntry[]>}   the stored chunks
    */
   async listChunks({ id }: { id: string }): Promise<ChunkListEntry[]> {
-    const response = await this.#was.request({
+    const response = await this.#pws.request({
       url: resourceChunksUrl({
         spaceUrl: this.spaceUrl,
         collectionId: this.collectionId,
@@ -679,7 +679,7 @@ export class WasTransport extends Transport {
    * idempotent, and a stale `ifMatch` is a `PreconditionFailedError`.
    *
    * @param options {object}
-   * @param options.id {string}   the document id (= WAS resource id)
+   * @param options.id {string}   the document id (= PWS resource id)
    * @param options.chunkIndex {number}   the chunk's ordinal index
    * @param [options.ifMatch] {string}   the `ETag` the stored chunk must still
    *   carry, so a driver deletes only the chunk it listed (a 412 means
@@ -695,7 +695,7 @@ export class WasTransport extends Transport {
     chunkIndex: number
     ifMatch?: string
   }): Promise<void> {
-    await this.#was.request({
+    await this.#pws.request({
       url: this.#chunkUrl(id, chunkIndex),
       method: 'DELETE',
       headers: writeHeaders({ precondition: { ifMatch } })

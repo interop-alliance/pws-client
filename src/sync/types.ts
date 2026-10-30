@@ -2,12 +2,12 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Wire and port types for cross-replica WAS synchronization.
+ * Wire and port types for cross-replica PWS synchronization.
  *
  * The change-feed wire model (`SyncCheckpoint`, `WireDoc`, and one page of the
- * feed) is the shared WAS data model from `@interop/storage-core`, re-exported
+ * feed) is the shared PWS data model from `@interop/storage-core`, re-exported
  * here under replication-facing names so a sync consumer imports one module.
- * `WasSyncPort` and `MasterState` are the injectable access seam the change
+ * `PwsSyncPort` and `MasterState` are the injectable access seam the change
  * engine depends on, and `DocCipher` is the encrypt/decrypt seam a per-
  * collection cipher implements. `SyncStatus` is the closed status vocabulary
  * every replication driver reports one feed's state through.
@@ -34,7 +34,7 @@ export type SyncCheckpoint = ChangesCheckpoint
 
 /**
  * One JSON document of the `changes` feed, as the port hands it on: `id` is
- * the WAS resource id and the stored body is under `data`. The port keeps
+ * the PWS resource id and the stored body is under `data`. The port keeps
  * only the feed's `kind: 'resource'` entries with a JSON `contentType`, so
  * `kind` is always `'resource'` here. `updatedAt`,
  * `updatedAtCounter` and `originId` are the content record's write stamp, and
@@ -44,7 +44,7 @@ export type SyncCheckpoint = ChangesCheckpoint
  * not an `ifMatch` value. The feed carries the validators themselves: `etag`
  * (content) and `metaEtag` (the `/meta` object), opaque strings quoted
  * exactly as the server emits them, so a puller passes one back verbatim as a
- * conditional write's `ifMatch` without a {@link WasSyncPort.get} first. A
+ * conditional write's `ifMatch` without a {@link PwsSyncPort.get} first. A
  * tombstone carries `_deleted: true` with no `data`. This is the shared
  * `ResourceChangeDocument` from `@interop/storage-core` with the feed's
  * `deleted` renamed `_deleted`, the member a replication consumer reads, and
@@ -69,7 +69,7 @@ export interface WireDoc extends Omit<
 
 /**
  * One page of the `changes` feed -- the return shape of {@link
- * WasSyncPort.query} (the shared `ChangesPage`, its documents typed as
+ * PwsSyncPort.query} (the shared `ChangesPage`, its documents typed as
  * {@link WireDoc}): the page's `documents` and its resume `checkpoint`, or
  * `checkpoint: null` for an empty (no-change) page.
  */
@@ -79,7 +79,7 @@ export interface SyncPage extends Omit<ChangesPage, 'documents'> {
 
 /**
  * The current master state of a single resource, read back for the 412-conflict
- * path ({@link WasSyncPort.get}). An absent or tombstoned resource surfaces as
+ * path ({@link PwsSyncPort.get}). An absent or tombstoned resource surfaces as
  * `get` resolving `null`, never as a `MasterState`. `updatedAt`,
  * `updatedAtCounter`, `originId`, `meta`, `metaEtag`, `custom`, `createdBy`,
  * `epoch`, and `writerId` are populated from the resource's `/meta` document
@@ -142,13 +142,13 @@ export interface WriteAck {
 }
 
 /**
- * The injected WAS-access seam. `createWasSyncPort` implements this over
- * `@interop/was-client`'s `was.request()` and the `Collection.changes()` feed;
+ * The injected PWS-access seam. `createPwsSyncPort` implements this over
+ * `@interop/pws-client`'s `pws.request()` and the `Collection.changes()` feed;
  * a change engine depends only on this interface. Every method moves the stored
  * body verbatim -- no codec, no key handling. Every method is required,
  * `putMeta` included: a replica that syncs content only simply never calls it.
  */
-export interface WasSyncPort {
+export interface PwsSyncPort {
   /**
    * Pulls one page of the `changes` feed. Omit `checkpoint` for the first page.
    * Returns the page's `documents` and its resume `checkpoint`, or
@@ -171,7 +171,7 @@ export interface WasSyncPort {
    * attribution label (sent as the `Writer-Id` header); per the spec's
    * declare-or-clear rule, omitting it clears any label already stored for
    * this resource, so a caller that wants to keep a prior label must resend
-   * it. Returns the new {@link WriteAck}. Throws {@link WasSyncConflictError}
+   * it. Returns the new {@link WriteAck}. Throws {@link PwsSyncConflictError}
    * on `412`.
    */
   putContent(options: {
@@ -190,8 +190,8 @@ export interface WasSyncPort {
    * agent's attribution label (sent as the `Writer-Id` header), attributing
    * the tombstone; per the spec's declare-or-clear rule, omitting it clears
    * any label already stored for this resource. Returns the tombstone's new
-   * {@link WriteAck}. Throws {@link WasSyncConflictError} on `412`,
-   * {@link WasSyncNotFoundError} on `404` (already gone -- a settled outcome
+   * {@link WriteAck}. Throws {@link PwsSyncConflictError} on `412`,
+   * {@link PwsSyncNotFoundError} on `404` (already gone -- a settled outcome
    * for a delete).
    *
    * Resolves `undefined` instead when the port was built with
@@ -215,10 +215,10 @@ export interface WasSyncPort {
    * untouched (the server ignores a `writerId` member in a `/meta` body).
    * Returns the new metadata {@link WriteAck} (the `/meta`
    * record's stamp under `meta` when the server answered with a body), or
-   * `undefined` when the response carried neither an `ETag` nor a body. Throws {@link WasSyncConflictError}
-   * on `412`, and {@link WasSyncNotFoundError} on `404` (the resource is gone:
+   * `undefined` when the response carried neither an `ETag` nor a body. Throws {@link PwsSyncConflictError}
+   * on `412`, and {@link PwsSyncNotFoundError} on `404` (the resource is gone:
    * a delete race the caller corroborates). A port built with
-   * `mapAuthErrors: true` raises {@link WasSyncAuthError} with `status: 404`
+   * `mapAuthErrors: true` raises {@link PwsSyncAuthError} with `status: 404`
    * there instead, since the masked `404` is ambiguous.
    */
   putMeta(options: {
@@ -255,11 +255,11 @@ export interface WasSyncPort {
  *   or `idDerivation: 'content'`) either omits it or throws: a changed document
  *   is a different id, never an in-place update.
  * - `decrypt` takes the resource id the envelope was stored under (the feed
- *   row's `id`, or the id a {@link WasSyncPort.get} addressed) and verifies the
+ *   row's `id`, or the id a {@link PwsSyncPort.get} addressed) and verifies the
  *   envelope against it, throwing `IntegrityError` when the envelope was
  *   written for a different id. A missing id throws `ValidationError` rather
  *   than skipping the check. An EDV cipher checks the AEAD-bound
- *   `was.resource` binding, or re-derives a content-derived id from the
+ *   `pws.resource` binding, or re-derives a content-derived id from the
  *   ciphertext. The plaintext cipher recomputes the content id. Pass the id
  *   the replica addressed, never the envelope's own cleartext `id`, which the
  *   server controls.

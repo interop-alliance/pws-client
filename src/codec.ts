@@ -5,15 +5,15 @@
  * The resource codec seam: a pluggable transform sitting between a caller's
  * plaintext value and the bytes a Resource actually stores. The default
  * identity codec preserves today's plaintext behavior byte-for-byte; the opt-in
- * EDV codec (in the `@interop/was-client/edv` subpath) encrypts on write and
+ * EDV codec (in the `@interop/pws-client/edv` subpath) encrypts on write and
  * decrypts on read, so `collection.put(id, obj)` transparently round-trips
  * ciphertext.
  *
  * Core defines only these interfaces and the identity default -- the crypto
  * implementation lives in the subpath so the `@interop/edv-client` /
- * `@interop/minimal-cipher` graph stays out of core was-client. An app wires the
+ * `@interop/minimal-cipher` graph stays out of core pws-client. An app wires the
  * two together by passing an `EncryptionProvider` (built by the subpath) to
- * `WasClient`; core holds it as an opaque interface and never imports the
+ * `PwsClient`; core holds it as an opaque interface and never imports the
  * subpath.
  *
  * Whether a collection is encrypted is a per-collection client concern, not a
@@ -118,12 +118,12 @@ export interface EncodedWrite {
  * own multi-request I/O. Bound to one collection handle and its capability, so
  * a codec never sees the zcap machinery.
  *
- * `request` returns the raw `HttpResponse` (the `was.request()` surface
- * `WasTransport` consumes) but throws the client's typed `WasError` subclasses,
+ * `request` returns the raw `HttpResponse` (the `pws.request()` surface
+ * `PwsTransport` consumes) but throws the client's typed `PwsError` subclasses,
  * the same mapping every core request goes through -- a codec-driven write is
  * still a write of the caller's `add()`, so its failures must be the errors
  * `add()` documents. The typed errors carry the HTTP `status`, so a consumer
- * that dispatches on status (`WasTransport`) is unaffected.
+ * that dispatches on status (`PwsTransport`) is unaffected.
  */
 export interface CodecRequestContext {
   request(input: RequestInput): Promise<HttpResponse>
@@ -452,7 +452,7 @@ export interface ResourceCodec {
 
 /**
  * The keystore + codec factory for encrypted collections. Injected into
- * {@link WasClient} by an app that imports the `@interop/was-client/edv`
+ * {@link PwsClient} by an app that imports the `@interop/pws-client/edv`
  * subpath (built by `createEdvEncryption`); core only ever holds this interface
  * and never imports the crypto graph.
  *

@@ -2,10 +2,10 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Public entry point for `@interop/was-client`: the `WasClient` and its
+ * Public entry point for `@interop/pws-client`: the `PwsClient` and its
  * navigational handles, the typed error hierarchy, and the shared types.
  */
-export { WasClient } from './WasClient.js'
+export { PwsClient } from './PwsClient.js'
 export { Space } from './Space.js'
 export { Collection } from './Collection.js'
 export { Resource } from './Resource.js'
@@ -30,7 +30,7 @@ export {
 export type { WritePrecondition } from './internal/conditional.js'
 
 export {
-  WasError,
+  PwsError,
   NotFoundError,
   CapabilityRevokedError,
   CapabilityExpiredError,
@@ -50,11 +50,11 @@ export {
   KeyUnwrapError,
   IntegrityError,
   UnknownEpochError,
-  WasSyncAuthError,
-  WasSyncCheckpointError,
-  WasSyncConflictError,
-  WasSyncNotFoundError,
-  WasServerError,
+  PwsSyncAuthError,
+  PwsSyncCheckpointError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError,
+  PwsServerError,
   httpStatus,
   isDenialError
 } from './errors.js'

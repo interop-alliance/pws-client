@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import { ValidationError, WasServerError } from '../../src/index.js'
+import { ValidationError, PwsServerError } from '../../src/index.js'
 import {
   prepareBody,
   resolvePayload,
@@ -328,14 +328,14 @@ describe('createdId', () => {
   it('falls back to the last (decoded) Location segment for a body-less 2xx', () => {
     expect(
       createdId(
-        createResponse({ location: 'https://was.example/space/s/c/a%20b' })
+        createResponse({ location: 'https://pws.example/space/s/c/a%20b' })
       )
     ).toBe('a b')
   })
 
   it('ignores a trailing slash on the Location header', () => {
     expect(
-      createdId(createResponse({ location: 'https://was.example/space/s/' }))
+      createdId(createResponse({ location: 'https://pws.example/space/s/' }))
     ).toBe('s')
   })
 
@@ -346,13 +346,13 @@ describe('createdId', () => {
     expect(
       createdId(
         createResponse({
-          location: 'https://was.example/space/s/c/newid?token=abc'
+          location: 'https://pws.example/space/s/c/newid?token=abc'
         })
       )
     ).toBe('newid')
     expect(
       createdId(
-        createResponse({ location: 'https://was.example/space/s/c/newid#frag' })
+        createResponse({ location: 'https://pws.example/space/s/c/newid#frag' })
       )
     ).toBe('newid')
   })
@@ -363,9 +363,9 @@ describe('createdId', () => {
     ).toBe('newid')
   })
 
-  it('throws a WasServerError when neither body id nor Location is present', () => {
-    expect(() => createdId(createResponse({}))).toThrow(WasServerError)
-    expect(() => createdId(null)).toThrow(WasServerError)
+  it('throws a PwsServerError when neither body id nor Location is present', () => {
+    expect(() => createdId(createResponse({}))).toThrow(PwsServerError)
+    expect(() => createdId(null)).toThrow(PwsServerError)
   })
 })
 

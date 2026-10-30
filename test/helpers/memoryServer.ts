@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * An in-memory WAS server behind a stub `ZcapClient`, plus a reader's keys
+ * An in-memory PWS server behind a stub `ZcapClient`, plus a reader's keys
  * and the single-epoch descriptor it is recipient zero of -- for unit tests
  * that drive the encrypted chunked-stream paths end to end through the
  * handle API without a live server.
@@ -14,7 +14,7 @@ import type {
 } from '@interop/data-integrity-core'
 import type { HttpResponse } from '@interop/http-client'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { Collection, CollectionEncryption } from '../../src/index.js'
 import { createEdvEncryption, ownerRecipient } from '../../src/edv/index.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
@@ -59,7 +59,7 @@ export async function readerWithDescriptor(): Promise<{
 }
 
 /**
- * An in-memory WAS server behind a stub `ZcapClient`: `PUT` stores the body
+ * An in-memory PWS server behind a stub `ZcapClient`: `PUT` stores the body
  * under a fresh `ETag` (refusing an `If-None-Match: *` create over a stored
  * path, or an `If-Match` on a stale `ETag`, with 412), `GET` serves it back
  * (404 when absent), and `DELETE` removes a resource together with every
@@ -80,7 +80,7 @@ export function memoryServer(): {
     maxBlobBytes: number
     chunkSize: number
     idDerivation?: 'random' | 'content'
-  }) => WasClient
+  }) => PwsClient
   failWhen: {
     test?: (args: RequestArgs, path: string) => boolean
     status?: number
@@ -201,14 +201,14 @@ export function memoryServer(): {
     maxBlobBytes: number
     chunkSize: number
     idDerivation?: 'random' | 'content'
-  }): WasClient =>
-    new WasClient({
+  }): PwsClient =>
+    new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient: {
         invocationSigner: { id: 'did:example:alice#key-1' },
         request
-      } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient'],
+      } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient'],
       encryption: createEdvEncryption({
         resolveKeys: async () => null,
         maxBlobBytes,

@@ -3,8 +3,8 @@
  */
 /**
  * Integration test: encrypted collections through the unified handle seam, end
- * to end against a live WAS server (e.g. web-spaces-server's filesystem
- * backend). A `WasClient` constructed with an `encryption` provider
+ * to end against a live PWS server (e.g. web-spaces-server's filesystem
+ * backend). A `PwsClient` constructed with an `encryption` provider
  * transparently encrypts `collection.add()` / `put()` and decrypts `get()` --
  * the same plain Collection/Resource API as a plaintext collection, with no
  * EdvClient in sight. Encryption is gated purely on the client holding keys for
@@ -39,7 +39,7 @@ import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
 import {
-  WasClient,
+  PwsClient,
   ValidationError,
   PreconditionFailedError,
   EncryptionError,
@@ -73,7 +73,7 @@ function asStoredCustom(custom: unknown): ResourceMetadataCustom {
 }
 
 /**
- * Builds two WAS clients over the SAME signer: one with an `encryption` provider
+ * Builds two PWS clients over the SAME signer: one with an `encryption` provider
  * (encrypts for a single vault-per-collection X25519 key) and one plaintext (no
  * codec). The plaintext client reads what the server actually stores -- a JWE
  * envelope -- to prove ciphertext at rest. The key never leaves the client.
@@ -85,13 +85,13 @@ function asStoredCustom(custom: unknown): ResourceMetadataCustom {
  * The keyed client's own key-agreement key comes back too: it is the recipient
  * the collection's first key epoch is wrapped to at provision time.
  *
- * @returns {Promise<{ encrypted: WasClient, plaintext: WasClient,
- *   keyless: WasClient, kak: IKeyAgreementKey }>}
+ * @returns {Promise<{ encrypted: PwsClient, plaintext: PwsClient,
+ *   keyless: PwsClient, kak: IKeyAgreementKey }>}
  */
 async function freshClients(): Promise<{
-  encrypted: WasClient
-  plaintext: WasClient
-  keyless: WasClient
+  encrypted: PwsClient
+  plaintext: PwsClient
+  keyless: PwsClient
   kak: IKeyAgreementKey
 }> {
   const keyPair = await Ed25519VerificationKey.generate()
@@ -115,16 +115,16 @@ async function freshClients(): Promise<{
     })
   })
   return {
-    encrypted: WasClient.fromSigner({
+    encrypted: PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner(),
       encryption
     }),
-    plaintext: WasClient.fromSigner({
+    plaintext: PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     }),
-    keyless: WasClient.fromSigner({
+    keyless: PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner(),
       encryption: createEdvEncryption({ resolveKeys: async () => null })
@@ -134,16 +134,16 @@ async function freshClients(): Promise<{
 }
 
 describeLive('encrypted collection via the codec seam (live server)', () => {
-  let was: WasClient
-  let plaintext: WasClient
-  let keyless: WasClient
+  let pws: PwsClient
+  let plaintext: PwsClient
+  let keyless: PwsClient
   let space: Space
   let collection: Collection
 
   beforeAll(async () => {
     let kak: IKeyAgreementKey
-    ;({ encrypted: was, plaintext, keyless, kak } = await freshClients())
-    space = await was.createSpace({ name: 'EDV Codec Integration' })
+    ;({ encrypted: pws, plaintext, keyless, kak } = await freshClients())
+    space = await pws.createSpace({ name: 'EDV Codec Integration' })
     // Step 1: declare the collection encrypted, so any authorized reader can
     // discover it from the descriptor.
     const declared = await space.createCollection({
@@ -162,7 +162,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // createCollection is pre-seeded with the pre-install `{ scheme: 'edv' }`
     // override, so discovery -- not that stale override -- must supply the
     // epoch-bearing descriptor.
-    collection = was.spaceAt(space.url).collection('vault')
+    collection = pws.spaceAt(space.url).collection('vault')
   })
 
   afterAll(async () => {
@@ -176,7 +176,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
   it('add() then get() transparently round-trips the cleartext', async () => {
     const content = { message: 'hello codec seam', n: 7 }
     const { id } = await collection.add(content)
-    // The minted id is an EDV multibase value used verbatim as the WAS id.
+    // The minted id is an EDV multibase value used verbatim as the PWS id.
     expect(id).toMatch(/^z/)
 
     const got = await collection.get(id)
@@ -189,7 +189,7 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
     // it must read the Collection Metadata object, see the `encryption` descriptor,
     // and decrypt with the keystore's keys -- the delegated-consumer discovery
     // path.
-    const rediscovered = was.spaceAt(space.url).collection('vault')
+    const rediscovered = pws.spaceAt(space.url).collection('vault')
     expect(await rediscovered.get(id)).toEqual({ via: 'descriptor discovery' })
   })
 
@@ -370,16 +370,16 @@ describeLive('encrypted collection via the codec seam (live server)', () => {
 })
 
 describeLive('metadata slot bindings against a tampering server (live)', () => {
-  let was: WasClient
-  let plaintext: WasClient
+  let pws: PwsClient
+  let plaintext: PwsClient
   let space: Space
   let collection: Collection
   let twin: Collection
 
   beforeAll(async () => {
     let kak: IKeyAgreementKey
-    ;({ encrypted: was, plaintext, kak } = await freshClients())
-    space = await was.createSpace({ name: 'EDV Metadata Bindings' })
+    ;({ encrypted: pws, plaintext, kak } = await freshClients())
+    space = await pws.createSpace({ name: 'EDV Metadata Bindings' })
     const declared = await space.createCollection({
       id: 'vault',
       name: 'Vault',
@@ -389,10 +389,10 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
       collection: declared,
       recipients: [ownerRecipient({ keyAgreementKey: kak })]
     })
-    collection = was.spaceAt(space.url).collection('vault')
+    collection = pws.spaceAt(space.url).collection('vault')
     // A second encrypted collection carrying the SAME epoch roster (the same
     // reader, the same epoch secret), so a cross-collection swap of metadata
-    // envelopes is caught by the `was.collection` binding rather than by a key
+    // envelopes is caught by the `pws.collection` binding rather than by a key
     // miss -- keys alone cannot separate two collections a client can read.
     const description = await collection.describe()
     const twinDeclared = await space.createCollection({
@@ -403,7 +403,7 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
       name: 'Vault Twin',
       encryption: description!.encryption
     })
-    twin = was.spaceAt(space.url).collection('vault-twin')
+    twin = pws.spaceAt(space.url).collection('vault-twin')
   })
 
   afterAll(async () => {
@@ -448,21 +448,21 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
       .collection('vault-twin')
       .setMeta({ custom: asStoredCustom(stored) })
     // The twin's reader holds the very same epoch key, so the envelope
-    // decrypts; only the `was.collection` binding separates the two.
+    // decrypts; only the `pws.collection` binding separates the two.
     await expect(twin.meta()).rejects.toBeInstanceOf(IntegrityError)
   })
 })
 
 describeLive('plaintext conditional writes (live server)', () => {
-  let was: WasClient
+  let pws: PwsClient
   let space: Space
   let collection: Collection
 
   beforeAll(async () => {
     // A plaintext client (no encryption provider): conditional writes are the
     // explicit ifMatch / ifNoneMatch options on the handles.
-    ;({ plaintext: was } = await freshClients())
-    space = await was.createSpace({ name: 'Conditional Writes Integration' })
+    ;({ plaintext: pws } = await freshClients())
+    space = await pws.createSpace({ name: 'Conditional Writes Integration' })
     collection = await space.createCollection({ id: 'docs', name: 'Docs' })
   })
 

@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 
 import type { HttpResponse } from '@interop/http-client'
-import { WasServerError } from '../../src/index.js'
+import { PwsServerError } from '../../src/index.js'
 import type { ChangesPage, Collection } from '../../src/index.js'
 import { DEFAULT_MAX_PAGES } from '../../src/internal/pagination.js'
 import { feedEntry, recordEntry } from '../helpers/changesFeed.js'
@@ -124,7 +124,7 @@ describe('Collection.documents()', () => {
         documents: [
           feedEntry({
             kind: 'policy',
-            id: 'https://was.example/space/s/notes/a/policy',
+            id: 'https://pws.example/space/s/notes/a/policy',
             checkpoint: 'cp-4',
             deleted: true
           }),
@@ -203,7 +203,7 @@ describe('Collection.documents()', () => {
     })
 
     const err = await notes.documents().catch((err: unknown) => err)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('served resource "b" with no body')
   })
 
@@ -216,7 +216,7 @@ describe('Collection.documents()', () => {
     })
 
     const err = await notes.documents().catch((err: unknown) => err)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('text/plain')
   })
 
@@ -233,7 +233,7 @@ describe('Collection.documents()', () => {
     })
 
     const err = await notes.documents().catch((err: unknown) => err)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('repeated checkpoint')
     expect(bodies).toHaveLength(2)
   })
@@ -249,7 +249,7 @@ describe('Collection.documents()', () => {
     const notes = client.spaceAt(spaceUrlFor('s')).collection('notes')
 
     const err = await notes.documents().catch((err: unknown) => err)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('did not end within')
     expect(served).toBe(DEFAULT_MAX_PAGES)
   })
@@ -305,13 +305,13 @@ describe('Collection.changes() record kinds', () => {
       // The Collection's own policy, live.
       feedEntry({
         kind: 'policy',
-        id: 'https://was.example/space/s/notes/policy',
+        id: 'https://pws.example/space/s/notes/policy',
         checkpoint: 'cp-2'
       }),
       // A Resource's policy, deleted.
       feedEntry({
         kind: 'policy',
-        id: 'https://was.example/space/s/notes/a/policy',
+        id: 'https://pws.example/space/s/notes/a/policy',
         checkpoint: 'cp-3',
         deleted: true
       })
@@ -365,7 +365,7 @@ describe('Collection.changes() record kinds', () => {
     })
 
     const err = await notes.changes().catch((err: unknown) => err)
-    expect(err).toBeInstanceOf(WasServerError)
+    expect(err).toBeInstanceOf(PwsServerError)
     expect((err as Error).message).toContain('served resource "a" with no body')
   })
 })

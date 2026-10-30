@@ -2,15 +2,15 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: chunked encrypted blobs over WAS, end to end, against a
- * live WAS server whose backend advertises the `chunked-streams` feature.
+ * Integration test: chunked encrypted blobs over PWS, end to end, against a
+ * live PWS server whose backend advertises the `chunked-streams` feature.
  * Proves two things:
  *
- * 1. Transport-level `WasTransport.storeChunk` / `getChunk` round-trip an
+ * 1. Transport-level `PwsTransport.storeChunk` / `getChunk` round-trip an
  *    opaque EDV chunk object through the reserved `.../chunks/{n}` sub-segment.
  * 2. A blob larger than one chunk, driven through
  *    `EdvClientCore.insert({ stream })` and read back with `getStream`,
- *    encrypts client-side, stores as N opaque chunks over WAS, and decrypts
+ *    encrypts client-side, stores as N opaque chunks over PWS, and decrypts
  *    byte-for-byte -- reusing minimal-cipher's proven encrypt/decrypt with no
  *    server change (the server stores ciphertext fragments it never parses).
  *
@@ -23,41 +23,41 @@ import type { IEDVChunk, IKeyAgreementKey } from '@interop/data-integrity-core'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
-import { WasTransport } from '../../src/edv/index.js'
+import { PwsTransport } from '../../src/edv/index.js'
 import { drain, streamOf } from '../helpers/bytes.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
- * Builds a fresh did:key Ed25519 signer and a WAS client over it.
+ * Builds a fresh did:key Ed25519 signer and a PWS client over it.
  *
- * @returns {Promise<WasClient>}
+ * @returns {Promise<PwsClient>}
  */
-async function freshWasClient(): Promise<WasClient> {
+async function freshPwsClient(): Promise<PwsClient> {
   const keyPair = await Ed25519VerificationKey.generate()
-  return WasClient.fromSigner({
+  return PwsClient.fromSigner({
     baseServerUrl: baseServerUrl!,
     signer: keyPair.didKeySigner()
   })
 }
 
-describeLive('chunked encrypted blobs over WAS (live server)', () => {
-  let was: WasClient
+describeLive('chunked encrypted blobs over PWS (live server)', () => {
+  let pws: PwsClient
   let space: Space
   let collection: Collection
   let edv: EdvClientCore
-  let transport: WasTransport
+  let transport: PwsTransport
 
   beforeAll(async () => {
-    was = await freshWasClient()
-    space = await was.createSpace({ name: 'EDV Chunk Integration' })
+    pws = await freshPwsClient()
+    space = await pws.createSpace({ name: 'EDV Chunk Integration' })
     collection = await space.createCollection({ id: 'vault', name: 'Vault' })
 
     const kak = await X25519KeyAgreementKey2020.generate({
-      controller: was.controllerDid
+      controller: pws.controllerDid
     })
     const keyResolver = async ({ id }: { id?: string }) => {
       if (id !== kak.id) {
@@ -73,8 +73,8 @@ describeLive('chunked encrypted blobs over WAS (live server)', () => {
       keyAgreementKey: kak as IKeyAgreementKey,
       keyResolver
     })
-    transport = new WasTransport({
-      was,
+    transport = new PwsTransport({
+      pws,
       spaceUrl: space.url,
       collectionId: collection.id
     })

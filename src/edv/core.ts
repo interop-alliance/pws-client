@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/was-client/edv/core` subpath entry:
- * `@interop/was-client/edv/cipher` plus the log-governed descriptor stores
+ * The `@interop/pws-client/edv/core` subpath entry:
+ * `@interop/pws-client/edv/cipher` plus the log-governed descriptor stores
  * (`logGovernedDescriptorStore`, `logGovernedCollectionDescriptorStore`, and
  * their read/state helpers), which read through a resource log verified by
  * `@interop/vh-resource-log`. Still transport-free -- no HTTP module and no
@@ -13,8 +13,8 @@
  * such as `@interop/wallet-backup` opening an archive, imports `./edv/cipher`
  * instead.
  *
- * `@interop/was-client/edv` re-exports all of it and adds the online set on
- * top (`WasTransport`, `createEdvEncryption`, `wasTransportFactory`,
+ * `@interop/pws-client/edv` re-exports all of it and adds the online set on
+ * top (`PwsTransport`, `createEdvEncryption`, `pwsTransportFactory`,
  * `collectionDescriptorStore`, descriptor acquisition and the refresh policy),
  * so an online consumer keeps importing that one entry and nothing moves.
  */

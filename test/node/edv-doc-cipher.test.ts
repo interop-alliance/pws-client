@@ -168,7 +168,7 @@ describe('createEdvDocCipher (envelope-to-resource binding)', () => {
       // A replication read hands the cipher the feed row id. A server serving
       // resource A's authentic envelope in row B must not decrypt as B: the
       // content-derived id re-derives from the ciphertext, and a random id is
-      // the AEAD-bound `was.resource`.
+      // the AEAD-bound `pws.resource`.
       const { encryption, ...keys } = await makeReaderWithDescriptor()
       const cipher = await createEdvDocCipher({
         ...keys,
@@ -451,7 +451,7 @@ describe('createEdvDocCipher (chunkSource)', () => {
   it('refuses a chunk whose binding differs from the envelope binding', async () => {
     // A genuine chunk of resource B, served as chunk 1 of resource A. It is
     // sealed under the same epoch key, so it would decrypt cleanly: only the
-    // chunk's own `was` binding tells it apart.
+    // chunk's own `pws` binding tells it apart.
     const { backend, cipher, write } = await setup()
     const a = await write(blob)
     const b = await write(otherBlob)
@@ -550,7 +550,7 @@ describe('createEdvDocCipher (chunkSource)', () => {
     expect((failure as Error).message).toMatch(/chunk 0 .* is not bound/)
   })
 
-  it("raises was-client's NotFoundError for an index the source does not hold", async () => {
+  it("raises pws-client's NotFoundError for an index the source does not hold", async () => {
     const { backend, cipher, write } = await setup()
     const { id, envelope } = await write(blob)
     const { chunkSource } = sourceOver(backend, path =>
@@ -1066,7 +1066,7 @@ describe('createEdvDocCipher (blinded index schema)', () => {
   it('emits the same tokens a direct-path write does', async () => {
     const { encryption, ...keys } = await makeIndexableReader()
     // The direct path: apply the schema, persist it in the collection metadata
-    // envelope (no id -- a Collection-level write, bound to `was.collection`),
+    // envelope (no id -- a Collection-level write, bound to `pws.collection`),
     // and capture the tokens an ordinary write stores.
     const direct = await directCodecFor({
       collectionId: 'c',

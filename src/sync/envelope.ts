@@ -3,7 +3,7 @@
  */
 /**
  * The pure EDV-envelope predicate, kept dependency-free (no crypto graph) so a
- * plaintext consumer can import it without pulling the `@interop/was-client/edv`
+ * plaintext consumer can import it without pulling the `@interop/pws-client/edv`
  * stack.
  */
 import type { Json } from '../types.js'

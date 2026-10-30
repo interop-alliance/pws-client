@@ -128,7 +128,7 @@ function chainRootId(zcap: IZcap): string | undefined {
  * root exactly in the Space. What is refused here is a root whose target
  * cannot be a Space URL at all (an origin, a URL with a query, a URN) and a
  * chain that starts at no root capability. A capability this client minted
- * from a handle is always Space-rooted. A bare `was.grant({ target })` with
+ * from a handle is always Space-rooted. A bare `pws.grant({ target })` with
  * no `spaceUrl`, the mode for a server with no Space hierarchy, roots at
  * its target and is not revocable this way by design.
  *

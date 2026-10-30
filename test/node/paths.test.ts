@@ -60,7 +60,7 @@ import {
   spaceUrlOf
 } from '../../src/internal/rootCapability.js'
 
-const SPACE_URL = 'https://was.example/space/home/'
+const SPACE_URL = 'https://pws.example/space/home/'
 
 /**
  * Every builder, applied to one Space URL and fixed ids, so the whole grammar
@@ -110,42 +110,42 @@ function everyUrl(spaceUrl: string): Record<string, string> {
 describe('URL builders', () => {
   it('builds every URL beneath a canonical Space URL', () => {
     expect(everyUrl(SPACE_URL)).toEqual({
-      spaceMetaUrl: 'https://was.example/space/home/meta',
-      spaceExportUrl: 'https://was.example/space/home/export',
-      spaceImportUrl: 'https://was.example/space/home/import',
-      spaceBackendsUrl: 'https://was.example/space/home/backends',
-      registeredBackendUrl: 'https://was.example/space/home/backends/b1',
-      spaceQuotasUrl: 'https://was.example/space/home/quotas',
-      spacePolicyUrl: 'https://was.example/space/home/policy',
-      spaceLinksetUrl: 'https://was.example/space/home/linkset',
-      spaceReplicasUrl: 'https://was.example/space/home/replicas',
-      replicaRegistrationUrl: 'https://was.example/space/home/replicas/r1',
-      replicaStatusUrl: 'https://was.example/space/home/replicas/r1/status',
+      spaceMetaUrl: 'https://pws.example/space/home/meta',
+      spaceExportUrl: 'https://pws.example/space/home/export',
+      spaceImportUrl: 'https://pws.example/space/home/import',
+      spaceBackendsUrl: 'https://pws.example/space/home/backends',
+      registeredBackendUrl: 'https://pws.example/space/home/backends/b1',
+      spaceQuotasUrl: 'https://pws.example/space/home/quotas',
+      spacePolicyUrl: 'https://pws.example/space/home/policy',
+      spaceLinksetUrl: 'https://pws.example/space/home/linkset',
+      spaceReplicasUrl: 'https://pws.example/space/home/replicas',
+      replicaRegistrationUrl: 'https://pws.example/space/home/replicas/r1',
+      replicaStatusUrl: 'https://pws.example/space/home/replicas/r1/status',
       spaceRevocationUrl:
-        'https://was.example/space/home/zcaps/revocations/urn%3Auuid%3A1',
-      collectionUrl: 'https://was.example/space/home/docs/',
-      collectionMetaUrl: 'https://was.example/space/home/docs/meta',
-      collectionLogUrl: 'https://was.example/space/home/docs/meta/log',
-      collectionPolicyUrl: 'https://was.example/space/home/docs/policy',
-      collectionLinksetUrl: 'https://was.example/space/home/docs/linkset',
-      collectionBackendUrl: 'https://was.example/space/home/docs/backend',
-      collectionQuotaUrl: 'https://was.example/space/home/docs/quota',
-      collectionQueryUrl: 'https://was.example/space/home/docs/query',
-      resourceUrl: 'https://was.example/space/home/docs/note',
-      resourceMetaUrl: 'https://was.example/space/home/docs/note/meta',
-      resourcePolicyUrl: 'https://was.example/space/home/docs/note/policy',
-      resourceChunkUrl: 'https://was.example/space/home/docs/note/chunks/0',
-      resourceChunksUrl: 'https://was.example/space/home/docs/note/chunks/'
+        'https://pws.example/space/home/zcaps/revocations/urn%3Auuid%3A1',
+      collectionUrl: 'https://pws.example/space/home/docs/',
+      collectionMetaUrl: 'https://pws.example/space/home/docs/meta',
+      collectionLogUrl: 'https://pws.example/space/home/docs/meta/log',
+      collectionPolicyUrl: 'https://pws.example/space/home/docs/policy',
+      collectionLinksetUrl: 'https://pws.example/space/home/docs/linkset',
+      collectionBackendUrl: 'https://pws.example/space/home/docs/backend',
+      collectionQuotaUrl: 'https://pws.example/space/home/docs/quota',
+      collectionQueryUrl: 'https://pws.example/space/home/docs/query',
+      resourceUrl: 'https://pws.example/space/home/docs/note',
+      resourceMetaUrl: 'https://pws.example/space/home/docs/note/meta',
+      resourcePolicyUrl: 'https://pws.example/space/home/docs/note/policy',
+      resourceChunkUrl: 'https://pws.example/space/home/docs/note/chunks/0',
+      resourceChunksUrl: 'https://pws.example/space/home/docs/note/chunks/'
     })
   })
 
   it('keeps a path prefix the Space URL carries', () => {
-    const spaceUrl = 'http://localhost:9787/was/v1/space/s/'
+    const spaceUrl = 'http://localhost:9787/pws/v1/space/s/'
     for (const url of Object.values(everyUrl(spaceUrl))) {
       expect(url.startsWith(spaceUrl)).toBe(true)
     }
     expect(collectionUrl({ spaceUrl, collectionId: 'c' })).toBe(
-      'http://localhost:9787/was/v1/space/s/c/'
+      'http://localhost:9787/pws/v1/space/s/c/'
     )
   })
 
@@ -157,12 +157,12 @@ describe('URL builders', () => {
         resourceId: 'note',
         chunkIndex: 12
       })
-    ).toBe('https://was.example/space/home/docs/note/chunks/12')
+    ).toBe('https://pws.example/space/home/docs/note/chunks/12')
   })
 
   it('percent-encodes ids so they cannot break out of their slot', () => {
     expect(collectionUrl({ spaceUrl: SPACE_URL, collectionId: 'd?x' })).toBe(
-      'https://was.example/space/home/d%3Fx/'
+      'https://pws.example/space/home/d%3Fx/'
     )
     expect(
       resourceUrl({
@@ -170,23 +170,23 @@ describe('URL builders', () => {
         collectionId: 'c/d',
         resourceId: 'r#1'
       })
-    ).toBe('https://was.example/space/home/c%2Fd/r%231')
+    ).toBe('https://pws.example/space/home/c%2Fd/r%231')
     expect(
       collectionQueryUrl({ spaceUrl: SPACE_URL, collectionId: 'a b' })
-    ).toBe('https://was.example/space/home/a%20b/query')
+    ).toBe('https://pws.example/space/home/a%20b/query')
     expect(
       resourceChunksUrl({
         spaceUrl: SPACE_URL,
         collectionId: 'c/d',
         resourceId: 'e#f'
       })
-    ).toBe('https://was.example/space/home/c%2Fd/e%23f/chunks/')
+    ).toBe('https://pws.example/space/home/c%2Fd/e%23f/chunks/')
     expect(
       replicaRegistrationUrl({ spaceUrl: SPACE_URL, replicaId: 'a/b' })
-    ).toBe('https://was.example/space/home/replicas/a%2Fb')
+    ).toBe('https://pws.example/space/home/replicas/a%2Fb')
     expect(
       registeredBackendUrl({ spaceUrl: SPACE_URL, backendId: 'g drive' })
-    ).toBe('https://was.example/space/home/backends/g%20drive')
+    ).toBe('https://pws.example/space/home/backends/g%20drive')
   })
 
   it('rejects a reserved id in a collection or resource slot', () => {
@@ -249,10 +249,10 @@ describe('URL builders', () => {
     // default port all name the same Space, so they yield the same URLs.
     const canonical = everyUrl(SPACE_URL)
     for (const spaceUrl of [
-      'https://was.example/space/home',
-      'https://was.example/space/home///',
-      'https://WAS.Example/space/home/',
-      'https://was.example:443/space/home/'
+      'https://pws.example/space/home',
+      'https://pws.example/space/home///',
+      'https://PWS.Example/space/home/',
+      'https://pws.example:443/space/home/'
     ]) {
       expect(everyUrl(spaceUrl)).toEqual(canonical)
     }
@@ -262,10 +262,10 @@ describe('URL builders', () => {
     for (const spaceUrl of [
       'not a url',
       '/space/home/',
-      'ftp://was.example/space/home/',
-      'https://was.example/space/home/?q=1',
-      'https://was.example/space/home/#f',
-      'https://was.example/space//home/'
+      'ftp://pws.example/space/home/',
+      'https://pws.example/space/home/?q=1',
+      'https://pws.example/space/home/#f',
+      'https://pws.example/space//home/'
     ]) {
       expect(() => spaceMetaUrl({ spaceUrl })).toThrow(ValidationError)
       expect(() => collectionUrl({ spaceUrl, collectionId: 'c' })).toThrow(
@@ -306,11 +306,11 @@ describe('the trailing-slash convention', () => {
 
 describe('canonicalContainerUrl', () => {
   it('adds the trailing slash to a bare collection URL, and keeps one', () => {
-    expect(canonicalContainerUrl('https://was.example/space/s/c')).toBe(
-      'https://was.example/space/s/c/'
+    expect(canonicalContainerUrl('https://pws.example/space/s/c')).toBe(
+      'https://pws.example/space/s/c/'
     )
-    expect(canonicalContainerUrl('https://was.example/space/s/c/')).toBe(
-      'https://was.example/space/s/c/'
+    expect(canonicalContainerUrl('https://pws.example/space/s/c/')).toBe(
+      'https://pws.example/space/s/c/'
     )
   })
 })
@@ -318,31 +318,31 @@ describe('canonicalContainerUrl', () => {
 describe('canonicalSpaceUrl', () => {
   it('returns a canonical Space URL unchanged', () => {
     expect(canonicalSpaceUrl(SPACE_URL)).toBe(SPACE_URL)
-    expect(canonicalSpaceUrl('http://localhost:9787/was/v1/space/s/')).toBe(
-      'http://localhost:9787/was/v1/space/s/'
+    expect(canonicalSpaceUrl('http://localhost:9787/pws/v1/space/s/')).toBe(
+      'http://localhost:9787/pws/v1/space/s/'
     )
   })
 
   it('refuses a bare query or fragment marker and userinfo', () => {
     for (const url of [
-      'https://was.example/space/home/?',
-      'https://was.example/space/home/#',
-      'https://user:pw@was.example/space/home/',
-      'https://user@was.example/space/home/'
+      'https://pws.example/space/home/?',
+      'https://pws.example/space/home/#',
+      'https://user:pw@pws.example/space/home/',
+      'https://user@pws.example/space/home/'
     ]) {
       expect(() => canonicalSpaceUrl(url)).toThrow(ValidationError)
     }
   })
 
   it('adds a missing trailing slash and collapses a run of them', () => {
-    expect(canonicalSpaceUrl('https://was.example/space/home')).toBe(SPACE_URL)
-    expect(canonicalSpaceUrl('https://was.example/space/home//')).toBe(
+    expect(canonicalSpaceUrl('https://pws.example/space/home')).toBe(SPACE_URL)
+    expect(canonicalSpaceUrl('https://pws.example/space/home//')).toBe(
       SPACE_URL
     )
   })
 
   it('lower-cases the host and drops a default port', () => {
-    expect(canonicalSpaceUrl('https://WAS.example:443/space/home/')).toBe(
+    expect(canonicalSpaceUrl('https://PWS.example:443/space/home/')).toBe(
       SPACE_URL
     )
     expect(canonicalSpaceUrl('http://Localhost:80/space/home')).toBe(
@@ -355,8 +355,8 @@ describe('canonicalSpaceUrl', () => {
   })
 
   it('keeps percent-encoded segments as they are', () => {
-    expect(canonicalSpaceUrl('https://was.example/space/a%20b')).toBe(
-      'https://was.example/space/a%20b/'
+    expect(canonicalSpaceUrl('https://pws.example/space/a%20b')).toBe(
+      'https://pws.example/space/a%20b/'
     )
   })
 
@@ -364,12 +364,12 @@ describe('canonicalSpaceUrl', () => {
     for (const spaceUrl of [
       'not a url',
       '/space/home/',
-      'ftp://was.example/space/home/',
+      'ftp://pws.example/space/home/',
       'file:///space/home/',
-      'https://was.example/space/home/?q=1',
-      'https://was.example/space/home/#top',
-      'https://was.example//space/home/',
-      'https://was.example/space//home/'
+      'https://pws.example/space/home/?q=1',
+      'https://pws.example/space/home/#top',
+      'https://pws.example//space/home/',
+      'https://pws.example/space//home/'
     ]) {
       expect(() => canonicalSpaceUrl(spaceUrl)).toThrow(ValidationError)
     }
@@ -379,22 +379,22 @@ describe('canonicalSpaceUrl', () => {
 describe('spaceIdOfUrl', () => {
   it('reads the last path segment of the Space URL', () => {
     expect(spaceIdOfUrl(SPACE_URL)).toBe('home')
-    expect(spaceIdOfUrl('https://was.example/space/home')).toBe('home')
-    expect(spaceIdOfUrl('http://localhost:9787/was/v1/space/s///')).toBe('s')
+    expect(spaceIdOfUrl('https://pws.example/space/home')).toBe('home')
+    expect(spaceIdOfUrl('http://localhost:9787/pws/v1/space/s///')).toBe('s')
   })
 
   it('percent-decodes the segment', () => {
-    expect(spaceIdOfUrl('https://was.example/space/a%20b%2Fc/')).toBe('a b/c')
+    expect(spaceIdOfUrl('https://pws.example/space/a%20b%2Fc/')).toBe('a b/c')
   })
 
   it('throws ValidationError for a malformed percent escape', () => {
-    expect(() => spaceIdOfUrl('https://was.example/space/%ff/')).toThrow(
+    expect(() => spaceIdOfUrl('https://pws.example/space/%ff/')).toThrow(
       ValidationError
     )
   })
 
   it('throws ValidationError for a URL that is not a Space URL', () => {
-    expect(() => spaceIdOfUrl('https://was.example/')).toThrow(ValidationError)
+    expect(() => spaceIdOfUrl('https://pws.example/')).toThrow(ValidationError)
     expect(() => spaceIdOfUrl('not a url')).toThrow(ValidationError)
   })
 })
@@ -411,8 +411,8 @@ describe('parseSpaceTarget', () => {
   }
 
   it('classifies the Space itself in its slash and bare forms', () => {
-    expect(parse('https://was.example/space/home/')).toEqual({ kind: 'space' })
-    expect(parse('https://was.example/space/home')).toEqual({ kind: 'space' })
+    expect(parse('https://pws.example/space/home/')).toEqual({ kind: 'space' })
+    expect(parse('https://pws.example/space/home')).toEqual({ kind: 'space' })
   })
 
   it('classifies a Collection in its slash and bare forms', () => {
@@ -420,8 +420,8 @@ describe('parseSpaceTarget', () => {
     // targets parsed here come from delegated capabilities minted elsewhere,
     // and both forms name the same container.
     for (const target of [
-      'https://was.example/space/home/docs/',
-      'https://was.example/space/home/docs'
+      'https://pws.example/space/home/docs/',
+      'https://pws.example/space/home/docs'
     ]) {
       expect(parse(target)).toEqual({
         kind: 'collection',
@@ -431,7 +431,7 @@ describe('parseSpaceTarget', () => {
   })
 
   it('classifies a Resource', () => {
-    expect(parse('https://was.example/space/home/docs/note')).toEqual({
+    expect(parse('https://pws.example/space/home/docs/note')).toEqual({
       kind: 'resource',
       collectionId: 'docs',
       resourceId: 'note'
@@ -439,23 +439,23 @@ describe('parseSpaceTarget', () => {
   })
 
   it('classifies a space-level sub-endpoint as a sub-resource', () => {
-    expect(parse('https://was.example/space/home/policy')).toEqual({
+    expect(parse('https://pws.example/space/home/policy')).toEqual({
       kind: 'sub-resource',
       segments: ['policy']
     })
-    expect(parse('https://was.example/space/home/backends/x')).toEqual({
+    expect(parse('https://pws.example/space/home/backends/x')).toEqual({
       kind: 'sub-resource',
       segments: ['backends', 'x']
     })
     // The Space Metadata object sits at the Collection-id position, so `meta`
     // directly under a Space is a space-level sub-endpoint rather than a
     // Collection named `meta`.
-    expect(parse('https://was.example/space/home/meta')).toEqual({
+    expect(parse('https://pws.example/space/home/meta')).toEqual({
       kind: 'sub-resource',
       segments: ['meta']
     })
     expect(
-      parse('https://was.example/space/home/zcaps/revocations/urn%3Ax')
+      parse('https://pws.example/space/home/zcaps/revocations/urn%3Ax')
     ).toEqual({
       kind: 'sub-resource',
       segments: ['zcaps', 'revocations', 'urn:x']
@@ -463,33 +463,33 @@ describe('parseSpaceTarget', () => {
   })
 
   it('classifies a collection-level sub-endpoint as a sub-resource', () => {
-    expect(parse('https://was.example/space/home/c/backend')).toEqual({
+    expect(parse('https://pws.example/space/home/c/backend')).toEqual({
       kind: 'sub-resource',
       segments: ['c', 'backend']
     })
-    expect(parse('https://was.example/space/home/c/meta')).toEqual({
+    expect(parse('https://pws.example/space/home/c/meta')).toEqual({
       kind: 'sub-resource',
       segments: ['c', 'meta']
     })
   })
 
   it('classifies a resource-level sub-endpoint as a sub-resource', () => {
-    expect(parse('https://was.example/space/home/c/r/meta')).toEqual({
+    expect(parse('https://pws.example/space/home/c/r/meta')).toEqual({
       kind: 'sub-resource',
       segments: ['c', 'r', 'meta']
     })
-    expect(parse('https://was.example/space/home/c/r/chunks/0')).toEqual({
+    expect(parse('https://pws.example/space/home/c/r/chunks/0')).toEqual({
       kind: 'sub-resource',
       segments: ['c', 'r', 'chunks', '0']
     })
-    expect(parse('https://was.example/space/home/c/r/chunks/')).toEqual({
+    expect(parse('https://pws.example/space/home/c/r/chunks/')).toEqual({
       kind: 'sub-resource',
       segments: ['c', 'r', 'chunks']
     })
   })
 
   it('percent-decodes each segment (the builders re-encode them)', () => {
-    expect(parse('https://was.example/space/home/a%20b/c%2Fd')).toEqual({
+    expect(parse('https://pws.example/space/home/a%20b/c%2Fd')).toEqual({
       kind: 'resource',
       collectionId: 'a b',
       resourceId: 'c/d'
@@ -517,14 +517,14 @@ describe('parseSpaceTarget', () => {
   it('returns null for a target that is not beneath the Space', () => {
     for (const target of [
       'https://other.example/space/home/docs/',
-      'http://was.example/space/home/docs/',
-      'https://was.example/space/home2/docs/',
-      'https://was.example/space/',
-      'https://was.example/other/home/docs/',
-      'https://was.example/space/home/docs/?q=1',
-      'https://was.example/space/home/docs/#f',
-      'https://was.example/space/home/%ff',
-      'https://was.example/space/home/c/%c3%28',
+      'http://pws.example/space/home/docs/',
+      'https://pws.example/space/home2/docs/',
+      'https://pws.example/space/',
+      'https://pws.example/other/home/docs/',
+      'https://pws.example/space/home/docs/?q=1',
+      'https://pws.example/space/home/docs/#f',
+      'https://pws.example/space/home/%ff',
+      'https://pws.example/space/home/c/%c3%28',
       '/space/home/docs/',
       'not a url'
     ]) {
@@ -536,27 +536,27 @@ describe('parseSpaceTarget', () => {
     expect(
       parseSpaceTarget({
         spaceUrl: 'not a url',
-        target: 'https://was.example/space/home/'
+        target: 'https://pws.example/space/home/'
       })
     ).toBeNull()
   })
 
   it('matches when either URL is in a non-canonical serialization', () => {
     for (const nonCanonical of [
-      'https://was.example/space/home',
-      'https://WAS.example:443/space/home//'
+      'https://pws.example/space/home',
+      'https://PWS.example:443/space/home//'
     ]) {
       expect(
         parseSpaceTarget({
           spaceUrl: nonCanonical,
-          target: 'https://was.example/space/home/docs/'
+          target: 'https://pws.example/space/home/docs/'
         })
       ).toEqual({ kind: 'collection', collectionId: 'docs' })
     }
     expect(
       parseSpaceTarget({
         spaceUrl,
-        target: 'https://WAS.example:443/space/home/docs/'
+        target: 'https://PWS.example:443/space/home/docs/'
       })
     ).toEqual({ kind: 'collection', collectionId: 'docs' })
   })
@@ -564,8 +564,8 @@ describe('parseSpaceTarget', () => {
   it('classifies beneath a Space whose URL carries a path prefix', () => {
     expect(
       parseSpaceTarget({
-        spaceUrl: 'http://localhost:9787/was/v1/space/s/',
-        target: 'http://localhost:9787/was/v1/space/s/c/r'
+        spaceUrl: 'http://localhost:9787/pws/v1/space/s/',
+        target: 'http://localhost:9787/pws/v1/space/s/c/r'
       })
     ).toEqual({ kind: 'resource', collectionId: 'c', resourceId: 'r' })
   })
@@ -576,7 +576,7 @@ describe('rootCapabilityId / rootCapabilityTarget', () => {
     for (const target of [
       SPACE_URL,
       'http://localhost:3000/space/s/c/r',
-      'https://was.example/space/a%20b/'
+      'https://pws.example/space/a%20b/'
     ]) {
       const id = rootCapabilityId(target)
       expect(id).toBe(`urn:zcap:root:${encodeURIComponent(target)}`)
@@ -671,8 +671,8 @@ describe('spaceUrlOf', () => {
 
   it('canonicalizes the Space URL the root id names', () => {
     for (const named of [
-      'https://was.example/space/home',
-      'https://WAS.example:443/space/home//'
+      'https://pws.example/space/home',
+      'https://PWS.example:443/space/home//'
     ]) {
       expect(
         spaceUrlOf(delegated({ parentCapability: rootCapabilityId(named) }))
@@ -696,7 +696,7 @@ describe('spaceUrlOf', () => {
 
   it('throws ValidationError when the root names a non-Space URL', () => {
     for (const target of [
-      'https://was.example/space/home/?q=1',
+      'https://pws.example/space/home/?q=1',
       'did:example:alice'
     ]) {
       expect(() =>
@@ -759,11 +759,11 @@ describe('the ./paths subpath barrel', () => {
     // The replicas-route grant's `invocationTarget`: the bare path, no
     // trailing slash.
     expect(barrel.spaceReplicasUrl({ spaceUrl: SPACE_URL })).toBe(
-      'https://was.example/space/home/replicas'
+      'https://pws.example/space/home/replicas'
     )
     expect(
       barrel.replicaRegistrationUrl({ spaceUrl: SPACE_URL, replicaId: 'r 1' })
-    ).toBe('https://was.example/space/home/replicas/r%201')
+    ).toBe('https://pws.example/space/home/replicas/r%201')
   })
 
   it('mints the root capability id and its object form', async () => {

@@ -14,7 +14,7 @@
  * collection is declared encrypted here, but its key-epoch roster -- which
  * every encrypted collection must carry before any read or write routes
  * (epoch-from-birth) -- is installed by the EDV-bearing second step,
- * `ensureFirstEpoch` in `@interop/was-client/edv`.
+ * `ensureFirstEpoch` in `@interop/pws-client/edv`.
  *
  * Three collection modes: `'edv'` (the client-written encryption descriptor),
  * `'plaintext'` (no descriptor), and `'governed'` (a Collection whose
@@ -28,18 +28,18 @@ import type {
   IZcap,
   SpaceMetadata
 } from '../types.js'
-import type { WasClient } from '../WasClient.js'
+import type { PwsClient } from '../PwsClient.js'
 // A direct module import (not the `./edv` subpath entry), so the crypto-free
 // sync module does not pull the EDV crypto graph for one number.
 import { EDV_SCHEME_VERSION } from '../edv/constants.js'
-import { ValidationError, WasError } from '../errors.js'
+import { ValidationError, PwsError } from '../errors.js'
 import { compareAndSwap } from '../internal/cas.js'
 import { isGovernedDescriptor } from '../internal/describe.js'
 
 /**
  * The Space display name applied at creation when the caller names none.
  */
-const DEFAULT_SPACE_NAME = 'WAS Space'
+const DEFAULT_SPACE_NAME = 'PWS Space'
 
 /**
  * The encryption descriptor declared on a fresh (or not yet encrypted)
@@ -52,7 +52,7 @@ const EDV_DESCRIPTOR = { scheme: 'edv', version: EDV_SCHEME_VERSION } as const
  * UNCHANGED, because what a caller does next depends on which one it is: an
  * `AuthRequiredError` (a revoked or expired grant) means stop retrying and
  * prompt for a reconnect, a `ConflictError` (`encryption-immutable`) means the
- * descriptor is already settled by another client, and a `WasServerError` is
+ * descriptor is already settled by another client, and a `PwsServerError` is
  * worth a retry. Wrapping every failure in a bare `Error` made all of them
  * indistinguishable at the caller. Anything untyped -- which carries no such
  * signal to preserve -- is wrapped with the step's context instead.
@@ -62,7 +62,7 @@ const EDV_DESCRIPTOR = { scheme: 'edv', version: EDV_SCHEME_VERSION } as const
  * @returns {never}   always throws
  */
 function rethrowProvisioningFailure(err: unknown, context: string): never {
-  if (err instanceof WasError) {
+  if (err instanceof PwsError) {
     throw err
   }
   throw new Error(context, { cause: err })
@@ -175,11 +175,11 @@ async function readOrCreate<T>({
  * the root capability, or `capability` when the caller holds a delegated one.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceUrl {string}   the Space's URL
  * @param options.controllerDid {string}   the Space controller (e.g. `did:key`);
  *   used only when the Space does not exist yet
- * @param options.collectionId {string}    the WAS collection id
+ * @param options.collectionId {string}    the PWS collection id
  * @param [options.encryption] {'edv' | 'plaintext' | 'governed'}   how the
  *   collection's `encryption` member is settled; defaults to `'edv'`.
  *   `'edv'` declares the descriptor here, `'plaintext'` declares none, and
@@ -190,7 +190,7 @@ async function readOrCreate<T>({
  *   `resourceLogStore({ collection }).create`
  * @param [options.isPublic] {boolean}   grant collection-level world read
  * @param [options.spaceName] {string}   the Space display name, applied only at
- *   Space creation; defaults to `'WAS Space'`
+ *   Space creation; defaults to `'PWS Space'`
  * @param [options.collectionName] {string}   the collection display name,
  *   applied only at collection creation; defaults to the collection id
  * @param [options.spaceDescription] {SpaceMetadata}   the Space's
@@ -222,7 +222,7 @@ async function readOrCreate<T>({
  *   outrun
  */
 export async function ensureSpaceAndCollection({
-  was,
+  pws,
   spaceUrl,
   controllerDid,
   collectionId,
@@ -234,7 +234,7 @@ export async function ensureSpaceAndCollection({
   capability,
   generator
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceUrl: string
   controllerDid: string
   collectionId: string
@@ -246,10 +246,10 @@ export async function ensureSpaceAndCollection({
   capability?: IZcap
   generator?: CollectionGenerator
 }): Promise<{ created: boolean }> {
-  const space = was.spaceAt(spaceUrl, { capability })
+  const space = pws.spaceAt(spaceUrl, { capability })
 
   if (spaceDescription === undefined) {
-    await ensureSpace({ was, spaceUrl, controllerDid, spaceName, capability })
+    await ensureSpace({ pws, spaceUrl, controllerDid, spaceName, capability })
   } else if (space.id !== undefined && spaceDescription.id !== space.id) {
     // Supplying a description skips the Space half entirely, so a caller
     // holding descriptions for several Spaces that passes the wrong one
@@ -369,12 +369,12 @@ export async function ensureSpaceAndCollection({
  * to adopt the winner.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceUrl {string}
  * @param options.controllerDid {string}   the Space controller (e.g.
  *   `did:key`); used only when the Space does not exist yet
  * @param [options.spaceName] {string}   the Space display name, applied only at
- *   Space creation; defaults to `'WAS Space'`
+ *   Space creation; defaults to `'PWS Space'`
  * @param [options.capability] {IZcap}   an invocation capability both
  *   requests ride; the root capability is invoked otherwise
  * @returns {Promise<SpaceMetadata>}   the Space's description, existing or
@@ -382,19 +382,19 @@ export async function ensureSpaceAndCollection({
  *   `spaceDescription` so each collection skips the Space ensure
  */
 export async function ensureSpace({
-  was,
+  pws,
   spaceUrl,
   controllerDid,
   spaceName = DEFAULT_SPACE_NAME,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceUrl: string
   controllerDid: string
   spaceName?: string
   capability?: IZcap
 }): Promise<SpaceMetadata> {
-  const space = was.spaceAt(spaceUrl, { capability })
+  const space = pws.spaceAt(spaceUrl, { capability })
   try {
     const { value } = await readOrCreate({
       read: () => space.describe(),
@@ -411,7 +411,7 @@ export async function ensureSpace({
   } catch (err) {
     rethrowProvisioningFailure(
       err,
-      `Failed to configure WAS space "${spaceUrl}" for "${controllerDid}".`
+      `Failed to configure PWS space "${spaceUrl}" for "${controllerDid}".`
     )
   }
 }

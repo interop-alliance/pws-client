@@ -31,7 +31,7 @@ import { assertNotReserved } from './internal/reserved.js'
 import {
   NotFoundError,
   ValidationError,
-  WasServerError,
+  PwsServerError,
   httpStatus
 } from './errors.js'
 import { allowsAction, delegateGrantAt } from './internal/grant.js'
@@ -367,7 +367,7 @@ export class Collection {
    * (`name`, `backend`, `encryption`, `generator`) beside the server-managed
    * timestamps and the user-writable `custom`, as one object under one
    * validator. Returns `null` if the collection is missing or not visible to
-   * you (WAS returns 404 for both not-found and unauthorized).
+   * you (PWS returns 404 for both not-found and unauthorized).
    *
    * This read never resolves the codec, so it is the configuration read: on an
    * encrypted Collection the served `custom` is the opaque envelope, exactly as
@@ -611,7 +611,7 @@ export class Collection {
       if (allowAbsent !== true) {
         throw new NotFoundError(
           `Cannot ${operation.toLowerCase()} on collection "${this.id}": it ` +
-            'does not exist, or is not visible with this capability (WAS ' +
+            'does not exist, or is not visible with this capability (PWS ' +
             'returns 404 for both). Writing anyway would replace it with a ' +
             'configuration-less Collection. Create it with ' +
             '`space.createCollection()`, or pass `ifNoneMatch: true` to ' +
@@ -663,7 +663,7 @@ export class Collection {
    * instead, and see a lost race as `PreconditionFailedError`.
    *
    * The merge needs a readable current object to be lost-update-safe, and the
-   * read cannot distinguish "absent" from "unreadable" (WAS masks unauthorized
+   * read cannot distinguish "absent" from "unreadable" (PWS masks unauthorized
    * reads as 404). When it finds nothing and either `backend` or `encryption`
    * is left out, this fails closed rather than sending a PUT body that would
    * silently drop an existing collection's `backend` (a data-placement change)
@@ -1202,7 +1202,7 @@ export class Collection {
    * under a JSON content type (whose body the HTTP client has already parsed)
    * is not a JSON Lines log and throws `ValidationError`.
    *
-   * This is the raw transport read. The `@interop/was-client/log` subpath's
+   * This is the raw transport read. The `@interop/pws-client/log` subpath's
    * `resourceLogStore({ collection })` drives it as the store port of
    * `@interop/vh-resource-log`, which parses and verifies the entries.
    *
@@ -1533,7 +1533,7 @@ export class Collection {
       count?: number
     }>(response)
     if (result === null) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `Search response for collection "${this.id}" carried no JSON body.`
       )
     }
@@ -1547,13 +1547,13 @@ export class Collection {
     const codecContext = this.codecContext()
     const items: FindPage['items'] = await Promise.all(
       documents.map(async envelope => {
-        // Restrict-mode ids make the stored document's own id the WAS resource
+        // Restrict-mode ids make the stored document's own id the PWS resource
         // id, so it is also the id the codec verifies the envelope's
         // AEAD-authenticated binding against -- a server that returns one
         // document under another's id is caught here, not trusted.
         const id = (envelope as { id?: unknown }).id
         if (typeof id !== 'string') {
-          throw new WasServerError(
+          throw new PwsServerError(
             `Search response for collection "${this.id}" returned a document ` +
               'with no id.'
           )
@@ -1603,7 +1603,7 @@ export class Collection {
   /**
    * Adds a resource with a server-generated id. JSON for plain objects/arrays,
    * binary for `Blob`/`Uint8Array` or `ReadableStream<Uint8Array>`. Throws
-   * `NotFoundError` if the collection does not exist (WAS does not
+   * `NotFoundError` if the collection does not exist (PWS does not
    * auto-create parents).
    *
    * On an encrypted collection a binary payload above the codec's
@@ -1676,7 +1676,7 @@ export class Collection {
       id,
       // RFC 9110 permits a relative `Location`; resolve it against the request
       // URL so `AddResult.url` is always absolute (consumers like
-      // `was.publicRead({ resourceUrl })` require an absolute URL).
+      // `pws.publicRead({ resourceUrl })` require an absolute URL).
       url: location
         ? new URL(location, this.url).toString()
         : this.#resourceUrl(id),
@@ -1836,7 +1836,7 @@ export class Collection {
    * opaque envelopes (an EDV encrypted document under the v1 `edv` scheme) --
    * this method does not decrypt them, unlike `get()`.
    *
-   * Malformed responses fail the call with a `WasServerError` instead of
+   * Malformed responses fail the call with a `PwsServerError` instead of
    * passing through as a page: a 2xx response with no JSON body
    * (indistinguishable from an end-of-feed page otherwise), a body with no
    * `documents` array or with a non-object entry in it, and a live JSON
@@ -1888,7 +1888,7 @@ export class Collection {
     // `{ documents: [], checkpoint: null }`.
     const page = dataOrNull<ChangesPage>(response)
     if (page === null) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The changes feed of collection "${this.id}" answered with no JSON ` +
           `body (content-type ` +
           `"${response?.headers.get('content-type') ?? 'unknown'}").`
@@ -1896,19 +1896,19 @@ export class Collection {
     }
     // A 2xx body that parsed but carries no `documents` array is the same
     // class of server fault as a bodiless one: reported as a typed
-    // `WasServerError`, not as a `TypeError` from iterating `undefined`.
+    // `PwsServerError`, not as a `TypeError` from iterating `undefined`.
     if (!Array.isArray(page.documents)) {
-      throw new WasServerError(
+      throw new PwsServerError(
         `The changes feed of collection "${this.id}" answered with no ` +
           '`documents` array.'
       )
     }
     for (const doc of page.documents) {
       // `Array.isArray` accepts `[null]`; a non-object entry is the same class
-      // of server fault, reported as a typed `WasServerError` rather than as a
+      // of server fault, reported as a typed `PwsServerError` rather than as a
       // `TypeError` from reading `kind` off it.
       if (doc === null || typeof doc !== 'object') {
-        throw new WasServerError(
+        throw new PwsServerError(
           `The changes feed of collection "${this.id}" served a non-object ` +
             'entry in its `documents` array.'
         )
@@ -1917,7 +1917,7 @@ export class Collection {
       // otherwise be skipped as an unknown kind and read as an empty,
       // caught-up feed; it is a server fault instead.
       if (typeof doc.kind !== 'string') {
-        throw new WasServerError(
+        throw new PwsServerError(
           `The changes feed of collection "${this.id}" served an entry with ` +
             'no `kind`.'
         )
@@ -1926,7 +1926,7 @@ export class Collection {
       // missing `data` is a read fault. Every other entry, an unknown kind
       // included, passes through untouched.
       if (isJsonResourceChange(doc) && !doc.deleted && doc.data === undefined) {
-        throw new WasServerError(
+        throw new PwsServerError(
           `The changes feed of collection "${this.id}" served resource ` +
             `"${doc.id}" with no body: the server could not read it.`
         )
@@ -1949,7 +1949,7 @@ export class Collection {
    * checkpoint); a short page is not the end (see `changes()`). Checkpoints
    * are opaque strings compared by equality only. A server that hands back a
    * checkpoint this walk already resumed from (the starting one included)
-   * fails the walk with a `WasServerError` rather than looping, as does one
+   * fails the walk with a `PwsServerError` rather than looping, as does one
    * that keeps advancing the checkpoint without ending the feed within
    * `maxPages` pages. Every fault `changes()` rejects on fails the walk the
    * same way.
@@ -1989,7 +1989,7 @@ export class Collection {
         return
       }
       if (seen.has(page.checkpoint)) {
-        throw new WasServerError(
+        throw new PwsServerError(
           `The changes feed of collection "${this.id}" repeated checkpoint ` +
             `${JSON.stringify(page.checkpoint)} instead of advancing.`
         )
@@ -1997,7 +1997,7 @@ export class Collection {
       // The page already says the feed continues, so the refusal costs no
       // further request.
       if (pagesRead >= maxPages) {
-        throw new WasServerError(
+        throw new PwsServerError(
           `The changes feed of collection "${this.id}" did not end within ` +
             `${maxPages} pages.`
         )
@@ -2033,7 +2033,7 @@ export class Collection {
    * pages already read are not a snapshot of anything. The server faults
    * `changes()` rejects on (a bodiless 2xx, a live JSON entry with no `data`,
    * or a `501` from a server that does not advertise the `changes-query`
-   * feature) fail the walk with the same `WasServerError`, as does a server
+   * feature) fail the walk with the same `PwsServerError`, as does a server
    * that repeats a checkpoint instead of advancing, or one that keeps advancing
    * it without ever ending the feed (the page bound of `resourceChanges()`).
    *

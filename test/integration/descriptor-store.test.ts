@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: the descriptor-store seam against a live WAS server. A
+ * Integration test: the descriptor-store seam against a live PWS server. A
  * `CollectionEncryption`-shaped roster lives as a plain JSON Resource in a
  * plaintext collection (the `resourceDescriptorStore` adapter), and the
  * recipient primitives manage it end to end: the first `initRecipients` creates
@@ -20,7 +20,7 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient, KeyUnwrapError } from '../../src/index.js'
+import { PwsClient, KeyUnwrapError } from '../../src/index.js'
 import type { CollectionEncryption, Resource, Space } from '../../src/index.js'
 import {
   initRecipients,
@@ -37,7 +37,7 @@ const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
 
 describeLive('resource-hosted descriptor store (live server)', () => {
-  let owner: WasClient
+  let owner: PwsClient
   let space: Space
   let roster: Resource
   let store: EncryptionDescriptorStore
@@ -50,7 +50,7 @@ describeLive('resource-hosted descriptor store (live server)', () => {
 
   beforeAll(async () => {
     const keyPair = await Ed25519VerificationKey.generate()
-    owner = WasClient.fromSigner({
+    owner = PwsClient.fromSigner({
       baseServerUrl: baseServerUrl!,
       signer: keyPair.didKeySigner()
     })

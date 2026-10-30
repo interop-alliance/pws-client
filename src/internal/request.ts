@@ -6,7 +6,7 @@
  * absolute URL, defaulting the capability `action` to the HTTP method (never
  * ezcap's `read`/`write`). `send()` adds the typed-error
  * mapping and the null-on-404 read translation; `rawRequest()` is the
- * unmapped escape hatch used by `was.request()`. Every signed request first
+ * unmapped escape hatch used by `pws.request()`. Every signed request first
  * awaits the context's memoized service discovery, so no request reaches a
  * server whose protocol version this client does not speak.
  */
@@ -15,8 +15,8 @@ import { isValidTarget } from '@interop/zcap'
 import { httpClient, type HttpResponse } from '@interop/http-client'
 import {
   NotFoundError,
-  WasError,
-  WasServerError,
+  PwsError,
+  PwsServerError,
   httpStatus
 } from '../errors.js'
 import { mapError } from './mapError.js'
@@ -31,7 +31,7 @@ import type { IZcap, RequestInput, ServiceInfo } from '../types.js'
  * supplies an encrypting codec for the collections the client holds keys
  * for, and the memoized service discovery every signed request waits on.
  *
- * `controllerDid` is a lazy read, not a stored string: `WasClient` backs it
+ * `controllerDid` is a lazy read, not a stored string: `PwsClient` backs it
  * with a getter so that building a context (and therefore a handle) never
  * requires an invocation signer. A client that holds only a delegation signer
  * reads it as a `ValidationError`, at the two operations that actually need
@@ -95,7 +95,7 @@ export async function rawRequest(
 }
 
 /**
- * A plain unsigned `fetch` that maps a network failure to a `WasError`, the
+ * A plain unsigned `fetch` that maps a network failure to a `PwsError`, the
  * way the rest of the transport does. The response is returned as is,
  * whatever its status: this is the probe primitive for service discovery,
  * which reads the status itself. Everything else sends through
@@ -147,7 +147,7 @@ export async function unsignedRequest(input: {
     })
   } catch (err) {
     // A public read resolves to `null` for any "not readable by you" status,
-    // not just 404: a conformant WAS masks unauthorized as 404, but a server
+    // not just 404: a conformant PWS masks unauthorized as 404, but a server
     // that answers a missing capability with 401/403 should honor the same
     // null-if-not-publicly-readable contract rather than throw.
     const status = httpStatus(err)
@@ -161,7 +161,7 @@ export async function unsignedRequest(input: {
 /**
  * Signs and sends a request, applying the typed-error mapping. When `read` is
  * set, a 404 resolves to `null` (MongoDB `findOne` semantics); otherwise every
- * non-2xx maps to a `WasError` subclass.
+ * non-2xx maps to a `PwsError` subclass.
  *
  * A request whose URL lies outside the attached capability's invocation target
  * (a Collection Metadata read under a resource-scoped grant, say) is answered
@@ -203,11 +203,11 @@ export async function send(
   try {
     return await rawRequest(context, input)
   } catch (err) {
-    // Only a raw transport error translates: a `WasError` (such as a discovery
+    // Only a raw transport error translates: a `PwsError` (such as a discovery
     // refusal) is already an answer and passes through whatever its status.
     if (
       (input.read || input.idempotent) &&
-      !(err instanceof WasError) &&
+      !(err instanceof PwsError) &&
       httpStatus(err) === 404
     ) {
       return null
@@ -217,7 +217,7 @@ export async function send(
 }
 
 /**
- * The `WasServerError` for a 2xx whose body was not the JSON object the
+ * The `PwsServerError` for a 2xx whose body was not the JSON object the
  * operation required. The request layer parses a body into `data` only for a
  * JSON content type, so naming the content type the server sent points at the
  * cause (a mislabeled or body-less 2xx).
@@ -226,7 +226,7 @@ export async function send(
  * @param options.response {HttpResponse | null}
  * @param options.operation {string}   the request, as the message's subject
  * @param options.expected {string}   what the body should have carried
- * @returns {WasServerError}
+ * @returns {PwsServerError}
  */
 export function missingJsonBodyError({
   response,
@@ -236,9 +236,9 @@ export function missingJsonBodyError({
   response: HttpResponse | null
   operation: string
   expected: string
-}): WasServerError {
+}): PwsServerError {
   const contentType = response?.headers.get('content-type') ?? 'no content-type'
-  return new WasServerError(
+  return new PwsServerError(
     `${operation} response carried no JSON body (the server sent ` +
       `${contentType}); expected ${expected}.`
   )
@@ -250,7 +250,7 @@ export function missingJsonBodyError({
  * missing/unauthorized target (404) resolves to `null`. So does a
  * bodyless/non-JSON 2xx (see `dataOrNull`), unless `expected` names what the
  * body should have carried: then that 2xx is a server fault
- * (`WasServerError`), for a read whose caller must not mistake a misbehaving
+ * (`PwsServerError`), for a read whose caller must not mistake a misbehaving
  * server for "nothing stored".
  *
  * @param context {ClientContext}

@@ -3,10 +3,10 @@
  */
 /**
  * Integration test: `collection.add(bigBlob)` auto-routing, end to end against
- * a live WAS server whose backend advertises the `chunked-streams` feature. A
+ * a live PWS server whose backend advertises the `chunked-streams` feature. A
  * binary payload over the codec's `maxBlobBytes` threshold is written as one
  * EDV document plus its chunk resources, and the ordinary `get()` handle reads
- * it back byte-exact -- no `EdvClientCore` or `WasTransport` in the caller's
+ * it back byte-exact -- no `EdvClientCore` or `PwsTransport` in the caller's
  * code. A `ReadableStream` payload takes the same path whatever its size, and
  * `getStream()` reads it back as a stream. The threshold is set small here so
  * the blob need not exceed the 512 KiB default.
@@ -16,7 +16,7 @@
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 
-import type { Space, Collection, WasClient } from '../../src/index.js'
+import type { Space, Collection, PwsClient } from '../../src/index.js'
 import { bytesOf, drain } from '../helpers/bytes.js'
 import {
   chunkedClient,
@@ -35,7 +35,7 @@ const MAX_BLOB_BYTES = 4 * 1024
 const CHUNK_SIZE = 8 * 1024
 
 describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
-  let was: WasClient
+  let pws: PwsClient
   let space: Space
   let collection: Collection
 
@@ -45,9 +45,9 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
       maxBlobBytes: MAX_BLOB_BYTES,
       chunkSize: CHUNK_SIZE
     })
-    was = client.was
+    pws = client.pws
     ;({ space, collection } = await provisionVault({
-      was,
+      pws,
       kak: client.kak,
       name: 'EDV Chunked Add Integration'
     }))
@@ -79,7 +79,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
     // chunk resources on the server. A single-document write stores none.
     await expect(
       chunkStatus({
-        was,
+        pws,
         spaceUrl: space.url,
         resourceId: added.id,
         chunkIndex: 0
@@ -87,7 +87,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
     ).resolves.toBe(200)
     await expect(
       chunkStatus({
-        was,
+        pws,
         spaceUrl: space.url,
         resourceId: added.id,
         chunkIndex: 1
@@ -111,7 +111,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
     await expect(
       chunkStatus({
-        was,
+        pws,
         spaceUrl: space.url,
         resourceId: added.id,
         chunkIndex: 2
@@ -129,7 +129,7 @@ describeLive('collection.add(bigBlob) auto-routing (live server)', () => {
 
     // Sealed into one document: no chunk resource exists under it.
     await expect(
-      chunkStatus({ was, spaceUrl: space.url, resourceId: id, chunkIndex: 0 })
+      chunkStatus({ pws, spaceUrl: space.url, resourceId: id, chunkIndex: 0 })
     ).resolves.toBe(404)
   })
 })

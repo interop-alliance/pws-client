@@ -1,6 +1,6 @@
 {
-  "name": "@interop/was-client",
-  "description": "A developer-friendly client for Wallet Attached Storage (WAS) servers.",
+  "name": "@interop/pws-client",
+  "description": "A developer-friendly client for Portable Web Spaces (PWS) servers.",
   "version": "0.103.0",
   "type": "module",
   "scripts": {
@@ -125,8 +125,8 @@
     "provenance": true
   },
   "keywords": [
-    "wallet attached storage",
-    "was",
+    "portable web spaces",
+    "pws",
     "zcap",
     "ezcap"
   ],
@@ -141,8 +141,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/interop-alliance/was-client.git"
+    "url": "git+https://github.com/interop-alliance/pws-client.git"
   },
-  "homepage": "https://github.com/interop-alliance/was-client",
-  "bugs": "https://github.com/interop-alliance/was-client/issues"
+  "homepage": "https://github.com/interop-alliance/pws-client",
+  "bugs": "https://github.com/interop-alliance/pws-client/issues"
 }

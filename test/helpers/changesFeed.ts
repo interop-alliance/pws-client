@@ -64,7 +64,7 @@ export function feedEntry({
 export function recordEntry(kind: string, checkpoint: string): ChangeDocument {
   return feedEntry({
     kind,
-    id: `https://was.example/space/s/notes/${kind}`,
+    id: `https://pws.example/space/s/notes/${kind}`,
     checkpoint
   })
 }

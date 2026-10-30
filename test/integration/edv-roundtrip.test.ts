@@ -2,10 +2,10 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Integration test: the EDV-over-WAS layout profile, end to end, against a live
- * WAS server (e.g. a web-spaces-server filesystem backend). Proves that a
+ * Integration test: the EDV-over-PWS layout profile, end to end, against a live
+ * PWS server (e.g. a web-spaces-server filesystem backend). Proves that a
  * document encrypted client-side with `EdvClientCore` can be written through
- * `WasTransport` as an ordinary WAS resource, read back, and decrypted -- and
+ * `PwsTransport` as an ordinary PWS resource, read back, and decrypted -- and
  * that what the server stores is opaque ciphertext (a JWE envelope, no
  * cleartext).
  *
@@ -20,42 +20,42 @@ import { SHA256HMACKey } from '@interop/data-integrity-core'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
-import { WasTransport, JOSE_CONTENT_TYPE } from '../../src/edv/index.js'
+import { PwsTransport, JOSE_CONTENT_TYPE } from '../../src/edv/index.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
 
 /**
- * Builds a fresh did:key Ed25519 signer and a WAS client over it.
+ * Builds a fresh did:key Ed25519 signer and a PWS client over it.
  *
- * @returns {Promise<WasClient>}
+ * @returns {Promise<PwsClient>}
  */
-async function freshWasClient(): Promise<WasClient> {
+async function freshPwsClient(): Promise<PwsClient> {
   const keyPair = await Ed25519VerificationKey.generate()
-  return WasClient.fromSigner({
+  return PwsClient.fromSigner({
     baseServerUrl: baseServerUrl!,
     signer: keyPair.didKeySigner()
   })
 }
 
-describeLive('EDV-over-WAS round trip (live server)', () => {
-  let was: WasClient
+describeLive('EDV-over-PWS round trip (live server)', () => {
+  let pws: PwsClient
   let space: Space
   let collection: Collection
   let edv: EdvClientCore
-  let transport: WasTransport
+  let transport: PwsTransport
 
   beforeAll(async () => {
-    was = await freshWasClient()
-    space = await was.createSpace({ name: 'EDV Integration' })
+    pws = await freshPwsClient()
+    space = await pws.createSpace({ name: 'EDV Integration' })
     collection = await space.createCollection({ id: 'vault', name: 'Vault' })
 
     // Vault-per-collection: one client-side X25519 key set; keys never reach
     // the server. The key id is the recipient `kid` and the decrypt key id.
     const kak = await X25519KeyAgreementKey2020.generate({
-      controller: was.controllerDid
+      controller: pws.controllerDid
     })
     const keyResolver = async ({ id }: { id?: string }) => {
       if (id !== kak.id) {
@@ -74,8 +74,8 @@ describeLive('EDV-over-WAS round trip (live server)', () => {
       keyAgreementKey: kak as IKeyAgreementKey,
       keyResolver
     })
-    transport = new WasTransport({
-      was,
+    transport = new PwsTransport({
+      pws,
       spaceUrl: space.url,
       collectionId: collection.id
     })
@@ -90,10 +90,10 @@ describeLive('EDV-over-WAS round trip (live server)', () => {
   })
 
   it('encrypts, writes, reads back, and decrypts a document', async () => {
-    const content = { message: 'hello edv-over-was', n: 42 }
+    const content = { message: 'hello edv-over-pws', n: 42 }
     const inserted = await edv.insert({ doc: { content }, transport })
 
-    // The id is an EDV 128-bit multibase value, used verbatim as the WAS
+    // The id is an EDV 128-bit multibase value, used verbatim as the PWS
     // resource id (restrict-mode mapping).
     expect(inserted.id).toMatch(/^z/)
     expect(inserted.sequence).toBe(0)
@@ -108,7 +108,7 @@ describeLive('EDV-over-WAS round trip (live server)', () => {
       transport
     })
 
-    // Read the raw stored resource through the plaintext WAS client: the server
+    // Read the raw stored resource through the plaintext PWS client: the server
     // sees only the JWE envelope, never the cleartext.
     const stored = (await collection.get(inserted.id)) as Record<
       string,
@@ -144,8 +144,8 @@ describeLive('EDV-over-WAS round trip (live server)', () => {
   it('can store the preferred application/jose+json descriptor', async () => {
     // A server that registers an `application/*+json` content-type parser (the
     // reference server does) accepts the preferred EDV descriptor.
-    const edvTransport = new WasTransport({
-      was,
+    const edvTransport = new PwsTransport({
+      pws,
       spaceUrl: space.url,
       collectionId: collection.id,
       contentType: JOSE_CONTENT_TYPE
@@ -179,17 +179,17 @@ interface DecryptedDoc {
   content: Record<string, unknown>
 }
 
-describeLive('EDV-over-WAS blinded-index query (live server)', () => {
-  let was: WasClient
+describeLive('EDV-over-PWS blinded-index query (live server)', () => {
+  let pws: PwsClient
   let space: Space
   let collection: Collection
   let edv: EdvClientCore
-  let transport: WasTransport
+  let transport: PwsTransport
   let hmac: SHA256HMACKey
 
   beforeAll(async () => {
-    was = await freshWasClient()
-    space = await was.createSpace({ name: 'EDV Query Integration' })
+    pws = await freshPwsClient()
+    space = await pws.createSpace({ name: 'EDV Query Integration' })
     // A dedicated collection keeps document counts deterministic, independent
     // of the round-trip suite above; queries below stay disjoint by using a
     // distinct indexed attribute value (or a distinct attribute name) per test.
@@ -199,7 +199,7 @@ describeLive('EDV-over-WAS blinded-index query (live server)', () => {
     })
 
     const kak = await X25519KeyAgreementKey2020.generate({
-      controller: was.controllerDid
+      controller: pws.controllerDid
     })
     const keyResolver = async ({ id }: { id?: string }) => {
       if (id !== kak.id) {
@@ -229,8 +229,8 @@ describeLive('EDV-over-WAS blinded-index query (live server)', () => {
     edv.ensureIndex({ attribute: 'content.section' })
     edv.ensureIndex({ attribute: 'content.serialNumber', unique: true })
 
-    transport = new WasTransport({
-      was,
+    transport = new PwsTransport({
+      pws,
       spaceUrl: space.url,
       collectionId: collection.id
     })

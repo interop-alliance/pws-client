@@ -2,21 +2,21 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * A `WasClient` over a stub `ZcapClient`, for unit tests that drive a handle
+ * A `PwsClient` over a stub `ZcapClient`, for unit tests that drive a handle
  * without a server. The stub hands every `request(...)` call to the test's
  * own handler, which returns a canned `HttpResponse` (see `jsonResponse`) or
  * throws the error the test wants `mapError` to see.
  */
 import type { HttpResponse } from '@interop/http-client'
 import type { ServiceDescription } from '../../src/index.js'
-import { WasClient } from '../../src/index.js'
+import { PwsClient } from '../../src/index.js'
 
 /**
  * The stub server's origin. The stub lays its URLs out the way the spec does
  * beneath the base server URL: the service description at `/service`, the
  * Spaces Repository at `/spaces/`, and a Space at `/space/{id}/`.
  */
-export const STUB_ORIGIN = 'https://was.example'
+export const STUB_ORIGIN = 'https://pws.example'
 
 /**
  * The URL a stubbed `fetch` was called with. The unsigned path sends through
@@ -73,7 +73,7 @@ export function spaceUrlFor(spaceId: string, origin = STUB_ORIGIN): string {
 
 /**
  * A v0.5 service description for a stub server at `origin`, with the Spaces
- * Repository at `spaces/` under it. Passing it to the `WasClient`
+ * Repository at `spaces/` under it. Passing it to the `PwsClient`
  * constructor lets a stubbed client skip network discovery.
  *
  * @param [origin] {string}   defaults to {@link STUB_ORIGIN}
@@ -115,21 +115,21 @@ export interface RequestArgs {
 }
 
 /**
- * Builds a `WasClient` whose `ZcapClient` answers each request through
+ * Builds a `PwsClient` whose `ZcapClient` answers each request through
  * `request`.
  *
  * @param request {function}   `(args: RequestArgs) => HttpResponse` (may
  *   throw, or return a promise)
- * @returns {WasClient}
+ * @returns {PwsClient}
  */
 export function clientWithStub(
   request: (args: RequestArgs) => HttpResponse | Promise<HttpResponse>
-): WasClient {
+): PwsClient {
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' },
     request
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  return new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  return new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
@@ -166,7 +166,7 @@ export function jsonResponse({
 }
 
 /**
- * A stubbed `WasClient` that records every request and answers each with the
+ * A stubbed `PwsClient` that records every request and answers each with the
  * same canned response. `data` is the JSON body (`undefined` for a bodiless
  * reply), `etag` the response `ETag` header (none when left out), and `fail`
  * an HTTP status to throw instead, in the shape `@interop/http-client` rejects
@@ -183,7 +183,7 @@ export function clientWithRequestSpy({
   fail,
   etag
 }: { data?: unknown; fail?: number; etag?: string } = {}): {
-  client: WasClient
+  client: PwsClient
   calls: RequestArgs[]
   lastRequest: () => RequestArgs | undefined
 } {

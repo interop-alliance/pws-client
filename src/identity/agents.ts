@@ -2,10 +2,10 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * WAS identity derivation: controller secret / seed to the agent set a did:key
+ * PWS identity derivation: controller secret / seed to the agent set a did:key
  * client operates with. Every consumer must derive byte-for-byte identically,
  * so that supplying the same controller secret on any client joins the same
- * WAS account/Space.
+ * PWS account/Space.
  *
  * The derivation: secret or 32-byte seed enters `CapabilityAgent` under the
  * pinned `'bootstrap'` / `'bootstrap-key'` names. Both are derivation inputs:
@@ -59,7 +59,7 @@ export interface ProfileAgents {
 }
 
 /**
- * Derives the WAS agents from an already-derived 32-byte seed, skipping the
+ * Derives the PWS agents from an already-derived 32-byte seed, skipping the
  * salted-hash step (`CapabilityAgent.fromSeed` semantics: a stored seed
  * stands in for the original secret).
  *
@@ -86,7 +86,7 @@ export async function agentsFromSeed({
 }
 
 /**
- * Derives the WAS agents from a controller secret. The secret is always a
+ * Derives the PWS agents from a controller secret. The secret is always a
  * string: a passphrase, or the base64url text of 32 random bytes, not the
  * decoded bytes. `CapabilityAgent.fromSecret`'s salted hash is
  * type-sensitive, so a string and its UTF-8 bytes derive different keys.

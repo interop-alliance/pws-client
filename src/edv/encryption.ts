@@ -4,7 +4,7 @@
 /**
  * `createEdvEncryption`: the EDV keystore for the handle seam, and the one
  * {@link EncryptionProvider} in this package that points a codec at a server.
- * It sits beside `wasTransportFactory` rather than beside the {@link EdvCodec}
+ * It sits beside `pwsTransportFactory` rather than beside the {@link EdvCodec}
  * class, because it is the online half of the codec seam: a build with no
  * server behind it (the local-replica doc cipher, `buildEdvCodec` and
  * `encryptOnlyEdvCodec`) reaches the codec without evaluating this module or
@@ -21,12 +21,12 @@ import {
 } from './EdvCodec.js'
 import type { EdvKeys } from './EdvCodec.js'
 import { collectionUrl } from '../internal/paths.js'
-import { wasTransportFactory } from './transportFactory.js'
+import { pwsTransportFactory } from './transportFactory.js'
 
 /**
  * Builds an {@link EncryptionProvider} for the `edv` scheme: a pure **keystore**
  * that turns a collection's keys into an {@link EdvCodec}. Pass the result as
- * `WasClient`'s `encryption` option.
+ * `PwsClient`'s `encryption` option.
  *
  * It does **not** decide which collections are encrypted -- that policy is the
  * Collection's `encryption` descriptor (or a per-handle override). Core calls
@@ -113,7 +113,7 @@ export function createEdvEncryption({
       }
       return buildEdvCodec({
         label,
-        transportFactory: wasTransportFactory({
+        transportFactory: pwsTransportFactory({
           spaceUrl,
           collectionId,
           contentType

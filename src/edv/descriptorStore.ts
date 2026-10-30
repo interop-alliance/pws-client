@@ -93,7 +93,7 @@ export interface EncryptionDescriptorStore {
 /**
  * The Collection Metadata adapter: the descriptor is the Collection Metadata
  * object's `encryption` member. Read fails closed when the object is unreadable
- * (WAS masks unauthorized reads as 404) or the collection is not declared
+ * (PWS masks unauthorized reads as 404) or the collection is not declared
  * encrypted with the `edv` scheme; the CAS write forwards the configuration
  * members (`name` / `backend` / the app attribution) observed by the most
  * recent read, so the full-replacement PUT does not drop them. The

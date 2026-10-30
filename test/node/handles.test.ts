@@ -3,7 +3,7 @@
  */
 /**
  * Unit tests for the lazy navigational handles and capability-rebuilding. A
- * `WasClient` over a stub `ZcapClient` builds `Space`/`Collection`/`Resource`
+ * `PwsClient` over a stub `ZcapClient` builds `Space`/`Collection`/`Resource`
  * handles synchronously, with no network or key material, each one's URL
  * derived from the Space URL it was opened on. `fromCapability` reads the
  * Space off a zcap's delegation chain and derives a handle at the depth its
@@ -12,14 +12,14 @@
 import { describe, it, expect } from 'vitest'
 
 import {
-  WasClient,
+  PwsClient,
   Space,
   Collection,
   Resource,
   ValidationError,
   AuthRequiredError,
   NotSupportedError,
-  WasServerError
+  PwsServerError
 } from '../../src/index.js'
 import type { IDID, IZcap } from '../../src/index.js'
 import { rootCapabilityId } from '../../src/paths/index.js'
@@ -34,17 +34,17 @@ import {
 } from '../helpers/stubClient.js'
 
 /**
- * Builds a `WasClient` over a minimal stub `ZcapClient` -- enough to construct
+ * Builds a `PwsClient` over a minimal stub `ZcapClient` -- enough to construct
  * handles and derive `controllerDid`, without a signer or server.
  *
  * @param [signerId] {string}   the invocationSigner id (DID + key fragment)
- * @returns {WasClient}
+ * @returns {PwsClient}
  */
-function stubClient(signerId = 'did:example:alice#key-1'): WasClient {
+function stubClient(signerId = 'did:example:alice#key-1'): PwsClient {
   const zcapClient = {
     invocationSigner: { id: signerId }
-  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-  return new WasClient({
+  } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+  return new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     zcapClient,
     serviceDescription: serviceDescriptionFor()
@@ -67,68 +67,68 @@ describe('lazy handles', () => {
   })
 
   it('derives every handle URL from the Space URL', () => {
-    const space = stubClient().spaceAt('https://was.example/space/s/')
-    expect(space.url).toBe('https://was.example/space/s/')
+    const space = stubClient().spaceAt('https://pws.example/space/s/')
+    expect(space.url).toBe('https://pws.example/space/s/')
     expect(space.id).toBe('s')
 
     const collection = space.collection('c')
-    expect(collection.spaceUrl).toBe('https://was.example/space/s/')
+    expect(collection.spaceUrl).toBe('https://pws.example/space/s/')
     expect(collection.id).toBe('c')
-    expect(collection.url).toBe('https://was.example/space/s/c/')
+    expect(collection.url).toBe('https://pws.example/space/s/c/')
 
     const resource = collection.resource('r')
-    expect(resource.spaceUrl).toBe('https://was.example/space/s/')
+    expect(resource.spaceUrl).toBe('https://pws.example/space/s/')
     expect(resource.collectionId).toBe('c')
     expect(resource.id).toBe('r')
-    expect(resource.url).toBe('https://was.example/space/s/c/r')
+    expect(resource.url).toBe('https://pws.example/space/s/c/r')
   })
 
   it('percent-encodes ids into handle URLs and decodes the Space id', () => {
-    const space = stubClient().spaceAt('https://was.example/space/a%20b/')
+    const space = stubClient().spaceAt('https://pws.example/space/a%20b/')
     expect(space.id).toBe('a b')
     const collection = space.collection('c/d')
-    expect(collection.url).toBe('https://was.example/space/a%20b/c%2Fd/')
+    expect(collection.url).toBe('https://pws.example/space/a%20b/c%2Fd/')
     const resource = collection.resource('r#1')
-    expect(resource.url).toBe('https://was.example/space/a%20b/c%2Fd/r%231')
+    expect(resource.url).toBe('https://pws.example/space/a%20b/c%2Fd/r%231')
   })
 
   it('spaceAt canonicalizes the Space URL', () => {
     const client = stubClient()
     for (const spaceUrl of [
-      'https://was.example/space/s',
-      'https://was.example/space/s///',
-      'https://WAS.Example:443/space/s/'
+      'https://pws.example/space/s',
+      'https://pws.example/space/s///',
+      'https://PWS.Example:443/space/s/'
     ]) {
       const space = client.spaceAt(spaceUrl)
-      expect(space.url).toBe('https://was.example/space/s/')
-      expect(space.collection('c').url).toBe('https://was.example/space/s/c/')
+      expect(space.url).toBe('https://pws.example/space/s/')
+      expect(space.collection('c').url).toBe('https://pws.example/space/s/c/')
     }
   })
 
   it('rejects a Space URL whose id is a malformed percent escape at construction', () => {
     const client = stubClient()
-    expect(() => client.spaceAt('https://was.example/space/%ff/')).toThrow(
+    expect(() => client.spaceAt('https://pws.example/space/%ff/')).toThrow(
       ValidationError
     )
     expect(() =>
       client.fromCapability({
         id: 'urn:uuid:child',
-        parentCapability: rootCapabilityId('https://was.example/space/%ff/'),
-        invocationTarget: 'https://was.example/space/%ff/c/'
+        parentCapability: rootCapabilityId('https://pws.example/space/%ff/'),
+        invocationTarget: 'https://pws.example/space/%ff/c/'
       } as unknown as IZcap)
     ).toThrow(ValidationError)
     // Every handle beneath such a Space refuses it too, not only the Space
     // handle that decodes the id.
     expect(() =>
-      client.collectionAt('https://was.example/space/%ff/c/')
+      client.collectionAt('https://pws.example/space/%ff/c/')
     ).toThrow(ValidationError)
   })
 
   it('spaceAt rejects a URL that is not a Space URL', () => {
     const client = stubClient()
     for (const spaceUrl of [
-      'https://was.example/space/s/?q=1',
-      'ftp://was.example/space/s/',
+      'https://pws.example/space/s/?q=1',
+      'ftp://pws.example/space/s/',
       '/space/s/',
       's'
     ]) {
@@ -145,8 +145,8 @@ describe('lazy handles', () => {
   it('throws if the wrapped client has no invocationSigner id', () => {
     const zcapClient = {
       invocationSigner: {}
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       serviceDescription: serviceDescriptionFor(),
       zcapClient
@@ -177,7 +177,7 @@ describe('fromCapability', () => {
 
   it('rebuilds a Space handle from a space-scoped invocationTarget', () => {
     const handle = client.fromCapability(
-      zcapFor('https://was.example/space/s/')
+      zcapFor('https://pws.example/space/s/')
     )
     expect(handle).toBeInstanceOf(Space)
     expect((handle as Space).id).toBe('s')
@@ -185,36 +185,36 @@ describe('fromCapability', () => {
   })
 
   it('reads the bare Space form as the Space', () => {
-    const handle = client.fromCapability(zcapFor('https://was.example/space/s'))
+    const handle = client.fromCapability(zcapFor('https://pws.example/space/s'))
     expect(handle).toBeInstanceOf(Space)
     expect((handle as Space).url).toBe(spaceUrl)
   })
 
   it('rebuilds a Collection handle from a collection-scoped target', () => {
     const handle = client.fromCapability(
-      zcapFor('https://was.example/space/s/c')
+      zcapFor('https://pws.example/space/s/c')
     )
     expect(handle).toBeInstanceOf(Collection)
     expect((handle as Collection).id).toBe('c')
     expect((handle as Collection).spaceUrl).toBe(spaceUrl)
-    expect((handle as Collection).url).toBe('https://was.example/space/s/c/')
+    expect((handle as Collection).url).toBe('https://pws.example/space/s/c/')
   })
 
   it('rebuilds a Resource handle from a resource-scoped target', () => {
     const handle = client.fromCapability(
-      zcapFor('https://was.example/space/s/c/r')
+      zcapFor('https://pws.example/space/s/c/r')
     )
     expect(handle).toBeInstanceOf(Resource)
     expect((handle as Resource).collectionId).toBe('c')
     expect((handle as Resource).id).toBe('r')
     expect((handle as Resource).spaceUrl).toBe(spaceUrl)
-    expect((handle as Resource).url).toBe('https://was.example/space/s/c/r')
+    expect((handle as Resource).url).toBe('https://pws.example/space/s/c/r')
   })
 
   it('throws for an invocationTarget outside the Space the chain roots at', () => {
     for (const target of [
-      'https://was.example/other/x',
-      'https://was.example/space/s2/c/',
+      'https://pws.example/other/x',
+      'https://pws.example/space/s2/c/',
       'https://elsewhere.example/space/s/c/'
     ]) {
       expect(() => client.fromCapability(zcapFor(target))).toThrow(
@@ -227,11 +227,11 @@ describe('fromCapability', () => {
     const handle = client.fromCapability({
       id: 'urn:uuid:grandchild',
       parentCapability: 'urn:uuid:child',
-      invocationTarget: 'https://was.example/space/s/c/r',
+      invocationTarget: 'https://pws.example/space/s/c/r',
       proof: { capabilityChain: [rootCapabilityId(spaceUrl), 'urn:uuid:child'] }
     } as unknown as IZcap)
     expect(handle).toBeInstanceOf(Resource)
-    expect((handle as Resource).url).toBe('https://was.example/space/s/c/r')
+    expect((handle as Resource).url).toBe('https://pws.example/space/s/c/r')
   })
 
   it('rebuilds a Space handle from the Space root capability itself', () => {
@@ -250,20 +250,20 @@ describe('fromCapability', () => {
       client.fromCapability({
         id: 'urn:uuid:child',
         parentCapability: 'urn:uuid:parent',
-        invocationTarget: 'https://was.example/space/s/c/'
+        invocationTarget: 'https://pws.example/space/s/c/'
       } as unknown as IZcap)
     ).toThrow(/not rooted in a Space/)
     expect(() =>
       client.fromCapability(
-        zcapFor('https://was.example/space/s/c/', 'https://was.example/')
+        zcapFor('https://pws.example/space/s/c/', 'https://pws.example/')
       )
     ).toThrow(ValidationError)
   })
 
   it('opens a Space on another server, as the chain names it', () => {
-    const elsewhere = 'https://elsewhere.example/was/space/s/'
+    const elsewhere = 'https://elsewhere.example/pws/space/s/'
     const handle = client.fromCapability(
-      zcapFor('https://elsewhere.example/was/space/s/c/', elsewhere)
+      zcapFor('https://elsewhere.example/pws/space/s/c/', elsewhere)
     )
     expect(handle).toBeInstanceOf(Collection)
     expect((handle as Collection).spaceUrl).toBe(elsewhere)
@@ -272,9 +272,9 @@ describe('fromCapability', () => {
 
   it('refuses a target not in canonical form, which no handle request could invoke', () => {
     for (const target of [
-      'https://WAS.example/space/s/c/r',
-      'https://was.example:443/space/s/c/r',
-      'https://was.example/space/s/c//'
+      'https://PWS.example/space/s/c/r',
+      'https://pws.example:443/space/s/c/r',
+      'https://pws.example/space/s/c//'
     ]) {
       expect(() => client.fromCapability(zcapFor(target))).toThrow(
         ValidationError
@@ -291,14 +291,14 @@ describe('fromCapability', () => {
   it('decodes percent-encoded id segments so they are not double-encoded', () => {
     const handle = client.fromCapability(
       zcapFor(
-        'https://was.example/space/a%20b/c%2Fd',
-        'https://was.example/space/a%20b/'
+        'https://pws.example/space/a%20b/c%2Fd',
+        'https://pws.example/space/a%20b/'
       )
     )
     expect(handle).toBeInstanceOf(Collection)
     expect((handle as Collection).id).toBe('c/d')
     expect((handle as Collection).url).toBe(
-      'https://was.example/space/a%20b/c%2Fd/'
+      'https://pws.example/space/a%20b/c%2Fd/'
     )
   })
 
@@ -307,22 +307,22 @@ describe('fromCapability', () => {
     // as a Resource handle for `{spaceUrl}c/r` -- the handle would sign invocations
     // against the content URL with a capability targeting the meta URL.
     expect(() =>
-      client.fromCapability(zcapFor('https://was.example/space/s/c/r/meta'))
+      client.fromCapability(zcapFor('https://pws.example/space/s/c/r/meta'))
     ).toThrow(ValidationError)
     expect(() =>
-      client.fromCapability(zcapFor('https://was.example/space/s/c/r/meta'))
+      client.fromCapability(zcapFor('https://pws.example/space/s/c/r/meta'))
     ).toThrow(/sub-resource/)
   })
 
   it('throws for a collection-policy target instead of a reserved-id error', () => {
     expect(() =>
-      client.fromCapability(zcapFor('https://was.example/space/s/c/policy'))
+      client.fromCapability(zcapFor('https://pws.example/space/s/c/policy'))
     ).toThrow(/sub-resource/)
   })
 
   it('throws for a space-policy target instead of a Collection("policy")', () => {
     expect(() =>
-      client.fromCapability(zcapFor('https://was.example/space/s/policy'))
+      client.fromCapability(zcapFor('https://pws.example/space/s/policy'))
     ).toThrow(/sub-resource/)
   })
 })
@@ -336,7 +336,7 @@ describe('Space.deleteWithOutcome / delete', () => {
       .deleteWithOutcome()
     expect(result).toEqual({ outcome: 'deleted' })
     const req = lastRequest()
-    expect(req?.url).toBe('https://was.example/space/s/')
+    expect(req?.url).toBe('https://pws.example/space/s/')
     expect(req?.method).toBe('DELETE')
     expect(req?.capability).toBe(capability)
   })
@@ -347,7 +347,7 @@ describe('Space.deleteWithOutcome / delete', () => {
     expect(result).toEqual({ outcome: 'not-found' })
   })
 
-  it('deleteWithOutcome() rethrows the mapped WasError for a non-404 status', async () => {
+  it('deleteWithOutcome() rethrows the mapped PwsError for a non-404 status', async () => {
     const { client: clientForServerError } = clientWithRequestSpy({
       fail: 500
     })
@@ -379,14 +379,14 @@ describe('Space.deleteWithOutcome / delete', () => {
  */
 describe('spaceAt() encryption default', () => {
   /**
-   * Builds an encryption-capable `WasClient` over a stub that records every
+   * Builds an encryption-capable `PwsClient` over a stub that records every
    * request URL and a keystore that fails if it is ever consulted.
    *
    * @returns {object}
-   * @returns return.client {WasClient}
+   * @returns return.client {PwsClient}
    * @returns return.urls {string[]}   the recorded request URLs
    */
-  function encryptingClient(): { client: WasClient; urls: string[] } {
+  function encryptingClient(): { client: PwsClient; urls: string[] } {
     const urls: string[] = []
     const zcapClient = {
       invocationSigner: { id: 'did:example:alice#key-1' },
@@ -397,13 +397,13 @@ describe('spaceAt() encryption default', () => {
         }
         return jsonResponse()
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
     const encryption = {
       async codecFor() {
         throw new Error('the keystore must not be consulted for plaintext')
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['encryption']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['encryption']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       zcapClient,
       encryption,
@@ -418,7 +418,7 @@ describe('spaceAt() encryption default', () => {
       .spaceAt(spaceUrlFor('s'), { encryption: 'plaintext' })
       .collection('c')
       .put('r', { hello: 'world' })
-    expect(urls).toEqual(['https://was.example/space/s/c/r'])
+    expect(urls).toEqual(['https://pws.example/space/s/c/r'])
   })
 
   it('lets collection() override the space-level default', async () => {
@@ -427,7 +427,7 @@ describe('spaceAt() encryption default', () => {
       .spaceAt(spaceUrlFor('s'))
       .collection('c', { encryption: 'plaintext' })
       .put('r', { hello: 'world' })
-    expect(urls).toEqual(['https://was.example/space/s/c/r'])
+    expect(urls).toEqual(['https://pws.example/space/s/c/r'])
   })
 
   it('without the default, discovers the descriptor from the metadata object', async () => {
@@ -437,8 +437,8 @@ describe('spaceAt() encryption default', () => {
       .collection('c')
       .put('r', { hello: 'world' })
     expect(urls).toEqual([
-      'https://was.example/space/s/c/meta',
-      'https://was.example/space/s/c/r'
+      'https://pws.example/space/s/c/meta',
+      'https://pws.example/space/s/c/r'
     ])
   })
 })
@@ -458,8 +458,8 @@ describe('createCollection', () => {
         urls.push(args.url as string)
         return jsonResponse({ data: { id: 'c' } })
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       zcapClient,
       serviceDescription: serviceDescriptionFor()
@@ -470,7 +470,7 @@ describe('createCollection', () => {
       .spaceAt(spaceUrlFor('s'))
       .createCollection({ id: 'c', generator: { id: appDid } })
     expect(collection.id).toBe('c')
-    expect(urls).toEqual(['https://was.example/space/s/'])
+    expect(urls).toEqual(['https://pws.example/space/s/'])
   })
 
   it('does not inherit the Space handle encryption default', async () => {
@@ -481,13 +481,13 @@ describe('createCollection', () => {
         urls.push(args.url as string)
         return jsonResponse({ data: { id: 'c' } })
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
     const encryption = {
       async codecFor() {
         throw new Error('the keystore must not be consulted')
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['encryption']
-    const client = new WasClient({
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['encryption']
+    const client = new PwsClient({
       baseServerUrl: baseServerUrlFor(),
       zcapClient,
       encryption,
@@ -502,9 +502,9 @@ describe('createCollection', () => {
       .createCollection({ id: 'c' })
     await collection.put('r', { hello: 'world' })
     expect(urls).toEqual([
-      'https://was.example/space/s/',
-      'https://was.example/space/s/c/meta',
-      'https://was.example/space/s/c/r'
+      'https://pws.example/space/s/',
+      'https://pws.example/space/s/c/meta',
+      'https://pws.example/space/s/c/r'
     ])
   })
 })
@@ -517,7 +517,7 @@ describe('createSpace', () => {
    * @returns {object} { client, calls }
    */
   function creatingClient(headers: Record<string, string>): {
-    client: WasClient
+    client: PwsClient
     calls: RequestArgs[]
   } {
     const calls: RequestArgs[] = []
@@ -531,9 +531,9 @@ describe('createSpace', () => {
   it('opens the handle on an absolute Location', async () => {
     const { client, calls } = creatingClient({ location: spaceUrlFor('new') })
     const space = await client.createSpace({ id: 'new' })
-    expect(calls[0]?.url).toBe('https://was.example/spaces/')
+    expect(calls[0]?.url).toBe('https://pws.example/spaces/')
     expect(calls[0]?.method).toBe('POST')
-    expect(space.url).toBe('https://was.example/space/new/')
+    expect(space.url).toBe('https://pws.example/space/new/')
     expect(space.id).toBe('new')
   })
 
@@ -550,9 +550,9 @@ describe('createSpace', () => {
 
   it('resolves a relative Location against the Spaces Repository URL', async () => {
     for (const [location, expected] of [
-      ['/space/new/', 'https://was.example/space/new/'],
-      ['../space/new', 'https://was.example/space/new/'],
-      ['new/', 'https://was.example/spaces/new/']
+      ['/space/new/', 'https://pws.example/space/new/'],
+      ['../space/new', 'https://pws.example/space/new/'],
+      ['new/', 'https://pws.example/spaces/new/']
     ] as const) {
       const { client } = creatingClient({ location })
       const space = await client.createSpace()
@@ -560,12 +560,12 @@ describe('createSpace', () => {
     }
   })
 
-  it('throws WasServerError when the response carries no Location', async () => {
+  it('throws PwsServerError when the response carries no Location', async () => {
     // A body naming the id is not enough: the client cannot assemble the
     // Space URL from it.
     const { client } = creatingClient({})
     await expect(client.createSpace({ id: 'new' })).rejects.toThrow(
-      WasServerError
+      PwsServerError
     )
     await expect(client.createSpace({ id: 'new' })).rejects.toThrow(
       /carries no `Location` header/
@@ -573,29 +573,29 @@ describe('createSpace', () => {
   })
 })
 
-describe('was.request', () => {
+describe('pws.request', () => {
   it('signs a request to the absolute url it is given', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.request({
-      url: 'https://was.example/space/s/c/r',
+      url: 'https://pws.example/space/s/c/r',
       method: 'GET'
     })
-    expect(lastRequest()?.url).toBe('https://was.example/space/s/c/r')
+    expect(lastRequest()?.url).toBe('https://pws.example/space/s/c/r')
     expect(lastRequest()?.method).toBe('GET')
   })
 })
 
-describe('was.space and was.collectionAt', () => {
+describe('pws.space and pws.collectionAt', () => {
   const ALICE = 'https://alice.example/'
 
-  it('was.space(id) opens the Space the layout names, with no I/O', () => {
+  it('pws.space(id) opens the Space the layout names, with no I/O', () => {
     const client = stubClient()
     expect(client.space('s').url).toBe(spaceUrlFor('s'))
     expect(client.space('s').url).toBe(client.spaceAt(spaceUrlFor('s')).url)
     expect(client.space('a b').url).toBe(spaceUrlFor('a b'))
   })
 
-  it('was.space(id, options) passes the capability through', async () => {
+  it('pws.space(id, options) passes the capability through', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
     const capability = { id: 'urn:zcap:delete-only' } as never
     await client.space('s', { capability }).deleteWithOutcome()
@@ -657,9 +657,9 @@ describe('a client fixed on a Space (forSpace)', () => {
    * A `forSpace` client whose stub `ZcapClient` echoes `delegate(...)` args
    * back as the delegated zcap, parented on the capability it was given.
    *
-   * @returns {WasClient}
+   * @returns {PwsClient}
    */
-  function fixedClient(): WasClient {
+  function fixedClient(): PwsClient {
     const zcapClient = {
       invocationSigner: { id: 'did:example:alice#key-1' },
       async delegate(args: Record<string, unknown>) {
@@ -670,8 +670,8 @@ describe('a client fixed on a Space (forSpace)', () => {
           allowedAction: args.allowedActions
         }
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    return WasClient.forSpace({ spaceUrl: ALICE, zcapClient })
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    return PwsClient.forSpace({ spaceUrl: ALICE, zcapClient })
   }
 
   it('opens the origin-root Space, which has no id', () => {

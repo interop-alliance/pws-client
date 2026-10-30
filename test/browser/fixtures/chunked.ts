@@ -48,7 +48,7 @@ export async function decryptChunked(
     maxBlobBytes: 16,
     chunkSize: 24
   }).codecFor({
-    spaceUrl: 'https://was.example/space/s/',
+    spaceUrl: 'https://pws.example/space/s/',
     collectionId: 'c',
     scheme: 'edv',
     encryption

@@ -3,7 +3,7 @@
  */
 /**
  * Service discovery: reads the server's service description without a
- * capability invocation and selects the WAS specification version this client
+ * capability invocation and selects the PWS specification version this client
  * speaks. A client built from a base server URL reads the document directly
  * at `{base}service` (`readServiceDescription`). One opened on a single fixed
  * Space, which has no base, follows the `Link: <...>; rel="service"` header
@@ -25,13 +25,13 @@ import { fetchMapped } from './request.js'
 import type { ServiceInfo } from '../types.js'
 
 /**
- * The WAS specification's identifier, the `specs` key its version entries sit
+ * The PWS specification's identifier, the `specs` key its version entries sit
  * under. Provisional until the spec's rename registers it.
  */
 export const PWS_SPEC_ID = 'https://w3id.org/pws'
 
 /**
- * The WAS specification versions this client speaks, newest first. Selection
+ * The PWS specification versions this client speaks, newest first. Selection
  * takes the first one the server lists.
  */
 export const SUPPORTED_PWS_VERSIONS = ['0.5']
@@ -139,7 +139,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Applies the spec's version-selection rules to a service description: a
- * `specs` key other than the WAS identifier is ignored, a version entry
+ * `specs` key other than the PWS identifier is ignored, a version entry
  * without a string `version` is ignored, and the newest version this client
  * speaks is chosen. The members the client acts on are checked before they are
  * used: `spaces` must be an absolute `http(s)` URL and `features` an array of
@@ -310,7 +310,7 @@ export async function readServiceDescription({
  * since they say nothing about the protocol the server speaks.
  *
  * @param options {object}
- * @param options.url {string}   any URL the WAS server answers, typically a
+ * @param options.url {string}   any URL the PWS server answers, typically a
  *   Space URL
  * @returns {Promise<ServiceInfo>}
  * @throws {IncompatibleServerError}   when the response carries no `service`
@@ -333,7 +333,7 @@ export async function discoverService({
       requestUrl: url,
       message:
         `The response from "${url}" (${probe.status}) carries no ` +
-        'rel="service" link, so the server predates WAS v0.5, which this ' +
+        'rel="service" link, so the server predates PWS v0.5, which this ' +
         'client requires.'
     })
   }

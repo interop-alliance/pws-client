@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The WAS binding of `@interop/vh-resource-log`'s store port, over either of
- * the two places a WAS server keeps a resource log. A log may be a WAS
+ * The PWS binding of `@interop/vh-resource-log`'s store port, over either of
+ * the two places a PWS server keeps a resource log. A log may be a PWS
  * Resource's entire body (the user key roster's `key-map/user-key.jsonl`), or
  * a Collection's governing history log at the `/meta/log` sub-resource (the
  * encrypted-collections profile's `governed-history-logs` feature, from which the server derives
@@ -103,8 +103,8 @@ function collectionTarget(collection: Collection): LogTarget {
 }
 
 /**
- * The WAS adapter implementing the library's `ResourceLogStore` port, over
- * one of two hosts: `resource`, a WAS Resource whose whole body is the log,
+ * The PWS adapter implementing the library's `ResourceLogStore` port, over
+ * one of two hosts: `resource`, a PWS Resource whose whole body is the log,
  * or `collection`, whose governing history log at `/meta/log` is the log.
  * `append` carries the prior entries' bytes forward verbatim from the most
  * recent read (an append does not re-serialize history), and both `append`
@@ -196,7 +196,7 @@ export function resourceLogStore(
   /**
    * Writes the log body under the given precondition, translating a 412 into
    * a {@link ResourceLogConflictError}. However the 412 was minted (problem
-   * type or status fallback), and including the WasSyncConflictError subtype,
+   * type or status fallback), and including the PwsSyncConflictError subtype,
    * it is the port's CAS conflict, not an error: the library's rebase loop
    * re-reads, re-verifies, and retries on it.
    */
