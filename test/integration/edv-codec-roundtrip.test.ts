@@ -3,7 +3,7 @@
  */
 /**
  * Integration test: encrypted collections through the unified handle seam, end
- * to end against a live WAS server (e.g. was-teaching-server's filesystem
+ * to end against a live WAS server (e.g. web-spaces-server's filesystem
  * backend). A `WasClient` constructed with an `encryption` provider
  * transparently encrypts `collection.add()` / `put()` and decrypts `get()` --
  * the same plain Collection/Resource API as a plaintext collection, with no

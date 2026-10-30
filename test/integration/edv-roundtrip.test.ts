@@ -3,7 +3,7 @@
  */
 /**
  * Integration test: the EDV-over-WAS layout profile, end to end, against a live
- * WAS server (e.g. a was-teaching-server filesystem backend). Proves that a
+ * WAS server (e.g. a web-spaces-server filesystem backend). Proves that a
  * document encrypted client-side with `EdvClientCore` can be written through
  * `WasTransport` as an ordinary WAS resource, read back, and decrypted -- and
  * that what the server stores is opaque ciphertext (a JWE envelope, no

@@ -23,7 +23,7 @@
  *   `JOSE_CONTENT_TYPE`), which distinguishes EDV envelopes from plaintext
  *   application JSON in listings and metadata -- but the server must register
  *   an `application/*+json` content-type parser to accept it (the reference
- *   was-teaching-server does; a server that does not will reject it with 415).
+ *   web-spaces-server does; a server that does not will reject it with 415).
  *   Pass `contentType: JOSE_CONTENT_TYPE` to opt into it where the server
  *   supports it.
  *

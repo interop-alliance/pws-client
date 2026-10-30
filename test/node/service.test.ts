@@ -64,7 +64,7 @@ function exampleDescription(): ServiceDescription {
       ],
       'https://w3id.org/encrypted-collections': [{ version: '0.2' }]
     },
-    instance: { name: 'was-teaching-server' }
+    instance: { name: 'web-spaces-server' }
   }
 }
 

@@ -13,7 +13,7 @@ changes.
 Other useful reference documents:
 
 - <https://github.com/interop-alliance/zcap-developer-guide>
-- <https://github.com/interop-alliance/was-teaching-server/blob/main/AGENTS.md>
+- <https://github.com/interop-alliance/web-spaces-server/blob/main/AGENTS.md>
 - the AGENTS.md in <https://github.com/interop-alliance/ezcap>
 
 ## Toolchain & Project Layout
@@ -61,7 +61,7 @@ extension even though source files are `.ts` — e.g.
 
 All roadmap tracking lives in [ROADMAP.md](./ROADMAP.md): narrative context
 (section preambles) plus structured `### WCL-N` work items, following the item
-structure shared with the freewallet, was-teaching-server, was-react, and
+structure shared with the freewallet, web-spaces-server, was-react, and
 isomorphic-lib-template roadmaps. Never create a parallel task list elsewhere
 (no `TODO.md`, no task lists in other docs).
 

@@ -153,8 +153,8 @@ Ready:
 Open work items for the `@interop/was-client` library, measured against
 `spec.md` in the
 [w3c-ccg/portable-web-spaces-spec](https://github.com/w3c-ccg/portable-web-spaces-spec)
-repo and the `was-teaching-server` feature set. The item structure is shared
-with the freewallet, was-teaching-server, was-react, and isomorphic-lib-template
+repo and the `web-spaces-server` feature set. The item structure is shared
+with the freewallet, web-spaces-server, was-react, and isomorphic-lib-template
 roadmaps; this file was converted to it on 2026-08-12 and re-sectioned by kind
 of work on 2026-10-04.
 
@@ -164,7 +164,7 @@ keep resolving (CHANGELOG.md remains the record of what landed; items completed
 before the archive existed live only in git history).
 
 Companion document: the server-side gap analysis at
-[was-teaching-server/ROADMAP.md](https://github.com/interop-alliance/was-teaching-server/blob/main/ROADMAP.md).
+[web-spaces-server/ROADMAP.md](https://github.com/interop-alliance/web-spaces-server/blob/main/ROADMAP.md).
 
 ## Item format
 
@@ -253,7 +253,7 @@ discovered-from: whole-codebase review, 2026-09-11.
     as a rollback guard
   - encrypted-collections-spec: the `was` parameter's member list, if the
     binding is to be normative
-  - was-teaching-server, wallet-core, freewallet: any other writer or reader of
+  - web-spaces-server, wallet-core, freewallet: any other writer or reader of
     the `was` header, once a member is added
 - acceptance:
   - [ ] A replayed older envelope is refused on decode, or the "Enforced
@@ -325,7 +325,7 @@ discovered-from: whole-codebase review, 2026-09-11.
     repeated "resources written afterward are unreadable to the removed reader"
     wording; `ResourceCodec` / `EncryptionProvider` are published seams, so a
     write that now throws is consumer-visible
-  - was-teaching-server, encrypted-collections-spec: the durable fix may be a
+  - web-spaces-server, encrypted-collections-spec: the durable fix may be a
     server-side refusal of a write stamped with a non-current epoch, which is
     spec text the spec does not have today
 - acceptance:
@@ -623,7 +623,7 @@ discovered-from: whole-codebase review, 2026-09-11.
 - touches:
   - was-client: `Space.createCollection` (`src/Space.ts:406-432`), which parses
     the create response and then keeps only its id
-  - was-teaching-server: confirm the description echo on Create Collection is
+  - web-spaces-server: confirm the description echo on Create Collection is
     contractual rather than incidental (`SpaceRequest.ts:525`)
   - portable-web-spaces-spec: the Create Collection response text, if the client
     is going to depend on the echo
@@ -1184,7 +1184,7 @@ without this upstream fix.
   - storage-core: `ORIGIN_ROOT_RESERVED_COLLECTION_IDS` and optional
     `SpaceMetadata.id` landed locally 2026-10-29 (0.42.0, unpublished;
     was-client consumes it via `link:` until it is on npm)
-  - was-teaching-server: WSS-234 (re-scoped 2026-10-29: `startTestServer`
+  - web-spaces-server: WSS-234 (re-scoped 2026-10-29: `startTestServer`
     returns the base server URL; the server confirms the fixed layout and
     reserves `service`, `spaces` and `space` at a root-mounted Space)
   - portable-web-spaces-spec: WASS-60 (drafted 2026-10-28 for 0002; reverse per
@@ -1235,7 +1235,7 @@ reading that followed, and the wallet-core port of 2026-10-29.
     `https://w3id.org/pws/encrypted-collections` `0.1` entry
     (`blinded-index-query`, `governed-history-logs`); see
     `https://interop-alliance.github.io/portable-wallet-profile-spec/#entry-as-shorthand`
-  - was-teaching-server: WSS-243 lists the entry; this item's tests need a
+  - web-spaces-server: WSS-243 lists the entry; this item's tests need a
     server past that item (the pair rule of LEARNINGS.md applies)
   - was-conformance-suite: PWSCS-33 is the server-side counterpart and does not
     gate this item
@@ -1283,7 +1283,7 @@ once the spec or the server has settled them.
     Metadata operations state what a `/meta` write leaves (the Resource's
     `updatedAt` and `ETag`) but not what a content write does to the `/meta`
     validator, nor whether the validator exists before any `/meta` write
-  - was-teaching-server: 0.42.1 serves a `/meta` `ETag` from the Resource's
+  - web-spaces-server: 0.42.1 serves a `/meta` `ETag` from the Resource's
     first write; its unreleased changelog has the validator cover both records
     and move on a content write
 - acceptance:
@@ -1319,7 +1319,7 @@ settled in a test.
   - storage-core: `PwsVersionEntry` (`src/was.ts:839-843`) loses the two members
     and a new `AuthzProfileVersionEntry` carries them: SC-7 (filed 2026-09-16,
     published as 0.17.0)
-  - was-teaching-server: WSS-112 lists the entry and moves the members; this
+  - web-spaces-server: WSS-112 lists the entry and moves the members; this
     item's tests need a server past that item (the pair rule of LEARNINGS.md
     applies)
   - was-client (this repo): README.md and ARCHITECTURE.md (the Service
@@ -1370,7 +1370,7 @@ the place the spec now says to look.
   - dcw: `app/lib/sync/smokeTest.ts` relies on the `'edv'` default, which
     creates the Collection with the descriptor; re-checked once the branch is
     gone
-  - was-teaching-server: WSS-194 is the server half and ships the refusal
+  - web-spaces-server: WSS-194 is the server half and ships the refusal
 - acceptance:
   - [ ] `ensureSpaceAndCollection` with `encryption: 'edv'` over an existing
         Collection that lacks a descriptor leaves it untouched and reports the
@@ -1410,7 +1410,7 @@ already takes for a key rotation it cannot express as an epoch.
     `ReplicaStatus` and `ReplicaCollectionStatus` JSDoc ("controller-only" is
     stale now that the route admits a root-chained delegated invocation;
     `ReplicaStallReason` is a closed set a reader extends with "unrecognized")
-  - was-teaching-server: WSS-238 (serves the member on the core entry)
+  - web-spaces-server: WSS-238 (serves the member on the core entry)
   - freewallet / wallet-core: whatever reads the replica server's DID off
     `was.service()` before delegating the pull capability (FW-638, FW-688)
   - was-client (this repo): `src/types.ts` (`ServiceInfo` docs), `src/Space.ts`
@@ -1453,7 +1453,7 @@ reading rules. Related: WCL-143 (the live tests).
     documents `If-None-Match: *` and its 412; the Space Data Model gains the
     server-managed validator, Read Space the `ETag`, Update Space both
     preconditions)
-  - was-teaching-server: WSS-90 (shipped 2026-09-07 for 0.29.0: both
+  - web-spaces-server: WSS-90 (shipped 2026-09-07 for 0.29.0: both
     preconditions on Update Space and Update Collection, the Space `ETag`;
     publish pending)
   - was-client: `Space.describeWithEtag` / `replaceDescription` and
@@ -1576,12 +1576,12 @@ behavior change.
 - discovered-from: WCL-137 (2026-10-29)
 - blocked-by: WSS-228, WSS-226
 - touches:
-  - was-teaching-server: WSS-228 (`provisionServerIdentity` and the two-server
-    helpers from `was-teaching-server/testing`), WSS-226 (the delegated replicas
+  - web-spaces-server: WSS-228 (`provisionServerIdentity` and the two-server
+    helpers from `web-spaces-server/testing`), WSS-226 (the delegated replicas
     route)
 - acceptance:
   - [ ] An integration suite boots a server with a server key seed and a
-        provisioned identity (through `was-teaching-server/testing`, nothing
+        provisioned identity (through `web-spaces-server/testing`, nothing
         copied from the server's test helpers), creates a source Space and a
         replica Space under one controller, and registers the source on the
         replica through `registerReplica`
@@ -1911,7 +1911,7 @@ than filed as work.
   - "portable-web-spaces-spec" -- the core spec reserves the `chunks` sub-path
     but defines chunk endpoints only by reference to the Encrypted Collections
     spec; a plaintext chunked Resource needs its own definition
-  - "was-teaching-server" -- chunk endpoints would need to serve a plaintext
+  - "web-spaces-server" -- chunk endpoints would need to serve a plaintext
     Collection's reassembled Resource on a plain `GET`
 - acceptance: none yet -- spec-blocked (see below)
 
@@ -1983,7 +1983,7 @@ review, 2026-09-11.
         (still refused) and one that carries neither (whatever the server then
         means by it)
 
-was-teaching-server is adding a `meta` write stamp to the Collection Metadata
+web-spaces-server is adding a `meta` write stamp to the Collection Metadata
 object, the counterpart of `ResourceMetadata.meta`. Today the Collection object
 has no such member, so `patchCustom` cannot tell a Collection read with no
 `ETag` (a hidden header, or a non-versioning backend) from an unwritten record,
