@@ -30,6 +30,7 @@ import {
   clientWithStub,
   serviceDescriptionFor,
   baseServerUrlFor,
+  requestUrl,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -346,9 +347,9 @@ describe('publicListCollection() pagination', () => {
       'https://was.example/space/s/c/?cursor=2': page(['b', 'c'])
     }
     const requested: string[] = []
-    vi.stubGlobal('fetch', async (input: string) => {
-      requested.push(input)
-      return new Response(JSON.stringify(pages[input]), {
+    vi.stubGlobal('fetch', async (input: string | Request) => {
+      requested.push(requestUrl(input))
+      return new Response(JSON.stringify(pages[requestUrl(input)]), {
         headers: { 'content-type': 'application/json' }
       })
     })
@@ -378,9 +379,9 @@ describe('publicListCollection() pagination', () => {
       'https://was.example/space/s/c/?cursor=2': page(['b'])
     }
     const requested: string[] = []
-    vi.stubGlobal('fetch', async (input: string) => {
-      requested.push(input)
-      return new Response(JSON.stringify(pages[input]), {
+    vi.stubGlobal('fetch', async (input: string | Request) => {
+      requested.push(requestUrl(input))
+      return new Response(JSON.stringify(pages[requestUrl(input)]), {
         headers: { 'content-type': 'application/json' }
       })
     })
@@ -544,9 +545,9 @@ function publicClientWithPages(pages: Record<string, object>): {
   urls: string[]
 } {
   const urls: string[] = []
-  vi.stubGlobal('fetch', async (input: string) => {
-    urls.push(input)
-    return new Response(JSON.stringify(pages[input] ?? {}), {
+  vi.stubGlobal('fetch', async (input: string | Request) => {
+    urls.push(requestUrl(input))
+    return new Response(JSON.stringify(pages[requestUrl(input)] ?? {}), {
       headers: { 'content-type': 'application/json' }
     })
   })

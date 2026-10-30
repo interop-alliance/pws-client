@@ -4,13 +4,16 @@
 /**
  * Unit tests for the unauthenticated public-read methods (`was.publicRead()` /
  * `was.publicListCollection()`), which read `PublicCanRead` resources with an
- * unsigned plain `fetch`. A stubbed global `fetch` records the request and
+ * unsigned `@interop/http-client` request. A stubbed global `fetch` (which the
+ * http client hands a `Request`) records the request and
  * returns canned `Response`s, so no server is involved.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
 import { WasClient, WasServerError } from '../../src/index.js'
-import { baseServerUrlFor } from '../helpers/stubClient.js'
+import { unsignedRequest } from '../../src/internal/request.js'
+import { dataOrNull } from '../../src/internal/content.js'
+import { baseServerUrlFor, requestUrl } from '../helpers/stubClient.js'
 
 /**
  * Builds a `WasClient` over a minimal stub `ZcapClient`. The public-read
@@ -36,8 +39,8 @@ function publicClient(): WasClient {
  */
 function stubFetch(response: Response): () => string | undefined {
   let url: string | undefined
-  vi.stubGlobal('fetch', async (input: string) => {
-    url = input
+  vi.stubGlobal('fetch', async (input: string | Request) => {
+    url = requestUrl(input)
     return response
   })
   return () => url
@@ -45,6 +48,37 @@ function stubFetch(response: Response): () => string | undefined {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('unsignedRequest()', () => {
+  it('pre-parses a JSON body into `data`, as the signed transport does', async () => {
+    stubFetch(
+      new Response(JSON.stringify({ hello: 'world' }), {
+        headers: { 'content-type': 'application/ld+json; charset=utf-8' }
+      })
+    )
+    const response = await unsignedRequest({
+      url: 'https://was.example/space/s/c/r',
+      read: true
+    })
+    expect(response?.data).toEqual({ hello: 'world' })
+    expect(dataOrNull(response)).toEqual({ hello: 'world' })
+  })
+
+  it('leaves `data` undefined and the body unread for a non-JSON body', async () => {
+    stubFetch(
+      new Response('plain text body', {
+        headers: { 'content-type': 'text/plain' }
+      })
+    )
+    const response = await unsignedRequest({
+      url: 'https://was.example/space/s/c/note.txt',
+      read: true
+    })
+    expect(response?.data).toBeUndefined()
+    expect(response?.bodyUsed).toBe(false)
+    expect(await response?.text()).toBe('plain text body')
+  })
 })
 
 describe('publicRead()', () => {

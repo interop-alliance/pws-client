@@ -651,8 +651,6 @@ export class WasClient {
           method: 'GET',
           read: true
         })
-        // An unsigned response is a raw `fetch` `Response` (no pre-parsed
-        // `data`), so the page body is read via `readJsonData`.
         return pageResponse === null
           ? null
           : ((await readJsonData(pageResponse)) as CollectionResourcesList)

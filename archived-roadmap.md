@@ -4698,3 +4698,37 @@ is the same class and is included here. `documents()` exits only on a falsy or
 already-seen checkpoint, so a server that advances the checkpoint forever is
 walked forever; a scratch run reached 5001 requests. discovered-from:
 whole-codebase review, 2026-09-11.
+
+### WCL-84: [L] Internal hygiene: a misleading 412 message, a lying response cast, a non-structural predicate, an abandoned body
+
+- status: done
+- done: 2026-10-29
+- priority: low
+- labels: errors, types, layering
+- acceptance:
+  - [x] `upsertResource`'s 412 rewrite names both causes, a concurrent create
+        and an existing-but-unreadable document, and leads with re-read and
+        retry
+  - [x] `unsignedRequest` either populates `data` the way `@interop/http-client`
+        does, or narrows its return type so the cast cannot mislead
+  - [x] `isGovernedDescriptor` is structural: `history` must be a non-null
+        object with string `method` and `resource`, so a malformed pointer takes
+        the plain branch or a typed `ValidationError`
+  - [x] `withCodec` cancels the response body before rethrowing a codec error
+
+Four small internal defects. `upsertResource`'s rewrite fires on any 412 from
+the `If-None-Match: *` insert, including a document a concurrent writer created
+between the pre-read and the PUT, and the replacement message asserts a
+capabilities cause and advises getting a broader capability, which is wrong for
+the race; the HTTP client's own retry on 503 reaches the same message.
+`unsignedRequest` casts a raw `fetch` `Response` to `HttpResponse`, so
+`response.data` is `undefined` and `dataOrNull` returns `null` for a healthy 200
+JSON body. Both current callers avoid `.data` deliberately, so this is latent
+and is a trap for the next public-read caller. `isGovernedDescriptor` returns
+`true` for a server-supplied `history: null` and then asserts a shaped object,
+so `logGovernedDescriptorStore` dereferences it and raises a raw `TypeError` in
+a module whose job is typed refusals. `withCodec` returns before consuming the
+response promise when the codec rejects; for a JSON body the client has already
+drained it, so the leak is confined to non-JSON responses such as a large blob
+read through `Resource.getWithEtag`. discovered-from: whole-codebase review,
+2026-09-11.

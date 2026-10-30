@@ -394,9 +394,11 @@ async function runChunkedPlan(
 
 /**
  * The error for a fresh insert by id the server rejected with 412 after the
- * pre-read found nothing: the document exists, but its current version is not
- * readable with this capability (a masked 404), or it appeared since the
- * pre-read. The server's error is kept as the cause.
+ * pre-read found nothing: either a concurrent writer created the document
+ * since, or it already existed but is not readable with this capability (a
+ * masked 404). The client cannot tell the two apart, so the message names
+ * both and leads with the remedy that fits both. The server's error is kept
+ * as the cause.
  *
  * @param options {object}
  * @param options.err {PreconditionFailedError}   the server's 412
@@ -412,12 +414,14 @@ function maskedInsertRejected({
 }): PreconditionFailedError {
   const { status, type, title, details, requestUrl } = err
   return new PreconditionFailedError(
-    `Cannot update the document at "${url}": it exists, but its current ` +
-      'version is not readable with this capability (WAS masks ' +
-      'unauthorized reads as 404), so the write was encoded as a fresh ' +
-      'insert and the server rejected it. A conditional codec ' +
-      '(e.g. the EDV codec) needs read access to update an existing ' +
-      'document.',
+    `Cannot write the document at "${url}": the pre-read found nothing, so ` +
+      'the write was sent as a fresh insert, and the server rejected it ' +
+      'because a document now exists there. Re-read and retry. Either a ' +
+      'concurrent writer created the document after the pre-read, or it ' +
+      'already existed and its current version is not readable with this ' +
+      'capability (WAS masks unauthorized reads as 404); in that case a ' +
+      'conditional codec (e.g. the EDV codec) needs read access to update ' +
+      'it.',
     { status, type, title, details, requestUrl, cause: err }
   )
 }

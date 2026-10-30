@@ -89,6 +89,12 @@ function isClearedCustom(custom: unknown): boolean {
  * rather than a client-written descriptor. The one place this distinction is
  * drawn, shared by provisioning and the log-governed descriptor store.
  *
+ * The member comes off the wire, so the check is structural: an absent
+ * `history` answers false, and a present one must carry string `method` and
+ * `resource`. A malformed pointer is refused with `ValidationError` rather
+ * than passed off as a client-written descriptor, which callers go on to
+ * echo back in write bodies or adopt without verifying its log.
+ *
  * @param descriptor {CollectionEncryption}
  * @returns {boolean}
  */
@@ -97,7 +103,23 @@ export function isGovernedDescriptor(
 ): descriptor is CollectionEncryption & {
   history: { method: string; resource: string }
 } {
-  return descriptor.history !== undefined
+  const history = descriptor.history as
+    { method?: unknown; resource?: unknown } | null | undefined
+  if (history === undefined) {
+    return false
+  }
+  if (
+    typeof history?.method !== 'string' ||
+    typeof history.resource !== 'string'
+  ) {
+    throw new ValidationError(
+      'The served encryption descriptor carries a malformed `history` ' +
+        `member (${JSON.stringify(history)}): expected an object with ` +
+        'string `method` and `resource`. Refusing to treat it as a ' +
+        'client-written descriptor.'
+    )
+  }
+  return true
 }
 
 /**

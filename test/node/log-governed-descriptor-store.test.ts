@@ -245,6 +245,28 @@ async function governedFixture() {
 }
 
 describe('logGovernedCollectionDescriptorStore over a plain descriptor', () => {
+  it('refuses a served `history: null` with ValidationError', async () => {
+    // A malformed pointer off the wire is neither a governed projection nor a
+    // client-written descriptor: the store refuses it with a typed error
+    // before reading the log, rather than raising a `TypeError` or handing
+    // the server's projection back as if the client had declared it.
+    const served = {
+      scheme: 'edv',
+      epochs: [],
+      history: null
+    } as unknown as CollectionEncryption
+    const { collection, fake } = fakeGovernedCollection({ encryption: served })
+    const writer = await makeWriter()
+    const store = logGovernedCollectionDescriptorStore({
+      collection,
+      resolveController: async () => writer.controller,
+      pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID
+    })
+    await expect(store.read()).rejects.toBeInstanceOf(ValidationError)
+    expect(fake._state.logReads).toBe(0)
+  })
+
   it('reads the point-state descriptor and writes the description', async () => {
     const reader = await makeReader()
     const initial: CollectionEncryption = {

@@ -93,17 +93,18 @@ describe('upsertResource: masked-404 conditional-write policy', () => {
   it('maps the 412 after an unreadable pre-read to a clear error', async () => {
     // A PUT-only capability on an existing document: the pre-read is masked as
     // 404 (null), so the codec encodes a fresh insert (`If-None-Match: *`) --
-    // and the server rejects it with 412. That 412 must name
-    // the real cause: the document exists but is unreadable.
+    // and the server rejects it with 412. The client cannot tell that cause
+    // from a concurrent create, so the message names both and leads with the
+    // remedy that fits both.
     const { context } = contextWithStatuses({ getStatus: 404, putStatus: 412 })
-    await expect(
-      upsertResource(context, {
-        url: 'https://was.example/space/s/c/r',
-        codec: conditionalCodec,
-        id: 'r',
-        data: { v: 1 }
-      })
-    ).rejects.toThrow(/not readable with this capability/)
+    const write = upsertResource(context, {
+      url: 'https://was.example/space/s/c/r',
+      codec: conditionalCodec,
+      id: 'r',
+      data: { v: 1 }
+    })
+    await expect(write).rejects.toThrow(/Re-read and retry/)
+    await expect(write).rejects.toThrow(/not readable with this capability/)
   })
 
   it('keeps the 412 typed as PreconditionFailedError with its cause', async () => {

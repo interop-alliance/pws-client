@@ -19,6 +19,17 @@ import { WasClient } from '../../src/index.js'
 export const STUB_ORIGIN = 'https://was.example'
 
 /**
+ * The URL a stubbed `fetch` was called with. The unsigned path sends through
+ * `@interop/http-client`, which hands `fetch` a `Request`.
+ *
+ * @param input {string | Request}
+ * @returns {string}
+ */
+export function requestUrl(input: string | Request): string {
+  return typeof input === 'string' ? input : input.url
+}
+
+/**
  * The stub server's base server URL (origin plus a trailing slash).
  *
  * @param [origin] {string}   defaults to {@link STUB_ORIGIN}

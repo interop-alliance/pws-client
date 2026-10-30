@@ -12,7 +12,7 @@
  */
 import type { ZcapClient } from '@interop/ezcap'
 import { isValidTarget } from '@interop/zcap'
-import type { HttpResponse } from '@interop/http-client'
+import { httpClient, type HttpResponse } from '@interop/http-client'
 import {
   NotFoundError,
   WasError,
@@ -97,7 +97,9 @@ export async function rawRequest(
 /**
  * A plain unsigned `fetch` that maps a network failure to a `WasError`, the
  * way the rest of the transport does. The response is returned as is,
- * whatever its status.
+ * whatever its status: this is the probe primitive for service discovery,
+ * which reads the status itself. Everything else sends through
+ * `unsignedRequest` or `send()`.
  *
  * @param url {string}
  * @param init {RequestInit}
@@ -115,10 +117,15 @@ export async function fetchMapped(
 }
 
 /**
- * Sends an **unsigned** request (a plain `fetch`, no capability invocation), for
- * reading public (`PublicCanRead`) resources that need no authorization. Applies
- * the same typed-error mapping and null-on-404 read translation as `send()`.
- * Takes an absolute `url` -- public reads address a resource by its link.
+ * Sends an **unsigned** request (no capability invocation), for reading public
+ * (`PublicCanRead`) resources that need no authorization. Applies the same
+ * typed-error mapping and null-on-404 read translation as `send()`. Takes an
+ * absolute `url` -- public reads address a resource by its link.
+ *
+ * Sends through `@interop/http-client`, the same client as `send()`, so the
+ * response has the same shape (JSON pre-parsed into `data`) and the same
+ * retry and timeout behavior, and `dataOrNull` and `readJsonData` read it
+ * exactly as they read a signed one.
  *
  * @param input {object}
  * @param input.url {string}                    absolute URL to read
@@ -133,33 +140,22 @@ export async function unsignedRequest(input: {
   headers?: Record<string, string>
   read?: boolean
 }): Promise<HttpResponse | null> {
-  const response = await fetchMapped(input.url, {
-    method: input.method ?? 'GET',
-    headers: input.headers
-  })
-  if (response.ok) {
-    return response as HttpResponse
-  }
-  // A public read resolves to `null` for any "not readable by you" status, not
-  // just 404: a conformant WAS masks unauthorized as 404, but a server that
-  // answers a missing capability with 401/403 should honor the same
-  // null-if-not-publicly-readable contract rather than throw.
-  if (
-    input.read &&
-    (response.status === 404 ||
-      response.status === 401 ||
-      response.status === 403)
-  ) {
-    return null
-  }
-  // Reconstruct a problem+json-shaped error so mapError can dispatch on it.
-  let data: unknown
   try {
-    data = await response.json()
-  } catch {
-    data = undefined
+    return await httpClient(input.url, {
+      method: input.method ?? 'GET',
+      headers: input.headers
+    })
+  } catch (err) {
+    // A public read resolves to `null` for any "not readable by you" status,
+    // not just 404: a conformant WAS masks unauthorized as 404, but a server
+    // that answers a missing capability with 401/403 should honor the same
+    // null-if-not-publicly-readable contract rather than throw.
+    const status = httpStatus(err)
+    if (input.read && (status === 404 || status === 401 || status === 403)) {
+      return null
+    }
+    throw mapError(err)
   }
-  throw mapError({ status: response.status, requestUrl: input.url, data })
 }
 
 /**

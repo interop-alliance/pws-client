@@ -39,6 +39,22 @@
   pages (default 10,000), so a server that keeps advancing the checkpoint
   without ending the feed is no longer walked forever by `documents()` or by the
   sync port's pull.
+- The `PreconditionFailedError` for a write by id whose pre-read found nothing
+  names both causes of the 412, a concurrent create and an existing document the
+  capability cannot read, and leads with re-read and retry. It no longer asserts
+  the capabilities cause alone.
+- An unsigned public read goes through `@interop/http-client`, the client the
+  signed path sends with, so it pre-parses a JSON body into `data`, carries a
+  problem+json error body for the typed-error mapping, maps a JSON parse failure
+  to `WasError`, and shares the signed path's retry and timeout behavior.
+- `isGovernedDescriptor` checks the shape of `history`: a served `null`, string
+  or object missing `method` or `resource` is refused with `ValidationError`
+  instead of raising a `TypeError` in the log-governed descriptor store, being
+  echoed back to the server as a client-written descriptor by `configure`,
+  `replaceDescription` or the store's `replace`, or being adopted unverified by
+  a plain descriptor source.
+- A read whose codec resolution fails cancels the response body instead of
+  leaving a non-JSON body (a large blob) unread on an open connection.
 
 ### Changed
 

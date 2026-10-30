@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 144
+nextAvailableId: 145
 
 <!-- roadmap-order:index:start -->
 
@@ -85,6 +85,8 @@ Waiting on another repo:
   a fixed Space by its own URL (after WASS-60)
 - WCL-142 [M] Remove the late in-place `encryption` declaration from
   provisioning (after WAS-194)
+- WCL-144 [M] Follow the replication companion: the server DID on the core
+  entry, and unrecognized stall reasons (after WAS-238)
 
 **Features**
 
@@ -107,8 +109,6 @@ Ready:
 
 - WCL-80 [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by
   the seam but never invoked
-- WCL-84 [L] Internal hygiene: a misleading 412 message, a lying response cast,
-  a non-structural predicate, an abandoned body
 - WCL-88 [L] Record the upstream-owned `NotFoundError` / `DuplicateError` names
   in decisions/0001
 - WCL-97 [L] Docstring corrections in the EDV transport and the refresh policy
@@ -1277,6 +1277,52 @@ fallback. A Collection that exists without a descriptor never becomes encrypted
 in place; the path is a new Collection and a copy, which the migration code
 already takes for a key rotation it cannot express as an epoch.
 
+### WCL-144: [M] [after WAS-238] Follow the replication companion: the server DID on the core entry, and unrecognized stall reasons
+
+- status: todo
+- priority: medium
+- labels: spec, replication, service-description, docs
+- discovered-from: portable-web-spaces-spec WASS-50 (2026-10-29)
+- blocked-by: WAS-238
+- touches:
+  - storage-core: the `ServiceDescription` type (`serverDid` joins the core
+    `PwsVersionEntry` beside `originId` and leaves `instance`), the
+    `ReplicaStatus` and `ReplicaCollectionStatus` JSDoc ("controller-only"
+    is stale now that the route admits a root-chained delegated invocation;
+    `ReplicaStallReason` is a closed set a reader extends with "unrecognized")
+  - was-teaching-server: WAS-238 (serves the member on the core entry)
+  - freewallet / wallet-core: whatever reads the replica server's DID off
+    `was.service()` before delegating the pull capability (FW-638, FW-688)
+  - was-client (this repo): `src/types.ts` (`ServiceInfo` docs), `src/Space.ts`
+    (the `registerReplica` and `replicaStatus` JSDoc), ARCHITECTURE.md (the
+    replication paragraph), README's replication example if it reads the DID
+- acceptance:
+  - [ ] `ServiceInfo.entry` exposes `serverDid` and `originId` typed on the
+        chosen core entry, and the `registerReplica` JSDoc tells a caller to
+        delegate the pull capability to the replica server's `entry.serverDid`,
+        not to anything under `instance`
+  - [ ] The `replicaStatus` JSDoc and the `ReplicaStallReason` consumers say a
+        `stall.reason` outside the known set is "stalled for an unrecognized
+        reason", and nothing in the client narrows on the union in a way that
+        drops an unknown token
+  - [ ] The replica method docs no longer say "controller-only"; they name the
+        two admitted invocations (root, or a chain rooted in the Space's root)
+        and the delegated `POST` bound
+  - [ ] Unit tests over the stubbed transport cover `registerReplica` against
+        a service description carrying `serverDid` on the core entry
+
+Context: the replication companion (portable-web-spaces-spec
+`replication/spec.md`, 2026-10-29) settled three things the client documents or
+types: the replica server's DID is a member of the core `https://w3id.org/pws`
+version entry beside `originId`, where a client may gate on it, and not of the
+optional `instance` disclosure the reference server advertises it under today;
+the `stall.reason` tokens are a closed set and a reader treats an unknown token
+as an unrecognized stall rather than a type error; and the replicas route admits
+a root-chained delegated invocation with the `POST` bounded to an already
+registered `fromSpace`. The client's own replica calls already match the wire
+(WCL-137); this item is the surface that names the DID's placement and the
+reading rules. Related: WCL-143 (the live tests).
+
 ### WCL-32: [L] Provisioning creates cannot be made race-safe (no create-if-absent precondition)
 
 - status: in-progress
@@ -1533,39 +1579,6 @@ misleading security story in a module a reader will trust. Which direction to
 take is a maintainer decision, not an assumption to code. See also WCL-81, which
 hardens the resolver that is actually in use. discovered-from: whole-codebase
 review, 2026-09-11.
-
-### WCL-84: [L] Internal hygiene: a misleading 412 message, a lying response cast, a non-structural predicate, an abandoned body
-
-- status: todo
-- priority: low
-- labels: errors, types, layering
-- acceptance:
-  - [ ] `upsertResource`'s 412 rewrite names both causes, a concurrent create
-        and an existing-but-unreadable document, and leads with re-read and
-        retry
-  - [ ] `unsignedRequest` either populates `data` the way `@interop/http-client`
-        does, or narrows its return type so the cast cannot mislead
-  - [ ] `isGovernedDescriptor` is structural: `history` must be a non-null
-        object with string `method` and `resource`, so a malformed pointer takes
-        the plain branch or a typed `ValidationError`
-  - [ ] `withCodec` cancels the response body before rethrowing a codec error
-
-Four small internal defects. `upsertResource`'s rewrite fires on any 412 from
-the `If-None-Match: *` insert, including a document a concurrent writer created
-between the pre-read and the PUT, and the replacement message asserts a
-capabilities cause and advises getting a broader capability, which is wrong for
-the race; the HTTP client's own retry on 503 reaches the same message.
-`unsignedRequest` casts a raw `fetch` `Response` to `HttpResponse`, so
-`response.data` is `undefined` and `dataOrNull` returns `null` for a healthy 200
-JSON body. Both current callers avoid `.data` deliberately, so this is latent
-and is a trap for the next public-read caller. `isGovernedDescriptor` returns
-`true` for a server-supplied `history: null` and then asserts a shaped object,
-so `logGovernedDescriptorStore` dereferences it and raises a raw `TypeError` in
-a module whose job is typed refusals. `withCodec` returns before consuming the
-response promise when the codec rejects; for a JSON body the client has already
-drained it, so the leak is confined to non-JSON responses such as a large blob
-read through `Resource.getWithEtag`. discovered-from: whole-codebase review,
-2026-09-11.
 
 ### WCL-88: [L] Record the upstream-owned `NotFoundError` / `DuplicateError` names in decisions/0001
 

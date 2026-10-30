@@ -30,7 +30,7 @@ import {
   serviceLinkTarget
 } from '../../src/internal/service.js'
 import type { RequestArgs } from '../helpers/stubClient.js'
-import { jsonResponse } from '../helpers/stubClient.js'
+import { jsonResponse, requestUrl } from '../helpers/stubClient.js'
 
 const SPACES_URL = 'https://host.example/was/spaces/'
 const BASE_URL = 'https://host.example/was/'
@@ -747,8 +747,8 @@ describe('the discovery gate on signed requests', () => {
 
   it('does not gate unsigned public reads', async () => {
     const calls: string[] = []
-    vi.stubGlobal('fetch', async (url: string) => {
-      calls.push(url)
+    vi.stubGlobal('fetch', async (input: string | Request) => {
+      calls.push(requestUrl(input))
       return new Response(JSON.stringify({ hello: 'world' }), {
         headers: { 'content-type': 'application/json' }
       })
