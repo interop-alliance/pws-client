@@ -33,7 +33,7 @@ function entryAt(n: number): ResourceLogEntry {
     versionId: `${n}-QmEntryHash${n}`,
     versionTime: '2026-08-10T12:00:00Z',
     parameters: n === 1 ? { method: 'resource-log:0.1', scid: 'QmScid' } : {},
-    state: { type: 'WasEpochConfiguration', currentEpoch: `epoch-${n}` },
+    state: { type: 'PwsEpochConfiguration', currentEpoch: `epoch-${n}` },
     proof: [
       {
         type: 'DataIntegrityProof',

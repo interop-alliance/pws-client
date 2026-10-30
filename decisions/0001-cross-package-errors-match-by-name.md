@@ -7,7 +7,7 @@
   invariant it widened and the convention it asked to be signed off.
 - Affects: `@interop/pws-client` (`src/errors.ts`, `src/sync/index.ts`),
   `@interop/wallet-core` (`sync/types.ts`, `push.ts`, `remint.ts`,
-  `descriptors`), `@interop/was-sync` (the RxDB driver's push and pull
+  `descriptors`), `@interop/pws-sync` (the RxDB driver's push and pull
   handlers and its controller core), freewallet, was-react, dcw.
 
 ## Context

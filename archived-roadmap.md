@@ -4894,3 +4894,52 @@ entry: the layout grammar and the canonical URL forms need only the platform
 `URL` and the `ValidationError` class, and the one thing keeping `errors.ts`
 from being dependency-free was the problem-type table, which belongs with
 `mapError` anyway.
+
+### WCL-151: Rename the epoch-configuration state type to `PwsEpochConfiguration`
+
+- status: done
+- done: 2026-10-30
+- priority: medium
+- labels: encryption, wire, breaking, cross-repo
+- discovered-from: the `@interop/pws-client` migration in pws-conformance-suite,
+  2026-10-30
+- touches:
+  - portable-web-spaces-spec: `ec/spec.md` and `spec.md` define the value
+    (WASS-84, filed; still `todo` when this item closed, so the client leads the
+    spec until it lands)
+  - wallet-core: `docs/architecture/wire-constants.md` lists the value as
+    permanent, and `docs/architecture/keys-and-descriptor-logs.md` and
+    `src/descriptors/index.ts` name it. `src/keys/rosterLogStore.ts` and
+    `src/descriptors/logSource.ts` import the constant from this package, so
+    roster and collection descriptor logs change with it (WC-314, filed
+    2026-10-30)
+  - storage-core: the doc comment in `src/was.ts` (SC-14, filed 2026-10-30)
+  - web-spaces-server: test fixtures in six files under `test/`; nothing under
+    `src/` names the value (WSS-244, filed 2026-10-30)
+  - pws-conformance-suite: the fixtures in `governed-log-api.ts` and
+    `changes-query-api.ts`, and the peer and dev ranges, which still admit
+    releases before this one (PWSCS-34, filed)
+  - freewallet: nothing under `src/` names the value, but stored roster and
+    collection descriptor logs stop reading, so accounts are re-provisioned;
+    ARCHITECTURE.md says so (FW-698, filed)
+  - dcw: the same as freewallet (DCW-109, filed)
+  - unaffected: pws-sync (nothing under `src/` names the value, so its
+    `>=0.104.0 <1.0.0` peer range stays correct)
+- acceptance:
+  - [x] `EPOCH_CONFIGURATION_STATE_TYPE` is `PwsEpochConfiguration`; the
+        constant keeps its name
+  - [x] No `WasEpochConfiguration` remains in `src/`, `test/`, `scripts/`, or
+        ARCHITECTURE.md
+  - [x] The CHANGELOG entry is marked breaking and says a log head carrying the
+        old value is refused
+  - [x] Each `touches:` entry is annotated
+
+The value is the `state.type` of every entry in a roster or collection
+descriptor log. It is the last client-visible wire constant still carrying the
+old name, after the `pws` JWE protected-header parameter moved in 0.104.0. This
+reverses the 0.104.0 changelog entry, which kept the value as permanent.
+
+`logGovernedDescriptorStore` refuses a verified head of any other type, so
+existing roster and collection descriptor logs stop reading under this change.
+Log entries are chained and signed, so they cannot be rewritten in place. No
+fallback for the old value is planned.

@@ -22,7 +22,7 @@
  *   `history` is refused.
  *
  * The generic read boundary (`readGovernedEpochConfiguration`) and the
- * `WasEpochConfiguration` state shape are shared with the wallet's user key
+ * `PwsEpochConfiguration` state shape are shared with the wallet's user key
  * roster, which wraps the generic store. What stays outside this module is
  * DID-method resolution: the controller port and the pin store are injected by
  * the caller.
@@ -59,11 +59,9 @@ import type { EncryptionDescriptorStore } from './descriptorStore.js'
 
 /**
  * The state-document schema identifier an encryption descriptor carries in a
- * governed log entry, per the Encrypted Collections profile. The value keeps
- * the spec's old prefix: every entry ever written carries it, and a reader
- * refuses a verified head of any other type.
+ * governed log entry. A reader refuses a verified head of any other type.
  */
-export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
+export const EPOCH_CONFIGURATION_STATE_TYPE = 'PwsEpochConfiguration'
 
 /**
  * The log-entry `state` for a descriptor: the point-state projection's
@@ -81,16 +79,38 @@ export function toEpochConfigurationState(
 }
 
 /**
+ * The state-type rule for a verified log: refuses a state that is not a
+ * `PwsEpochConfiguration`. A log written by an older client lands here too.
+ * It is verified and may be honest, but no reader can treat it as a
+ * descriptor, so it is refused like a foreign one.
+ *
+ * @param state {VerifiedResourceLog['state']}
+ * @returns {void}
+ */
+function assertEpochConfigurationState(
+  state: VerifiedResourceLog['state']
+): void {
+  if (state.type !== EPOCH_CONFIGURATION_STATE_TYPE) {
+    throw new ResourceLogIntegrityError(
+      `The governed descriptor log carries state of type ` +
+        `"${state.type}", not "${EPOCH_CONFIGURATION_STATE_TYPE}". A log ` +
+        'written by an older client is refused the same way as a foreign one.'
+    )
+  }
+}
+
+/**
  * The one governed epoch-configuration read: the fail-closed boundary that
  * decides whether a served log state may be treated as an encryption
  * descriptor. Resolves the controller view, reads and fully verifies the log
  * (chain, proofs, external authorization, and the chain-head pin, via
  * `readResourceLog`), and refuses a verified head whose state is not a
- * `WasEpochConfiguration` rather than handing it out as a descriptor.
+ * `PwsEpochConfiguration` rather than handing it out as a descriptor.
  * Resolves `null` for an absent log (the pre-genesis state) only while no pin
  * is held for it; under a held pin an absent log is refused as a `rollback`,
  * the library's rule. Every trusted descriptor read goes through this helper,
- * so a hardening applied here reaches all of them.
+ * so a hardening applied here reaches all of them. The store's writes verify
+ * a log without it, so they apply the same state-type rule.
  *
  * @param options {object}
  * @param options.store {ResourceLogStore}   the log's transport seam
@@ -140,12 +160,7 @@ export async function readGovernedEpochConfiguration({
     return null
   }
   const state = current.verified.state
-  if (state.type !== EPOCH_CONFIGURATION_STATE_TYPE) {
-    throw new ResourceLogIntegrityError(
-      `The governed descriptor log carries state of type ` +
-        `"${state.type}", not "${EPOCH_CONFIGURATION_STATE_TYPE}".`
-    )
-  }
+  assertEpochConfigurationState(state)
   return {
     verified: current.verified,
     descriptor: state as CollectionEncryption,
@@ -161,8 +176,11 @@ export async function readGovernedEpochConfiguration({
  * backstop entry when the log's head still carries a controller version
  * before the controller's latest membership change -- `'sealed'` -- and
  * writing nothing when the log is already sealed, absent, or has no
- * membership change to seal against -- `'noop'`. A store built without a
- * signer has no `create` and refuses `replace` and `seal`.
+ * membership change to seal against -- `'noop'`. A head the sweep reads or
+ * would extend is refused for its state type as `read()` refuses it, with
+ * nothing written. With no membership change the sweep reads nothing, so it
+ * reports `'noop'` without seeing the head. A store built without a signer has
+ * no `create` and refuses `replace` and `seal`.
  */
 export interface LogGovernedDescriptorStore extends EncryptionDescriptorStore {
   /**
@@ -281,6 +299,31 @@ export function logGovernedDescriptorStore({
     view: ResourceLogController
   } | null = null
 
+  // The log seam the sealing sweep runs over. The sweep reads for itself and
+  // re-appends the head state verbatim, so the state-type rule sits on its
+  // write: a head that arrives on any of its reads cannot be extended.
+  const sweepLog: ResourceLogStore = {
+    read: () => log.read(),
+    create: entry => log.create(entry),
+    async append(entry, options) {
+      assertEpochConfigurationState(entry.state)
+      await log.append(entry, options)
+    }
+  }
+
+  // The one way into `held`, so a log of another state type never seeds a
+  // later replace or seal hint.
+  function hold({
+    verified,
+    view
+  }: {
+    verified: VerifiedResourceLog
+    view: ResourceLogController
+  }): void {
+    assertEpochConfigurationState(verified.state)
+    held = { verified, view }
+  }
+
   function requireSigner(operation: string): ResourceLogSigner {
     if (signer === undefined) {
       throw new ValidationError(
@@ -309,7 +352,7 @@ export function logGovernedDescriptorStore({
       previous: held?.verified ?? null
     })
     await pinStore.write({ logId, pin: confirmed.pin })
-    held = { verified: confirmed, view: controller }
+    hold({ verified: confirmed, view: controller })
   }
 
   const store: LogGovernedDescriptorStore = {
@@ -327,7 +370,7 @@ export function logGovernedDescriptorStore({
         held = null
         return null
       }
-      held = { verified: current.verified, view: current.controller }
+      hold({ verified: current.verified, view: current.controller })
       return {
         descriptor: current.descriptor,
         verified: current.verified,
@@ -408,7 +451,7 @@ export function logGovernedDescriptorStore({
        * viewCarriesHeadOf).
        */
       const { sealed, verified } = await sealResourceLog({
-        store: log,
+        store: sweepLog,
         controller,
         expectedMethod: RESOURCE_LOG_METHOD,
         pinStore,
@@ -423,7 +466,7 @@ export function logGovernedDescriptorStore({
       // nothing to write; only a log it read or appended was verified under
       // this call's controller view.
       if (verified !== null && verified !== held?.verified) {
-        held = { verified, view: controller }
+        hold({ verified, view: controller })
       }
       return sealed ? 'sealed' : 'noop'
     }
@@ -452,7 +495,7 @@ export function logGovernedDescriptorStore({
         signer: logSigner,
         state: toEpochConfigurationState(descriptor)
       })
-      held = { verified, view: controller }
+      hold({ verified, view: controller })
       if (!created) {
         throw new PreconditionFailedError(
           'The resource log create lost its guarded-create race: a log is ' +

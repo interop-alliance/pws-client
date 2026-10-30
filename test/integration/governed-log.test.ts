@@ -55,7 +55,7 @@ function recipient(kid: string) {
 }
 
 const oneEpoch: CollectionEncryption = {
-  type: 'WasEpochConfiguration',
+  type: 'PwsEpochConfiguration',
   scheme: 'edv',
   currentEpoch: 'urn:epoch:1',
   epochs: [{ id: 'urn:epoch:1', recipients: [recipient('did:key:zApp1#ka')] }]

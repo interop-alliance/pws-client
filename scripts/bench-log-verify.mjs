@@ -6,12 +6,14 @@
  * log (nothing new). Prints one row per (entries, recipients) with the
  * serialized log size and the mean wall time of each pass.
  *
+ * Run `pnpm build` first.
  * Usage: node scripts/bench-log-verify.mjs [entries,...] [recipients,...]
  * Defaults: 10,100,300 entries and 1,10,50 recipients, 3 runs each.
  */
 import { randomBytes } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
+import { EPOCH_CONFIGURATION_STATE_TYPE } from '@interop/pws-client/edv'
 import { RESOURCE_LOG_METHOD as METHOD } from '@interop/storage-core'
 import {
   buildResourceLogEntry,
@@ -48,7 +50,7 @@ function descriptorState({ epoch, count }) {
     encrypted_key: base64url(40)
   }))
   return {
-    type: 'WasEpochConfiguration',
+    type: EPOCH_CONFIGURATION_STATE_TYPE,
     profile: 'application/json+EDV Document',
     epochs: [{ id: `epoch-${epoch}`, recipients }]
   }

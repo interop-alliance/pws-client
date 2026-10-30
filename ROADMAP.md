@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 151
+nextAvailableId: 156
 
 <!-- roadmap-order:index:start -->
 
@@ -56,6 +56,8 @@ Ready:
   precondition
 - WCL-148 [M] `viewCarriesHeadOf` compares the held view's tail, not the held
   head's controller version
+- WCL-155 [M] The state-type rule sits above the log verifier, so a refused head
+  advances the pin
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -93,12 +95,17 @@ Waiting on another repo:
   provisioning (after WSS-194)
 - WCL-144 [M] Follow the replication companion: the server DID on the core
   entry, and unrecognized stall reasons (after WSS-238)
+- WCL-152 [L] Document and test the `replica-refused` delete refusals (after
+  WASS-86)
 
 **Features**
 
 Ready:
 
+- WCL-153 [M] Export the policy, linkset, backends, quotas and chunk URL
+  builders from `./paths`
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
+- WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
 
 **Performance**
 
@@ -892,6 +899,47 @@ which the verified record already exposes, so the client can compare the same
 thing with no upstream change. WCL-147 removes the gate altogether once the
 library guards its own arguments; this item makes it correct until then.
 
+### WCL-155: [M] The state-type rule sits above the log verifier, so a refused head advances the pin
+
+- status: todo
+- priority: medium
+- labels: encryption, log, correctness, cross-repo
+- discovered-from: `/simplify` altitude pass on the state-type refusals,
+  2026-10-30
+- touches:
+  - vh-resource-log: the new verifier hook and its ARCHITECTURE/README notes
+  - wallet-core: `src/keys/rosterLogStore.ts` wraps the generic store, and
+    `src/descriptors/logSource.ts` calls `readGovernedEpochConfiguration`
+    directly, so both need checking against the moved rule
+- acceptance:
+  - [ ] `@interop/vh-resource-log` lets a caller state a per-log rule on the
+        head state, applied once where a tail is verified, so every path that
+        verifies a log runs it
+  - [ ] `logGovernedDescriptorStore` states the rule once, and `sweepLog`, the
+        check in `hold`, and the check in `readGovernedEpochConfiguration` are
+        deleted
+  - [ ] A head of another state type no longer advances the chain-head pin
+  - [ ] `seal()` refuses a head of another state type on every path that sees
+        one, and the `LogGovernedDescriptorStore` doc says so
+
+`@interop/vh-resource-log` has no place to state a per-log rule on the head
+state, so this package checks after each library call that hands back a verified
+log. The check runs after the library has written the pin, so a refused head has
+already advanced it. `sealResourceLog` needs more: its append path rebases on
+its own reads, so the only hook available here is a `ResourceLogStore` wrapper,
+on a seam the library documents as transport only. That wrapper reads the rule
+off the entry being written, which works only because the sweep re-appends the
+head state verbatim.
+
+The existing `admitAppend` controller hook cannot carry the rule: its input has
+no entry or state, and it skips genesis. A new optional hook on
+`ResourceLogController`, called from `verifyTail` on the last entry, would cover
+read, append confirmation, create confirmation, and the rebase reads.
+wallet-core's `controllerForLogClass` already applies a per-log rule through the
+controller for the same reason. An option threaded beside `expectedMethod` is
+the cleaner home but brings back an obligation at each call site. The choice
+between the two is open.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1015,7 +1063,7 @@ error class; it adds no binding check. discovered-from: whole-codebase review,
 `query()` (`src/sync/port.ts:352-370`) returns `changes()` cast to `SyncPage`
 with no cross-call state, and `changes()` validates one page in isolation with
 no checkpoint memory. A non-advancing feed therefore spins with nothing in the
-stack naming the fault; the was-sync pull handler fetches one page per call and
+stack naming the fault; the pws-sync pull handler fetches one page per call and
 has no loop or cap of its own. The originally proposed fix is unsound: having
 the port remember the last checkpoint it returned reports a legitimate retry or
 resume as a server fault, because a driver re-issuing the same pull gets the
@@ -1179,7 +1227,7 @@ without this upstream fix.
     carries `did` plus an optional `baseServerUrl`)
   - freewallet: FW-694 (filed 2026-10-28; re-scope to 0003); was-react: WR-98
     (re-scoped 2026-10-29: grants-only stores use `forSpace`, configured
-    sessions use `baseServerUrl`, parked behind WC-307 and WS-30); was-sync:
+    sessions use `baseServerUrl`, parked behind WC-307 and WS-30); pws-sync:
     WS-30 (filed 2026-10-29: the controller port takes `spaceUrl`); dcw: DCW-104
     (`profile_sync` stores `baseServerUrl`)
   - storage-core: `ORIGIN_ROOT_RESERVED_COLLECTION_IDS` and optional
@@ -1238,7 +1286,7 @@ reading that followed, and the wallet-core port of 2026-10-29.
     `https://interop-alliance.github.io/portable-wallet-profile-spec/#entry-as-shorthand`
   - web-spaces-server: WSS-243 lists the entry; this item's tests need a server
     past that item (the pair rule of LEARNINGS.md applies)
-  - was-conformance-suite: PWSCS-33 is the server-side counterpart and does not
+  - pws-conformance-suite: PWSCS-33 is the server-side counterpart and does not
     gate this item
   - wallet-core: the caller that decides whether a server can host an account;
     today it checks tokens one by one, and gains the one-call check this item
@@ -1501,6 +1549,43 @@ overwrite the winner's display name (the server merges the rest forward); no
 client-side gate can detect that server, since the precondition is a property of
 the description endpoints rather than a backend feature token.
 
+### WCL-152: [L] [after WASS-86] Document and test the `replica-refused` delete refusals
+
+- status: todo
+- priority: low
+- labels: spec, replication, docs, tests
+- discovered-from: portable-web-spaces-spec WASS-86 (2026-10-30)
+- blocked-by: WASS-86
+- touches:
+  - pws-client (this repo): `src/Space.ts` (the `delete()` and
+    `deleteWithOutcome()` JSDoc), `src/Collection.ts` (the `delete()` JSDoc),
+    README's replication section, and `src/internal/mapError.ts` if WASS-86
+    registers a new error kind
+  - web-spaces-server: serves both refusals in 0.46.0 (TBD)
+  - portable-web-spaces-spec: WASS-86 (decides the error kind)
+- acceptance:
+  - [ ] `Space.delete()`, `Space.deleteWithOutcome()` and `Collection.delete()`
+        document that the call can throw `ConflictError` when it would take the
+        only copy of a log a Space's `did:webvh` controller resolves from
+  - [ ] README's replication section names both refusals beside the
+        `deregisterReplica()` one, and says what a caller does next: change the
+        controller of the Space the refusal names, then retry
+  - [ ] Unit tests over the stubbed transport cover a 409 on each of the three
+        calls: it throws `ConflictError`, `deleteWithOutcome()` does not report
+        it as an outcome, and `Collection.delete()` keeps its memoized codec
+  - [ ] If WASS-86 registers a new kind, it maps to `ConflictError`
+
+Context: the reference server now refuses Delete Space and Delete Collection
+when the delete would leave another Space's controller with no log to resolve
+from, and Delete Collection also refuses for the Space's own controller. Both
+answer `replica-refused` (409). The client's behavior is already right:
+`mapError.ts` maps that type to `ConflictError`, `send` treats only a 404 as
+idempotent success, `deleteWithOutcome()` rethrows anything but `NotFoundError`,
+and `Collection.delete()` resets its codec only after the call succeeds. What is
+missing is the documentation and a test to hold it. `delete()` reads as
+"Idempotent", so a caller has no hint that it can throw over replication state.
+The item waits on WASS-86 because the spec may register a new kind.
+
 ## Features
 
 New capability. Client-side encryption is modeled as a backend feature; the keys
@@ -1508,6 +1593,42 @@ live in the wallet and the server stores opaque JWEs. Everything shipped on that
 front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
+
+### WCL-153: [M] Export the policy, linkset, backends, quotas and chunk URL builders from `./paths`
+
+- status: todo
+- priority: medium
+- labels: paths, api, conformance
+- discovered-from: PWSCS-30 (2026-10-30)
+- touches:
+  - pws-conformance-suite: PWSCS-30 moves its URL building onto these exports
+    once they are published
+- acceptance:
+  - [ ] `./paths` exports `spacePolicyUrl`, `collectionPolicyUrl`,
+        `resourcePolicyUrl`, `spaceLinksetUrl`, `collectionLinksetUrl`,
+        `spaceBackendsUrl`, `spaceQuotasUrl`, `resourceChunkUrl` and
+        `resourceChunksUrl`
+  - [ ] A test imports each of the nine through the `./paths` entry rather than
+        `internal/paths.js`
+  - [ ] `./paths/layout` does not change, and the import-graph rules still pass
+  - [ ] The `src/paths/index.ts` doc comment, README and CHANGELOG name the new
+        exports
+
+Context: `./paths` exports the Space, Collection and Resource builders, but not
+the builders for the sub-routes beneath them. A consumer that has to form one of
+those URLs without a navigational handle must assemble it by hand. The entry's
+own doc comment warns against that, since the caller then re-derives the
+trailing-slash and percent-encoding rules that have to match the server. The
+conformance suite hits this gap. It is moving every request URL onto the `paths`
+helpers so that a mount path or a trailing slash on the base server URL builds
+correct URLs, and these nine routes have no public builder.
+
+All nine already exist in `src/internal/paths.ts`, are pure, and are covered by
+`test/node/paths.test.ts`, so this is an export-list change in
+`src/paths/index.ts`. That module is already in the `./paths` closure, so the
+fourth import-graph rule is unaffected. The other internal builders, such as
+`spaceExportUrl`, `spaceRevocationUrl` and `collectionQuotaUrl`, stay internal
+until a consumer needs them.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 
@@ -1529,6 +1650,44 @@ this out: `getPolicy()` / `getPolicyWithEtag()` read the live policy only. A
 URL, so decide whether the read belongs on the handles (an `includeDeleted`
 option on `getPolicyWithEtag()`) or on a URL-taking helper the feed consumer can
 call directly. discovered-from: WCL-123.
+
+### WCL-154: [L] Add `Resource.grant()` so every handle depth can delegate
+
+- status: todo
+- priority: low
+- labels: api, grant, zcap
+- discovered-from: the did-cli-typescript /simplify pass (2026-10-30)
+- touches:
+  - did-cli-typescript: `grantAccess` (`src/was/grant.ts`) can call
+    `handle.grant()` at every depth and drop its `client`, `target` and
+    `spaceUrl` options
+- acceptance:
+  - [ ] `Resource.grant(options: GrantOptions)` delegates through
+        `delegateGrantAt`, prefilling `target` from the handle's `url`,
+        `spaceUrl` from its Space, and the parent from its bound capability.
+        Explicit options win, as on `Space` and `Collection`
+  - [ ] Node tests cover a Space-rooted grant and a re-delegation from a handle
+        bound to a capability
+  - [ ] A live test grants one Resource: the delegatee can read it, is refused a
+        sibling Resource, and loses access after `space.revoke()`
+  - [ ] The recorded decision "No `collection.revoke()` / `resource.revoke()`
+        sugar" drops its "`Resource` has no `grant()` to mirror" clause. The
+        decision itself stands, because revocation is Space-scoped
+  - [ ] README, ARCHITECTURE.md, the `delegateGrantAt` doc comment and CHANGELOG
+        name the new method
+
+`Space.grant` and `Collection.grant` prefill the target, the rooting Space and
+the bound capability from the handle. `Resource` has no such method, so a
+consumer holding a Resource handle calls `pws.grant({ target, spaceUrl })` and
+passes two URLs the handle already carries. Leaving out `spaceUrl` there still
+succeeds, but the grant is rooted at the target and is not Space-revocable. A
+consumer that grants at any depth, like the did-cli `was grant` command, cannot
+use the handle sugar at all and has to thread both URLs through itself.
+
+`delegateGrantAt` already takes everything the method needs, and `Resource`
+holds `url`, `spaceUrl` and its bound capability, so this is one small method.
+It adds no wire format: `pws.grant()` already mints the same capability for a
+Resource target.
 
 ## Performance
 
@@ -1620,10 +1779,9 @@ is not served until WSS-226.
     `src/sync/`
   - freewallet: imports, and the name matching in `src/lib/storageErrors.ts`
   - was-react: imports, and the error handling in `src/storage/wasSyncPort.ts`
-  - was-sync: imports, and the error handling in `src/types.ts` and
-    `src/controller.ts`
+  - pws-sync: migrated (`@interop/pws-client` `^0.104.0`)
   - dcw, wallet-backup, wallet-request, did-cli-typescript: imports
-  - was-conformance-suite: the `peerDependencies` range and the harness types
+  - pws-conformance-suite: migrated (`@interop/pws-client` `>=0.104.0 <1.0.0`)
   - web-spaces-server: the `devDependencies` entry
 - acceptance:
   - [ ] `@interop/pws-client` is published to npm
@@ -1633,9 +1791,8 @@ Each consumer needs the new package name, the `Pws*` names, the `pws` option
 key, and the new error `name` strings. A consumer that matches an error by its
 old `name` still compiles and silently stops matching, so grep for the quoted
 strings as well as the imports. The `pws` binding also makes existing encrypted
-data unreadable. `WasEpochConfiguration` stays as it is: both specs and
-wallet-core's wire constants list it as permanent, so it is not a rename
-candidate.
+data unreadable. The `WasEpochConfiguration` state type is renamed separately
+under WCL-151.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked
 

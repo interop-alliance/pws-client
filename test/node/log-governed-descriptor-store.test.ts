@@ -12,8 +12,9 @@
  * `history.method` and `history.resource` mismatches before any fetch, a
  * projection that does not match the verified head (a stale one is the port's
  * conflict, a forged one an integrity refusal), a head of the wrong state
- * type, an absent log under a projection, and the library's own integrity and
- * continuity refusals passing through unwrapped.
+ * type on read, seal, an adopting create, and a replace read-back, an absent
+ * log under a projection, and the library's own integrity and continuity
+ * refusals passing through unwrapped.
  */
 import { describe, it, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
@@ -52,6 +53,7 @@ import type { RecipientPublicKey } from '../../src/edv/recipients.js'
 
 const LOG_URL = 'https://pws.example/space/s1/vault/meta/log'
 const LOG_ID = 'space/s1/vault/meta/log'
+const OLD_STATE_TYPE = 'WasEpochConfiguration'
 
 /**
  * The format identifier a genesis entry's `parameters` carry (absent on a
@@ -107,6 +109,39 @@ async function makeWriter(): Promise<{
     versions: [{ versionId: '1-a', keys: [keyMultibase] }]
   })
   return { signer, controller }
+}
+
+/**
+ * `entries` plus a properly signed and hashed append whose state carries
+ * `stateType`: the library's integrity and continuity checks both pass, so the
+ * store's own type rule is the only thing left to refuse it.
+ *
+ * @param options {object}
+ * @param options.entries {ResourceLogEntry[]}
+ * @param options.controller {ResourceLogController}
+ * @param options.signer {ResourceLogSigner}
+ * @param [options.stateType] {string}
+ * @returns {Promise<ResourceLogEntry[]>}
+ */
+async function withForeignHead({
+  entries,
+  controller,
+  signer,
+  stateType = OLD_STATE_TYPE
+}: {
+  entries: ResourceLogEntry[]
+  controller: ResourceLogController
+  signer: ResourceLogSigner
+  stateType?: string
+}): Promise<ResourceLogEntry[]> {
+  const head = entries.at(-1)!
+  const foreign = await buildResourceLogEntry({
+    head,
+    state: { ...head.state, type: stateType },
+    controller,
+    signer
+  })
+  return [...entries, foreign]
 }
 
 /**
@@ -553,30 +588,31 @@ describe('logGovernedCollectionDescriptorStore over a governed collection', () =
     expect((err as Error).message).toMatch(/serves none/)
   })
 
-  it('refuses a verified head whose state is not an epoch configuration', async () => {
-    const { fake, writer, storeOptions } = await governedFixture()
-    const [genesis] = fake._entries()
-    // A properly signed and hashed append whose state carries the wrong
-    // type: the library's integrity and continuity checks both pass, so the
-    // store's own type rule is the only thing left to refuse it.
-    const foreign = await buildResourceLogEntry({
-      head: genesis!,
-      state: { ...genesis!.state, type: 'SomethingElse' },
-      controller: writer.controller,
-      signer: writer.signer
-    })
-    fake._setEntries([genesis!, foreign])
-    const err = await logGovernedCollectionDescriptorStore({
-      ...storeOptions,
-      pinStore: memoryResourceLogPinStore()
-    })
-      .read()
-      .catch(err => err)
-    expect((err as Error).name).toBe('ResourceLogIntegrityError')
-    expect((err as Error).message).toMatch(
-      /"SomethingElse", not "WasEpochConfiguration"/
-    )
-  })
+  it.each(['SomethingElse', OLD_STATE_TYPE])(
+    'refuses a verified head whose state type is %s',
+    async stateType => {
+      const { fake, writer, storeOptions } = await governedFixture()
+      fake._setEntries(
+        await withForeignHead({
+          entries: fake._entries(),
+          controller: writer.controller,
+          signer: writer.signer,
+          stateType
+        })
+      )
+      const err = await logGovernedCollectionDescriptorStore({
+        ...storeOptions,
+        pinStore: memoryResourceLogPinStore()
+      })
+        .read()
+        .catch(err => err)
+      expect((err as Error).name).toBe('ResourceLogIntegrityError')
+      expect((err as Error).message).toContain(
+        `"${stateType}", not "PwsEpochConfiguration"`
+      )
+      expect((err as Error).message).toMatch(/older client/)
+    }
+  )
 
   it('passes the library integrity refusal through unwrapped', async () => {
     const { fake, storeOptions } = await governedFixture()
@@ -798,5 +834,155 @@ describe('logGovernedDescriptorStore over any resource log', () => {
       store.replace(descriptor, { ifMatch: 'v1' })
     ).rejects.toBeInstanceOf(ValidationError)
     await expect(store.seal()).rejects.toBeInstanceOf(ValidationError)
+  })
+
+  /**
+   * A log signed under a controller that then removes a key, so a head from
+   * before the removal needs sealing. `advance()` moves the view past the
+   * removal; `appendForeignHead()` lands a signed head of the old state type
+   * under the current view.
+   */
+  async function sealingFixture() {
+    const { reader, writer, log, options } = await genericFixture()
+    const departed = await makeWriter()
+    const keys = [writer.signer.keyMultibase, departed.signer.keyMultibase]
+    const beforeRemoval = fakeController({
+      versions: [{ versionId: '1-a', keys }]
+    })
+    const afterRemoval = fakeController({
+      versions: [
+        { versionId: '1-a', keys },
+        { versionId: '2-b', keys: [writer.signer.keyMultibase] }
+      ]
+    })
+    let view = beforeRemoval
+    const sealingOptions = {
+      ...options,
+      resolveController: async () => view,
+      signer: writer.signer
+    }
+    await initRecipients({
+      store: logGovernedDescriptorStore(sealingOptions),
+      recipients: [reader.recipient]
+    })
+    return {
+      log,
+      sealingOptions,
+      advance() {
+        view = afterRemoval
+      },
+      async appendForeignHead() {
+        log._setEntries(
+          await withForeignHead({
+            entries: log._getEntries()!,
+            controller: view,
+            signer: writer.signer
+          })
+        )
+      },
+      async expectSealRefused(
+        store = logGovernedDescriptorStore(sealingOptions)
+      ) {
+        const err = await store.seal().catch(err => err)
+        expect((err as Error).name).toBe('ResourceLogIntegrityError')
+        expect(log._getEntries()).toHaveLength(2)
+      }
+    }
+  }
+
+  it('seals a log whose head is an epoch configuration', async () => {
+    const { log, sealingOptions, advance } = await sealingFixture()
+    advance()
+    const store = logGovernedDescriptorStore(sealingOptions)
+    expect(await store.seal()).toBe('sealed')
+    expect(log._getEntries()).toHaveLength(2)
+  })
+
+  it('refuses to seal a head of another state type, appending nothing', async () => {
+    const { advance, appendForeignHead, expectSealRefused } =
+      await sealingFixture()
+    await appendForeignHead()
+    advance()
+    await expectSealRefused()
+  })
+
+  it('refuses a head of another state type the sweep would call sealed', async () => {
+    const { advance, appendForeignHead, expectSealRefused } =
+      await sealingFixture()
+    advance()
+    await appendForeignHead()
+    await expectSealRefused()
+  })
+
+  it('refuses to seal a head of another state type that landed after its read', async () => {
+    const { sealingOptions, advance, appendForeignHead, expectSealRefused } =
+      await sealingFixture()
+    const store = logGovernedDescriptorStore(sealingOptions)
+    await store.read()
+    await appendForeignHead()
+    advance()
+    await expectSealRefused(store)
+  })
+
+  it('refuses to adopt a head of another state type from a lost create', async () => {
+    const { reader, writer, log, options } = await genericFixture()
+    const descriptor = await initRecipients({
+      store: logGovernedDescriptorStore({ ...options, signer: writer.signer }),
+      recipients: [reader.recipient]
+    })
+    log._setEntries(
+      await withForeignHead({
+        entries: log._getEntries()!,
+        controller: writer.controller,
+        signer: writer.signer
+      })
+    )
+    const loser = logGovernedDescriptorStore({
+      ...options,
+      pinStore: memoryResourceLogPinStore(),
+      signer: writer.signer
+    })
+    const err = await loser.create!(descriptor).catch(err => err)
+    expect((err as Error).name).toBe('ResourceLogIntegrityError')
+    // Nothing was held, so a later replace re-reads and meets the same refusal
+    // rather than building on the adopted head.
+    const replaced = await loser
+      .replace(descriptor, { ifMatch: 'v2' })
+      .catch(err => err)
+    expect((replaced as Error).name).toBe('ResourceLogIntegrityError')
+    expect(log._getEntries()).toHaveLength(2)
+  })
+
+  it('refuses a head of another state type on a replace read-back', async () => {
+    const { reader, writer, log, options } = await genericFixture()
+    const replacing = {
+      ...options,
+      signer: writer.signer,
+      log: {
+        ...log,
+        // The acked append lands, then a foreign head lands before the
+        // read-back confirms it.
+        async append(
+          entry: ResourceLogEntry,
+          appendOptions: { ifMatch: string }
+        ) {
+          await log.append(entry, appendOptions)
+          log._setEntries(
+            await withForeignHead({
+              entries: log._getEntries()!,
+              controller: writer.controller,
+              signer: writer.signer
+            })
+          )
+        }
+      }
+    }
+    const store = logGovernedDescriptorStore(replacing)
+    await initRecipients({ store, recipients: [reader.recipient] })
+    const current = await store.read()
+    const err = await store
+      .replace(current!.descriptor, { ifMatch: current!.etag! })
+      .catch(err => err)
+    expect((err as Error).name).toBe('ResourceLogIntegrityError')
   })
 })

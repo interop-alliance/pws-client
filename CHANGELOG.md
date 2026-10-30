@@ -1,5 +1,24 @@
 # @interop/pws-client Changelog
 
+## 0.105.0 - TBD
+
+### Changed
+
+- **BREAKING**: `EPOCH_CONFIGURATION_STATE_TYPE` is now `PwsEpochConfiguration`
+  (previously `WasEpochConfiguration`). A log head carrying the old value is
+  refused, so existing roster and collection descriptor logs stop reading and no
+  append can land on them. A wallet with an old roster log has its session
+  refused. Such an account is re-provisioned. This reverses the 0.104.0 entry
+  that kept the old value as permanent.
+
+### Fixed
+
+- `seal()`, an adopting `create()`, and a `replace()` read-back on the
+  log-governed descriptor store refuse a head of another state type, as `read()`
+  does. `seal()` previously appended to such a log and reported it as sealed.
+- The state-type refusal message says a log written by an older client is
+  refused the same way as a foreign one.
+
 ## 0.104.0 - 2026-10-30
 
 ### Changed
