@@ -45,6 +45,7 @@ import {
 } from './internal/codec.js'
 import type { CodecHolder, ReadBaseline } from './internal/codec.js'
 import {
+  DEFAULT_MAX_PAGES,
   collectWalk,
   signedPageWalk,
   walkItems,
@@ -92,6 +93,7 @@ import {
 } from './internal/content.js'
 import {
   INDEX_SCHEMA_PROPERTY,
+  cloneIndexSchema,
   mergeIndexDeclarations,
   normalizeIndexRequests,
   readIndexSchema,
@@ -755,7 +757,9 @@ export class Collection {
       },
       operation: 'Collection configuration'
     })
-    this.#resetCodecIfDeclared(desc.encryption)
+    // Any successful configuration write drops the memoized codec (see
+    // `CodecHolder.reset`).
+    this.#codecHolder.reset()
     return {
       description: metadata ?? {
         id: this.id,
@@ -852,7 +856,7 @@ export class Collection {
       ifMatch: options.ifMatch,
       ifNoneMatch: options.ifNoneMatch
     })
-    this.#resetCodecIfDeclared(description.encryption)
+    this.#codecHolder.reset()
     return {
       description: metadata ?? {
         id: this.id,
@@ -954,28 +958,12 @@ export class Collection {
   }
 
   /**
-   * Drops any memoized codec when a write declared an `encryption` descriptor.
-   * Writing it can rotate the key epoch (the recipient operations CAS this
-   * member) or flip the collection from plaintext to encrypted, and a codec
-   * memoized from the prior descriptor would keep encrypting under the stale
-   * epoch -- whose key a just-removed reader still holds -- or write
-   * server-visible plaintext into a now-encrypted collection. Child resource
-   * handles share this codec via their thunk, so resetting here propagates to
-   * them too.
-   *
-   * @param [encryption] {CollectionEncryption}   the descriptor the write
-   *   declared, if any
-   * @returns {void}
-   */
-  #resetCodecIfDeclared(encryption?: CollectionEncryption): void {
-    if (encryption !== undefined) {
-      this.#codecHolder.reset()
-    }
-  }
-
-  /**
    * Deletes the whole collection. Idempotent. To delete a single resource, use
    * `collection.resource(id).delete()`.
+   *
+   * Drops the memoized codec as well: a collection re-created at this URL
+   * under another encryption scheme must not be written through the codec
+   * the deleted one resolved (see `CodecHolder.reset`).
    *
    * @returns {Promise<void>}
    */
@@ -986,6 +974,7 @@ export class Collection {
       capability: this.#capability,
       idempotent: true
     })
+    this.#codecHolder.reset()
   }
 
   /**
@@ -1362,11 +1351,15 @@ export class Collection {
    * attribute was declared carry no token for it, so they do not match a search
    * on it until they are rewritten.
    *
+   * The result is a copy: mutating it (a compound entry's `attribute` array
+   * included) does not touch the schema installed on this handle's codec.
+   * Declare through {@link declareIndex}.
+   *
    * @returns {Promise<IndexDeclaration[]>}
    */
   async indexes(): Promise<IndexDeclaration[]> {
     const indexing = await this.#indexing('read the index schema')
-    return indexing.schema().indexes
+    return cloneIndexSchema(indexing.schema()).indexes
   }
 
   /**
@@ -1395,7 +1388,8 @@ export class Collection {
    *   for a compound index
    * @param [options.unique] {boolean}   reject a second document that carries
    *   the same value (the server answers a colliding write with `409`)
-   * @returns {Promise<IndexSchema>}   the schema now in force
+   * @returns {Promise<IndexSchema>}   the schema now in force, as a copy (see
+   *   {@link indexes})
    */
   async declareIndex({
     attribute,
@@ -1424,7 +1418,8 @@ export class Collection {
    * @param options {object}
    * @param options.indexes {Array<{ attribute: string | string[]; unique?: boolean }>}
    *   the attributes to declare, in `declareIndex`'s own terms
-   * @returns {Promise<IndexSchema>}   the schema now in force
+   * @returns {Promise<IndexSchema>}   the schema now in force, as a copy (see
+   *   {@link indexes})
    */
   async declareIndexes({
     indexes
@@ -1473,7 +1468,7 @@ export class Collection {
     })
     const schema = readIndexSchema(custom)
     indexing.applySchema(schema)
-    return schema
+    return cloneIndexSchema(schema)
   }
 
   /**
@@ -1954,14 +1949,18 @@ export class Collection {
    * checkpoint); a short page is not the end (see `changes()`). Checkpoints
    * are opaque strings compared by equality only. A server that hands back a
    * checkpoint this walk already resumed from (the starting one included)
-   * fails the walk with a `WasServerError` rather than looping. Every fault
-   * `changes()` rejects on fails the walk the same way.
+   * fails the walk with a `WasServerError` rather than looping, as does one
+   * that keeps advancing the checkpoint without ending the feed within
+   * `maxPages` pages. Every fault `changes()` rejects on fails the walk the
+   * same way.
    *
    * @param [options] {object}
    * @param [options.checkpoint] {ChangesCheckpoint}   resume strictly after it
    * @param [options.limit] {number}   max entries per request, every kind counted
    * @param [options.method] {'POST' | 'GET'}   the request form of each page,
    *   as for {@link changes}
+   * @param [options.maxPages] {number}   the most pages one walk reads before
+   *   it fails (default 10,000, the same bound as a listing walk)
    * @returns {AsyncGenerator<{ documents: ResourceChangeDocument[], checkpoint: ChangesCheckpoint | null }>}
    */
   async *resourceChanges(
@@ -1969,16 +1968,19 @@ export class Collection {
       checkpoint?: ChangesCheckpoint
       limit?: number
       method?: 'POST' | 'GET'
+      maxPages?: number
     } = {}
   ): AsyncGenerator<{
     documents: ResourceChangeDocument[]
     checkpoint: ChangesCheckpoint | null
   }> {
-    const { limit, method } = options
+    const { limit, method, maxPages = DEFAULT_MAX_PAGES } = options
     let checkpoint = options.checkpoint
     const seen = new Set<string>(checkpoint === undefined ? [] : [checkpoint])
+    let pagesRead = 0
     for (;;) {
       const page = await this.changes({ checkpoint, limit, method })
+      pagesRead += 1
       yield {
         documents: page.documents.filter(isResourceChange),
         checkpoint: page.checkpoint ?? null
@@ -1990,6 +1992,14 @@ export class Collection {
         throw new WasServerError(
           `The changes feed of collection "${this.id}" repeated checkpoint ` +
             `${JSON.stringify(page.checkpoint)} instead of advancing.`
+        )
+      }
+      // The page already says the feed continues, so the refusal costs no
+      // further request.
+      if (pagesRead >= maxPages) {
+        throw new WasServerError(
+          `The changes feed of collection "${this.id}" did not end within ` +
+            `${maxPages} pages.`
         )
       }
       seen.add(page.checkpoint)
@@ -2024,7 +2034,8 @@ export class Collection {
    * `changes()` rejects on (a bodiless 2xx, a live JSON entry with no `data`,
    * or a `501` from a server that does not advertise the `changes-query`
    * feature) fail the walk with the same `WasServerError`, as does a server
-   * that repeats a checkpoint instead of advancing.
+   * that repeats a checkpoint instead of advancing, or one that keeps advancing
+   * it without ever ending the feed (the page bound of `resourceChanges()`).
    *
    * @param [options] {object}
    * @param [options.limit] {number}   max documents per request (default 1000, the teaching server's maximum); the server reduces it to its own maximum

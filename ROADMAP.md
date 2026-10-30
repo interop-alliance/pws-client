@@ -105,7 +105,6 @@ Ready:
 
 Ready:
 
-- WCL-72 [L] Collection internal-state hygiene
 - WCL-80 [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by
   the seam but never invoked
 - WCL-84 [L] Internal hygiene: a misleading 412 message, a lying response cast,
@@ -1506,39 +1505,6 @@ only when its `server` Space holds a verifying did:webvh log listing the
 seed-derived key under `capabilityInvocation`. The provisioner for that lives in
 the server's own test helpers until WAS-228 exports it, and the delegated route
 is not served until WAS-226.
-
-### WCL-72: [L] Collection internal-state hygiene
-
-- status: todo
-- priority: low
-- labels: collection, encryption, codec, search, changes-feed
-- acceptance:
-  - [ ] `indexes()` returns a copy, and the empty schema is frozen or minted
-        fresh, so a caller mutating the result cannot reach another client's
-        collection
-  - [ ] `delete()` resets the memoized codec and the backend feature probe;
-        `BackendFeatures` gains the `reset()` its `Memo` already has
-  - [ ] `replaceDescription` resets the codec after any successful description
-        write, not only when `encryption` is present
-  - [ ] `documents()` is bounded against an advancing checkpoint as well as a
-        repeated one, throwing `WasServerError` on exhaustion
-
-Four small defects in one file, each execution-checked, none worth its own item.
-`indexes()` returns the codec's live schema array by reference, and when nothing
-is declared that array is a shared module-level constant, so a `push` on one
-collection's result surfaces in an unrelated client's fresh collection and makes
-its writes start emitting blinded `indexed` entries. No in-repo path mutates it,
-so this is an encapsulation defect with a large blast radius rather than a live
-failure. `delete()` resets neither the memoized codec nor the feature probe,
-while `configure`, `replaceDescription` and `putHistoryLog` all reset in some
-form; a handle that deletes and recreates a collection under a different scheme
-then writes through the stale codec. The consequence is a confusing 422, not a
-plaintext leak: the spec makes rejecting a non-conforming body a server MUST,
-and the reference server implements it. `replaceDescription`'s conditional reset
-is the same class and is included here. `documents()` exits only on a falsy or
-already-seen checkpoint, so a server that advances the checkpoint forever is
-walked forever; a scratch run reached 5001 requests. discovered-from:
-whole-codebase review, 2026-09-11.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked
 

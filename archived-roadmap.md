@@ -4662,3 +4662,39 @@ its status. wallet-core builds that grant and needs the route's target URL. The
 builders exist only in `src/internal/paths.ts:191-212`. The public `/paths`
 entry (`src/paths.ts:36-52`) does not export them, so wallet-core would have to
 rebuild the path by string concatenation.
+
+### WCL-72: [L] Collection internal-state hygiene
+
+- status: done
+- done: 2026-10-29
+- priority: low
+- labels: collection, encryption, codec, search, changes-feed
+- acceptance:
+  - [x] `indexes()` returns a copy, and the empty schema is frozen or minted
+        fresh, so a caller mutating the result cannot reach another client's
+        collection
+  - [x] `delete()` resets the memoized codec and the backend feature probe;
+        `BackendFeatures` gains the `reset()` its `Memo` already has (the
+        feature probe and `BackendFeatures` were removed before this item was
+        taken up, so only the codec reset applied)
+  - [x] `replaceDescription` resets the codec after any successful description
+        write, not only when `encryption` is present (`configure` too)
+  - [x] `documents()` is bounded against an advancing checkpoint as well as a
+        repeated one, throwing `WasServerError` on exhaustion
+
+Four small defects in one file, each execution-checked, none worth its own item.
+`indexes()` returns the codec's live schema array by reference, and when nothing
+is declared that array is a shared module-level constant, so a `push` on one
+collection's result surfaces in an unrelated client's fresh collection and makes
+its writes start emitting blinded `indexed` entries. No in-repo path mutates it,
+so this is an encapsulation defect with a large blast radius rather than a live
+failure. `delete()` resets neither the memoized codec nor the feature probe,
+while `configure`, `replaceDescription` and `putHistoryLog` all reset in some
+form; a handle that deletes and recreates a collection under a different scheme
+then writes through the stale codec. The consequence is a confusing 422, not a
+plaintext leak: the spec makes rejecting a non-conforming body a server MUST,
+and the reference server implements it. `replaceDescription`'s conditional reset
+is the same class and is included here. `documents()` exits only on a falsy or
+already-seen checkpoint, so a server that advances the checkpoint forever is
+walked forever; a scratch run reached 5001 requests. discovered-from:
+whole-codebase review, 2026-09-11.

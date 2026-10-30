@@ -157,7 +157,17 @@ export class CodecHolder {
   }
 
   /**
-   * Drops any memoized codec so the next `get()` re-resolves.
+   * Drops any memoized codec so the next `get()` re-resolves. A handle calls
+   * it after every Collection Metadata write and after deleting the
+   * collection: a write can rotate the key epoch (the recipient operations
+   * CAS the `encryption` member) or flip the collection from plaintext to
+   * encrypted, and a collection re-created at the same URL may use another
+   * scheme. A codec memoized before would keep encrypting under the stale
+   * epoch (whose key a just-removed reader still holds) or write
+   * server-visible plaintext into a now-encrypted collection. Child resource
+   * handles share the holder through their thunk, so the reset reaches them
+   * too. It covers resolutions started after it returns; a resolution already
+   * in flight completes and its caller keeps the codec it resolved.
    *
    * @returns {void}
    */

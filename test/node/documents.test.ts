@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest'
 import type { HttpResponse } from '@interop/http-client'
 import { WasServerError } from '../../src/index.js'
 import type { ChangesPage, Collection } from '../../src/index.js'
+import { DEFAULT_MAX_PAGES } from '../../src/internal/pagination.js'
 import { feedEntry, recordEntry } from '../helpers/changesFeed.js'
 import {
   clientWithStub,
@@ -235,6 +236,22 @@ describe('Collection.documents()', () => {
     expect(err).toBeInstanceOf(WasServerError)
     expect((err as Error).message).toContain('repeated checkpoint')
     expect(bodies).toHaveLength(2)
+  })
+
+  it('fails the walk on a server that advances the checkpoint forever', async () => {
+    let served = 0
+    const client = clientWithStub(() => {
+      served += 1
+      return jsonResponse({
+        data: { documents: [], checkpoint: `cp-${served}` }
+      })
+    })
+    const notes = client.spaceAt(spaceUrlFor('s')).collection('notes')
+
+    const err = await notes.documents().catch((err: unknown) => err)
+    expect(err).toBeInstanceOf(WasServerError)
+    expect((err as Error).message).toContain('did not end within')
+    expect(served).toBe(DEFAULT_MAX_PAGES)
   })
 
   it('resolves null for a missing or invisible collection', async () => {

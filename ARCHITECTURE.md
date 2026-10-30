@@ -782,21 +782,23 @@ and the Collection's own `collection-metadata` and `log`, named by URL. Every
 kind marks a tombstone with `deleted`. `Collection.resourceChanges()` is the one
 page walk over that feed: it keeps the `resource` entries of every content type,
 drops the rest (a kind it does not know included), and fails on a server that
-repeats a checkpoint. `Collection.documents()` and the port's `query` both build
-on it. The port moves JSON documents, so `query` further keeps only the entries
-with a JSON content type and renames `deleted` to `_deleted`, the member its
-replication consumers read. A page whose entries the port skips entirely is not
-returned empty, since a pull loop reads an empty page as caught up and would
-never store the checkpoint past them. The port reads on from that page's
-checkpoint instead, until it has a document or the feed ends. A checkpoint is an
-opaque string the server issues, scoped to that server and Collection. The
-client stores it, compares it by equality only, and echoes it verbatim. Each
-feed document carries its own `checkpoint`, and the page's equals its last
-document's. A server refuses a checkpoint it did not issue with
-`invalid-request-body` (400), and the pull then restarts from the beginning.
-`WireDoc` and `MasterState` both carry an optional `writerId`, the
-writer-attribution label from the Resource Metadata (present when the writer
-declared one, and on a tombstone the deleting request's own label).
+repeats a checkpoint or that keeps advancing one past the walk's page bound
+(10,000 pages by default, the listing bound). `Collection.documents()` and the
+port's `query` both build on it, so both share those termination guarantees. The
+port moves JSON documents, so `query` further keeps only the entries with a JSON
+content type and renames `deleted` to `_deleted`, the member its replication
+consumers read. A page whose entries the port skips entirely is not returned
+empty, since a pull loop reads an empty page as caught up and would never store
+the checkpoint past them. The port reads on from that page's checkpoint instead,
+until it has a document or the feed ends. A checkpoint is an opaque string the
+server issues, scoped to that server and Collection. The client stores it,
+compares it by equality only, and echoes it verbatim. Each feed document carries
+its own `checkpoint`, and the page's equals its last document's. A server
+refuses a checkpoint it did not issue with `invalid-request-body` (400), and the
+pull then restarts from the beginning. `WireDoc` and `MasterState` both carry an
+optional `writerId`, the writer-attribution label from the Resource Metadata
+(present when the writer declared one, and on a tombstone the deleting request's
+own label).
 
 Conditional writes ride the server's opaque `ETag` uniformly for plaintext and
 encrypted resources, so there is no plaintext-vs-encrypted fork. The validator
@@ -1179,8 +1181,9 @@ it, and otherwise cover the client-side concepts this file names.
   scheme's routability rule (whether a declared descriptor can be routed as it
   stands). See The codec seam.
 - **`CodecHolder`** -- the per-`Collection` memoized codec resolution, shared
-  with child handles and invalidated by `reset()` when the encryption descriptor
-  changes. See The handle model and Concurrency.
+  with child handles and invalidated by `reset()` after any write that can
+  change the encryption descriptor (a configuration write, a history-log write)
+  and after `delete()`. See The handle model and Concurrency.
 - **`ChunkedWrite` plan** -- what `encode` answers with instead of an
   `EncodedWrite` when a write cannot be one request (a blob over `maxBlobBytes`,
   any `ReadableStream`, or any payload replacing a chunked document): a resource

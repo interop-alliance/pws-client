@@ -94,7 +94,8 @@ import type {
   ResponseLike
 } from '../codec.js'
 import {
-  EMPTY_INDEX_SCHEMA,
+  cloneIndexSchema,
+  emptyIndexSchema,
   assertQueryAttributes
 } from '../internal/indexSchema.js'
 import {
@@ -463,7 +464,7 @@ export class EdvCodec implements ResourceCodec {
    * a `declareIndex` installs one -- and while it is empty the write seam emits
    * no `indexed` entries, since there is nothing declared to index.
    */
-  #schema: IndexSchema = EMPTY_INDEX_SCHEMA
+  #schema: IndexSchema = emptyIndexSchema()
   /**
    * The scheme-agnostic search capability handed to the handle layer, present
    * exactly when this collection declares a blinding key.
@@ -584,13 +585,16 @@ export class EdvCodec implements ResourceCodec {
    * Installs the persisted schema: records it, then registers each declared
    * attribute with the EDV core, whose index helper is what actually blinds
    * attributes on write and builds query terms. Registration is idempotent, so
-   * re-applying the same schema (or a superset of it) is safe.
+   * re-applying the same schema (or a superset of it) is safe. The codec keeps
+   * its own copy: a caller that goes on mutating the object it passed in (or
+   * the array it declared a compound index with) does not change what this
+   * codec blinds and queries by.
    *
    * @param schema {IndexSchema}
    * @returns {void}
    */
   #applySchema(schema: IndexSchema): void {
-    this.#schema = schema
+    this.#schema = cloneIndexSchema(schema)
     for (const entry of schema.indexes) {
       this.#edv.ensureIndex({
         attribute: entry.attribute,

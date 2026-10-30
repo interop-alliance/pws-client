@@ -57,7 +57,7 @@ import type {
 import type { CodecRequestContext, CodecWrite, IndexSchema } from '../codec.js'
 import { isChunkedWrite } from '../codec.js'
 import { DECODER, storedResponse } from '../internal/content.js'
-import { EMPTY_INDEX_SCHEMA, readIndexSchema } from '../internal/indexSchema.js'
+import { emptyIndexSchema, readIndexSchema } from '../internal/indexSchema.js'
 import {
   EncryptOnlyCipherError,
   KeyUnwrapError,
@@ -340,7 +340,7 @@ export async function createEdvDocCipher({
   }): Promise<IndexSchema> => {
     const { indexing } = codec
     if (!indexing) {
-      return EMPTY_INDEX_SCHEMA
+      return emptyIndexSchema()
     }
     const schema = readIndexSchema(
       await codec.decodeMeta(stored, { kind: 'collection' })

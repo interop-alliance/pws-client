@@ -32,6 +32,7 @@ import {
   WasServerError
 } from '../../src/index.js'
 import type { IZcap } from '../../src/index.js'
+import { DEFAULT_MAX_PAGES } from '../../src/internal/pagination.js'
 import { Collection } from '../../src/Collection.js'
 import { feedEntry } from '../helpers/changesFeed.js'
 import { spaceUrlFor } from '../helpers/stubClient.js'
@@ -301,6 +302,31 @@ describe('createWasSyncPort.query', () => {
     expect(err).toBeInstanceOf(WasServerError)
     expect((err as Error).message).toContain('repeated checkpoint')
     expect(changes).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails on a server that advances the checkpoint over skipped entries forever', async () => {
+    let served = 0
+    const { was, changes } = makeWas({
+      onChanges: () => {
+        served += 1
+        return {
+          documents: [metaEntry(`c${served}`)],
+          checkpoint: `c${served}`
+        }
+      }
+    })
+    const port = createWasSyncPort({
+      was,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
+
+    const err = await port
+      .query({ limit: 50 })
+      .catch((caught: unknown) => caught)
+    expect(err).toBeInstanceOf(WasServerError)
+    expect((err as Error).message).toContain('did not end within')
+    expect(changes).toHaveBeenCalledTimes(DEFAULT_MAX_PAGES)
   })
 
   it('maps a refused checkpoint to WasSyncCheckpointError, carrying the problems', async () => {

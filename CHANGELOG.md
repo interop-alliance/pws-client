@@ -24,6 +24,22 @@
   builder. The grant's `invocationTarget` is the bare `{spaceUrl}replicas` URL,
   with no trailing slash.
 
+### Fixed
+
+- `collection.indexes()`, `declareIndex()` and `declareIndexes()` return copies
+  of the installed schema (compound `attribute` arrays included), the codec
+  installs a copy of what it is handed, and the undeclared schema is minted per
+  codec rather than shared, so a caller mutating a result or its own declaration
+  array cannot reach the schema any handle blinds and queries by.
+- `collection.delete()` drops the memoized codec, so a handle that deletes and
+  re-creates a collection under another encryption scheme does not write through
+  the stale one. `configure` and `replaceDescription` now drop it after every
+  successful write, not only when the body names `encryption`.
+- `collection.resourceChanges()` fails with `WasServerError` after `maxPages`
+  pages (default 10,000), so a server that keeps advancing the checkpoint
+  without ending the feed is no longer walked forever by `documents()` or by the
+  sync port's pull.
+
 ### Changed
 
 - The replica methods' docs no longer call the route controller-only: it takes

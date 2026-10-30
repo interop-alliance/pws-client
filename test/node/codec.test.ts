@@ -35,6 +35,7 @@ import { drain } from '../helpers/bytes.js'
 import {
   serviceDescriptionFor,
   baseServerUrlFor,
+  jsonResponse,
   spaceUrlFor
 } from '../helpers/stubClient.js'
 
@@ -571,6 +572,77 @@ describe('fromCapability forwards a per-handle encryption override', () => {
   })
 })
 
+/**
+ * A client over a stub whose Collection Metadata route (`/space/{s}/{c}/meta`)
+ * answers through `onCollectionMeta`; every other request gets a bare 200.
+ * The codec is `fakeCodec`, so an encrypting write goes out as bytes and a
+ * plaintext one as JSON, which is what the tests inspect.
+ *
+ * @param options {object}
+ * @param options.onCollectionMeta {function}   `({ method, args, segments })
+ *   => HttpResponse | undefined`: the response for the metadata route (or a
+ *   throw); `undefined` falls through to the bare 200
+ * @returns {object} { client, calls }
+ */
+function metaRoutedClient({
+  onCollectionMeta
+}: {
+  onCollectionMeta: (request: {
+    method: string
+    args: RequestArgs
+    segments: string[]
+  }) => HttpResponse | undefined
+}): { client: WasClient; calls: RequestArgs[] } {
+  const calls: RequestArgs[] = []
+  const log: string[] = []
+  const encryption: EncryptionProvider = {
+    async codecFor() {
+      return fakeCodec(log)
+    }
+  }
+  const zcapClient = {
+    invocationSigner: { id: 'did:example:alice#key-1' },
+    async request(args: RequestArgs) {
+      calls.push(args)
+      const method = (args.method ?? 'GET').toUpperCase()
+      const segments = new URL(args.url ?? '').pathname
+        .split('/')
+        .filter(Boolean)
+      const isCollectionMeta =
+        segments.length === 4 &&
+        segments[0] === 'space' &&
+        segments[3] === 'meta'
+      if (isCollectionMeta) {
+        const response = onCollectionMeta({ method, args, segments })
+        if (response !== undefined) {
+          return response
+        }
+      }
+      return jsonResponse({
+        data: { id: 'server-minted' },
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+  } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
+  const client = new WasClient({
+    baseServerUrl: baseServerUrlFor(),
+    serviceDescription: serviceDescriptionFor(),
+    zcapClient,
+    encryption
+  })
+  return { client, calls }
+}
+
+/**
+ * The resource write a test inspects: the `PUT` of `/c/r`.
+ *
+ * @param calls {RequestArgs[]}
+ * @returns {RequestArgs | undefined}
+ */
+function resourceWrite(calls: RequestArgs[]): RequestArgs | undefined {
+  return calls.find(call => call.method === 'PUT' && call.url?.endsWith('/c/r'))
+}
+
 describe('codec seam: configure() invalidates the memoized codec', () => {
   /**
    * Builds a client over a stub whose collection is plaintext until a
@@ -578,77 +650,48 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
    * descriptor GET reflects the current server-side state, so a codec memoized
    * while plaintext is stale once encryption is enabled.
    *
-   * @returns {object} { client, calls }
+   * `flip()` turns encryption on from outside any request, standing in for
+   * another client reconfiguring the collection behind this one's back.
    */
-  function flippableClient(): { client: WasClient; calls: RequestArgs[] } {
-    const calls: RequestArgs[] = []
+  function flippableClient(): {
+    client: WasClient
+    calls: RequestArgs[]
+    flip: () => void
+  } {
     let encrypted = false
-    const log: string[] = []
-    const encryption: EncryptionProvider = {
-      async codecFor() {
-        return fakeCodec(log)
-      }
-    }
-    const zcapClient = {
-      invocationSigner: { id: 'did:example:alice#key-1' },
-      async request(args: RequestArgs) {
-        calls.push(args)
-        const method = (args.method ?? 'GET').toUpperCase()
-        const segments = new URL(args.url ?? '').pathname
-          .split('/')
-          .filter(Boolean)
-        // The Collection Metadata object: `/space/{s}/{c}/meta`.
-        const isCollectionMeta =
-          segments.length === 4 &&
-          segments[0] === 'space' &&
-          segments[3] === 'meta'
+    const { client, calls } = metaRoutedClient({
+      onCollectionMeta({ method, args, segments }) {
         // A configure PUT of the Collection Metadata object with an
         // `encryption` body flips the server-side descriptor on.
         if (
           method === 'PUT' &&
-          isCollectionMeta &&
           (args.json as { encryption?: unknown } | undefined)?.encryption
         ) {
           encrypted = true
         }
-        if (method === 'GET' && isCollectionMeta) {
-          const description = {
+        if (method !== 'GET') {
+          return undefined
+        }
+        return jsonResponse({
+          data: {
             id: segments[1],
             type: ['Collection'],
             ...(encrypted && { encryption: { scheme: 'edv' } })
-          }
-          return {
-            status: 200,
-            // `configure()` composes and pins its write to this read's ETag
-            // (a WAS server versions every resource), so the stub must serve
-            // one.
-            headers: new Headers({
-              'content-type': 'application/json',
-              etag: '"g.1"'
-            }),
-            data: description,
-            async json() {
-              return description
-            }
-          } as unknown as HttpResponse
-        }
-        return {
-          status: 200,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          data: { id: 'server-minted' },
-          async json() {
-            return { id: 'server-minted' }
-          }
-        } as unknown as HttpResponse
+          },
+          // `configure()` composes and pins its write to this read's ETag
+          // (a WAS server versions every resource), so the stub must serve
+          // one.
+          headers: { 'content-type': 'application/json', etag: '"g.1"' }
+        })
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
-      baseServerUrl: baseServerUrlFor(),
-      serviceDescription: serviceDescriptionFor(),
-      zcapClient,
-      encryption
     })
-    return { client, calls }
+    return {
+      client,
+      calls,
+      flip() {
+        encrypted = true
+      }
+    }
   }
 
   it('re-resolves the codec after configure() enables encryption', async () => {
@@ -659,10 +702,37 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
     // Enabling encryption must drop that cached codec.
     await collection.configure({ encryption: { scheme: 'edv' } })
     await collection.put('r', { secret: 1 })
-    const write = calls.find(
-      call => call.method === 'PUT' && call.url?.endsWith('/c/r')
-    )
+    const write = resourceWrite(calls)
     // The re-resolved encrypting codec writes bytes, not plaintext JSON.
+    expect(write?.body).toBeInstanceOf(Uint8Array)
+    expect(write?.json).toBeUndefined()
+  })
+
+  it('re-resolves the codec after delete()', async () => {
+    const { client, calls, flip } = flippableClient()
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
+    await collection.get('r')
+    // Deleted, then re-created encrypted (by anyone): the handle must not
+    // keep writing through the codec the deleted collection resolved.
+    await collection.delete()
+    flip()
+    await collection.put('r', { secret: 1 })
+    const write = resourceWrite(calls)
+    expect(write?.body).toBeInstanceOf(Uint8Array)
+    expect(write?.json).toBeUndefined()
+  })
+
+  it('re-resolves the codec after a replaceDescription() that names no encryption', async () => {
+    const { client, calls, flip } = flippableClient()
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
+    await collection.get('r')
+    // The descriptor changed under this handle; its own write, though it only
+    // names the backend, has just re-read the object and is the moment to
+    // drop what it memoized before.
+    flip()
+    await collection.replaceDescription({ backend: { id: 'urn:backend:demo' } })
+    await collection.put('r', { secret: 1 })
+    const write = resourceWrite(calls)
     expect(write?.body).toBeInstanceOf(Uint8Array)
     expect(write?.json).toBeUndefined()
   })
@@ -676,9 +746,7 @@ describe('codec seam: configure() invalidates the memoized codec', () => {
     await resource.get()
     await collection.configure({ encryption: { scheme: 'edv' } })
     await resource.put({ secret: 1 })
-    const write = calls.find(
-      call => call.method === 'PUT' && call.url?.endsWith('/c/r')
-    )
+    const write = resourceWrite(calls)
     expect(write?.body).toBeInstanceOf(Uint8Array)
     expect(write?.json).toBeUndefined()
   })
@@ -691,70 +759,32 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
    * descriptor) on every call after. Resource writes succeed. This exercises
    * the codec memo: a rejected resolution must not be cached, so the next call
    * retries.
-   *
-   * @returns {object} { client, calls }
    */
   function flakyDescriptorClient(): {
     client: WasClient
     calls: RequestArgs[]
   } {
-    const calls: RequestArgs[] = []
     let descriptorGets = 0
-    const log: string[] = []
-    const encryption: EncryptionProvider = {
-      async codecFor() {
-        return fakeCodec(log)
-      }
-    }
-    const zcapClient = {
-      invocationSigner: { id: 'did:example:alice#key-1' },
-      async request(args: RequestArgs) {
-        calls.push(args)
-        const method = (args.method ?? 'GET').toUpperCase()
-        const segments = new URL(args.url ?? '').pathname
-          .split('/')
-          .filter(Boolean)
-        const isCollectionMeta =
-          segments.length === 4 &&
-          segments[0] === 'space' &&
-          segments[3] === 'meta'
-        if (method === 'GET' && isCollectionMeta) {
-          descriptorGets++
-          if (descriptorGets === 1) {
-            // Transient server failure during descriptor discovery.
-            throw { status: 500, response: { status: 500 } }
-          }
-          const description = {
+    return metaRoutedClient({
+      onCollectionMeta({ method, segments }) {
+        if (method !== 'GET') {
+          return undefined
+        }
+        descriptorGets++
+        if (descriptorGets === 1) {
+          // Transient server failure during descriptor discovery.
+          throw { status: 500, response: { status: 500 } }
+        }
+        return jsonResponse({
+          data: {
             id: segments[1],
             type: ['Collection'],
             encryption: { scheme: 'edv' }
-          }
-          return {
-            status: 200,
-            headers: new Headers({ 'content-type': 'application/json' }),
-            data: description,
-            async json() {
-              return description
-            }
-          } as unknown as HttpResponse
-        }
-        return {
-          status: 200,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          data: { id: 'server-minted' },
-          async json() {
-            return { id: 'server-minted' }
-          }
-        } as unknown as HttpResponse
+          },
+          headers: { 'content-type': 'application/json' }
+        })
       }
-    } as unknown as ConstructorParameters<typeof WasClient>[0]['zcapClient']
-    const client = new WasClient({
-      baseServerUrl: baseServerUrlFor(),
-      serviceDescription: serviceDescriptionFor(),
-      zcapClient,
-      encryption
     })
-    return { client, calls }
   }
 
   it('retries descriptor discovery after a transient failure (same handle)', async () => {
@@ -767,9 +797,7 @@ describe('codec seam: a transient descriptor-read failure does not poison the ha
     // discovery, resolves the encrypting codec, and writes encrypted bytes (not
     // plaintext).
     await collection.put('r', { secret: 1 })
-    const write = calls.find(
-      call => call.method === 'PUT' && call.url?.endsWith('/c/r')
-    )
+    const write = resourceWrite(calls)
     expect(write?.body).toBeInstanceOf(Uint8Array)
     expect(write?.json).toBeUndefined()
   })

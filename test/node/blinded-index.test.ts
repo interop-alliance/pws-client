@@ -497,6 +497,36 @@ describe('Collection.declareIndex', () => {
       second.find({ equals: { 'content.type': 'note' } })
     ).resolves.toEqual({ items: [], hasMore: false })
   })
+
+  it('hands out a copy of the schema, not the installed one', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client } = serverFor(fixture)
+    const collection = client.spaceAt(spaceUrlFor('s')).collection('c')
+    await collection.declareIndex({ attribute: 'content.type' })
+
+    const declared = await collection.indexes()
+    declared.push({ attribute: 'injected', addedIn: 9 })
+    declared[0]!.attribute = 'renamed'
+    expect(await collection.indexes()).toEqual([
+      { attribute: 'content.type', addedIn: 1 }
+    ])
+
+    // The declare path hands out a copy too, and the caller's own compound
+    // attribute array does not end up inside the installed schema.
+    const parts = ['content.owner', 'content.kind']
+    const schema = await collection.declareIndex({ attribute: parts })
+    parts.push('content.extra')
+    schema.indexes.push({ attribute: 'injected', addedIn: 9 })
+    ;(schema.indexes[1]!.attribute as string[]).push('content.more')
+    expect(await collection.indexes()).toEqual([
+      { attribute: 'content.type', addedIn: 1 },
+      { attribute: ['content.owner', 'content.kind'], addedIn: 2 }
+    ])
+    // A search names the installed declaration, not the mutated copies.
+    await expect(
+      collection.find({ equals: { 'content.extra': 'x' } })
+    ).rejects.toThrow(ValidationError)
+  })
 })
 
 describe('Collection.setMeta on a collection with a declared schema', () => {

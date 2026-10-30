@@ -25,9 +25,37 @@ import type { ResourceMetadataCustomInput } from '../types.js'
 export const INDEX_SCHEMA_PROPERTY = 'indexSchema'
 
 /**
- * The schema of a collection that has declared nothing yet.
+ * The schema of a collection that has declared nothing yet. Minted fresh on
+ * every call rather than shared: a codec installs the schema it is handed by
+ * reference, so one shared empty array mutated through any handle would reach
+ * every undeclared collection in the process.
+ *
+ * @returns {IndexSchema}
  */
-export const EMPTY_INDEX_SCHEMA: IndexSchema = { revision: 0, indexes: [] }
+export function emptyIndexSchema(): IndexSchema {
+  return { revision: 0, indexes: [] }
+}
+
+/**
+ * A deep copy of a schema: new entry objects, and a compound entry's
+ * `attribute` array copied too. A codec installs the copy rather than the
+ * object it was handed, and the handle layer hands out copies, so no caller
+ * holds a reference into the schema a codec blinds and queries by.
+ *
+ * @param schema {IndexSchema}
+ * @returns {IndexSchema}
+ */
+export function cloneIndexSchema(schema: IndexSchema): IndexSchema {
+  return {
+    revision: schema.revision,
+    indexes: schema.indexes.map(entry => ({
+      ...entry,
+      attribute: Array.isArray(entry.attribute)
+        ? [...entry.attribute]
+        : entry.attribute
+    }))
+  }
+}
 
 /**
  * The metadata `custom` object as the index code sees it: the user's own
@@ -40,7 +68,7 @@ export type CustomWithIndexSchema = Record<string, unknown> & {
 /**
  * Normalizes an attribute declaration: a one-element array declares the same
  * simple index as the bare string (the same collapse the underlying index
- * helper applies), so the two spellings cannot produce two schema entries.
+ * helper applies), so the two forms cannot produce two schema entries.
  *
  * @param attribute {string | string[]}
  * @returns {string | string[]}
@@ -163,7 +191,7 @@ export function mergeIndexDeclarations({
 
 /**
  * Reads the persisted schema out of a decoded metadata `custom` object,
- * returning {@link EMPTY_INDEX_SCHEMA} when none is stored (or when what is
+ * returning {@link emptyIndexSchema} when none is stored (or when what is
  * stored is malformed -- a foreign writer's value must not crash a read path,
  * and treating it as "nothing declared" makes the next `declareIndex` rewrite
  * it).
@@ -176,11 +204,11 @@ export function readIndexSchema(custom: unknown): IndexSchema {
     INDEX_SCHEMA_PROPERTY
   ]
   if (stored === null || typeof stored !== 'object') {
-    return EMPTY_INDEX_SCHEMA
+    return emptyIndexSchema()
   }
   const { revision, indexes } = stored as Partial<IndexSchema>
   if (typeof revision !== 'number' || !Array.isArray(indexes)) {
-    return EMPTY_INDEX_SCHEMA
+    return emptyIndexSchema()
   }
   const valid = indexes.filter(
     entry =>
