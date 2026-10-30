@@ -525,7 +525,10 @@ export function spaceLinksetUrl({ spaceUrl }: { spaceUrl: string }): string {
 /**
  * `{spaceUrl}replicas` -- the Space's replica registrations: `GET` lists them
  * and `POST` registers one. Both take the controller's capability or a
- * delegated one whose chain roots in the Space's root capability.
+ * delegated one whose chain roots in the Space's root capability. A grant on
+ * the route names this bare URL as its `invocationTarget`, with no trailing
+ * slash: the server matches it exactly, and the registration and status
+ * URLs beneath it are reached through that one target.
  *
  * @param options {object}
  * @param options.spaceUrl {string}

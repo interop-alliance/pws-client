@@ -717,6 +717,7 @@ describe('the ./paths subpath barrel', () => {
         'isReservedCollectionId',
         'isReservedResourceId',
         'parseSpaceTarget',
+        'replicaRegistrationUrl',
         'resourceMetaUrl',
         'resourceUrl',
         'rootCapability',
@@ -725,6 +726,7 @@ describe('the ./paths subpath barrel', () => {
         'serviceDescriptionUrl',
         'spaceIdOfUrl',
         'spaceMetaUrl',
+        'spaceReplicasUrl',
         'spaceUrlById',
         'spaceUrlOf',
         'spacesRepositoryUrl',
@@ -737,6 +739,21 @@ describe('the ./paths subpath barrel', () => {
     expect(barrel.parseSpaceTarget).toBe(parseSpaceTarget)
     expect(barrel.spaceUrlOf).toBe(spaceUrlOf)
     expect(barrel.rootCapabilityTarget).toBe(rootCapabilityTarget)
+    expect(barrel.spaceReplicasUrl).toBe(spaceReplicasUrl)
+    expect(barrel.replicaRegistrationUrl).toBe(replicaRegistrationUrl)
+  })
+
+  it('forms the replicas route and a registration beneath it', async () => {
+    const barrel = await import('../../src/paths.js')
+
+    // The replicas-route grant's `invocationTarget`: the bare path, no
+    // trailing slash.
+    expect(barrel.spaceReplicasUrl({ spaceUrl: SPACE_URL })).toBe(
+      'https://was.example/space/home/replicas'
+    )
+    expect(
+      barrel.replicaRegistrationUrl({ spaceUrl: SPACE_URL, replicaId: 'r 1' })
+    ).toBe('https://was.example/space/home/replicas/r%201')
   })
 
   it('mints the root capability id and its object form', async () => {

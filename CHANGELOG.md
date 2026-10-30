@@ -19,6 +19,10 @@
 - `readData` / `readDataWithEtag` take an optional `expected`, turning a
   bodiless 2xx into `WasServerError` instead of `null`; the replica getters use
   it.
+- The `./paths` entry exports `spaceReplicasUrl` and `replicaRegistrationUrl`,
+  so a consumer minting a grant on the replicas route gets its target from the
+  builder. The grant's `invocationTarget` is the bare `{spaceUrl}replicas` URL,
+  with no trailing slash.
 
 ### Changed
 

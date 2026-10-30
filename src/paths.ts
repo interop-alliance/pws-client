@@ -23,7 +23,9 @@
  * re-deriving rules that must match the server's `allowedTarget` byte for
  * byte. Exporting the builders instead is what keeps that from happening. A
  * container's description lives at its `meta` segment (`spaceMetaUrl`,
- * `collectionMetaUrl`) instead of at the container URL.
+ * `collectionMetaUrl`) instead of at the container URL. `spaceReplicasUrl`
+ * and `replicaRegistrationUrl` form the replicas route and one registration
+ * beneath it, for a consumer minting a grant on that route.
  *
  * `parseSpaceTarget` is the inverse grammar (an absolute URL back to the
  * containment depth it addresses beneath a Space), `spaceUrlOf` reads the
@@ -56,6 +58,8 @@ export {
   collectionQueryUrl,
   resourceUrl,
   resourceMetaUrl,
+  spaceReplicasUrl,
+  replicaRegistrationUrl,
   parseSpaceTarget
 } from './internal/paths.js'
 export {

@@ -90,7 +90,6 @@ Waiting on another repo:
 
 Ready:
 
-- WCL-138 [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 
 **Performance**
@@ -1344,31 +1343,6 @@ live in the wallet and the server stores opaque JWEs. Everything shipped on that
 front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
-
-### WCL-138: [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
-
-- status: todo
-- priority: medium
-- labels: replication, paths, api
-- discovered-from: freewallet FW-688 (2026-10-26)
-- touches:
-  - wallet-core: the consumer; it mints the replicas-route maintenance grant for
-    the ladder kind and needs the route's target URL
-- acceptance:
-  - [ ] `src/paths.ts` re-exports `spaceReplicas` and `replicaRegistration` from
-        `src/internal/paths.ts` (`:191-204`)
-  - [ ] The exported JSDoc no longer says "Controller-only" and states whether
-        the replicas-route grant's `invocationTarget` is the bare
-        `/space/:id/replicas` path these builders return or a trailing-slash
-        form, per the server item
-  - [ ] A unit test pins both builders on the `/paths` entry
-
-Context: freewallet FW-688's ladder kind mints a short-lived grant on the
-replica Space's replicas route, to replace or pause a registration and to read
-its status. wallet-core builds that grant and needs the route's target URL. The
-builders exist only in `src/internal/paths.ts:191-212`. The public `/paths`
-entry (`src/paths.ts:36-52`) does not export them, so wallet-core would have to
-rebuild the path by string concatenation.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 

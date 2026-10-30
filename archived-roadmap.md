@@ -4635,3 +4635,30 @@ signer is withdrawn, so the same PUT also swaps a registration's pull capability
 in place. The registration keeps its `id`, its loop, and its checkpoint (loop
 state is per id). The replication version stays `0.1`. The `Space` handle has
 only POST, GET, and DELETE on the route today (`src/Space.ts:784-913`).
+
+### WCL-138: [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
+
+- status: done (2026-10-29)
+- priority: medium
+- labels: replication, paths, api
+- discovered-from: freewallet FW-688 (2026-10-26)
+- touches:
+  - wallet-core: the consumer; it mints the replicas-route maintenance grant for
+    the ladder kind and needs the route's target URL (the target is the bare
+    `{spaceUrl}replicas` URL, no trailing slash; wallet-core adopts the builders
+    under its FW-688 work)
+- acceptance:
+  - [x] `src/paths.ts` re-exports `spaceReplicas` and `replicaRegistration` from
+        `src/internal/paths.ts` (`:191-204`)
+  - [x] The exported JSDoc no longer says "Controller-only" and states whether
+        the replicas-route grant's `invocationTarget` is the bare
+        `/space/:id/replicas` path these builders return or a trailing-slash
+        form, per the server item
+  - [x] A unit test pins both builders on the `/paths` entry
+
+Context: freewallet FW-688's ladder kind mints a short-lived grant on the
+replica Space's replicas route, to replace or pause a registration and to read
+its status. wallet-core builds that grant and needs the route's target URL. The
+builders exist only in `src/internal/paths.ts:191-212`. The public `/paths`
+entry (`src/paths.ts:36-52`) does not export them, so wallet-core would have to
+rebuild the path by string concatenation.

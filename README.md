@@ -1051,10 +1051,12 @@ delegated caller on a server that still treats the route as controller-only.
 that nothing was removed. The three reads reserve `null` for that 404. A 2xx
 with no JSON body is a server fault and throws `WasServerError`.
 
-A grant on the route targets `{spaceUrl}replicas`. `fromCapability` refuses that
-target as a reserved sub-resource, so the holder opens the Space handle with
-`was.space(id, { capability })` (or `was.spaceAt(url, { capability })`) and
-calls the replica methods on it.
+A grant on the route targets `{spaceUrl}replicas`, the bare URL with no trailing
+slash. `spaceReplicasUrl({ spaceUrl })` on the `./paths` entry forms it, and
+`replicaRegistrationUrl({ spaceUrl, replicaId })` forms one registration beneath
+it. `fromCapability` refuses that target as a reserved sub-resource, so the
+holder opens the Space handle with `was.space(id, { capability })` (or
+`was.spaceAt(url, { capability })`) and calls the replica methods on it.
 
 `registerReplica()` throws `ValidationError` (400 `invalid-request-body`) for a
 malformed body. Each entry of the error's `problems` carries a `pointer` naming
