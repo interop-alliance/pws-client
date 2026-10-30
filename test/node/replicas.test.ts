@@ -4,13 +4,15 @@
 /**
  * Unit tests for the replica registration API on `Space`
  * (`registerReplica` / `replicas` / `replica` / `deregisterReplica` /
- * `replicaStatus`), the `replicas` member of the Space Metadata object, the
- * server-managed `created` stamp on the Collection Metadata object, and the
- * read-only `GET` form of the `changes` query. A stub `ZcapClient` captures
+ * `replicaStatus` / `pauseReplica` / `resumeReplica` /
+ * `replaceReplicaCapability`), the `replicas` member of the Space Metadata
+ * object, the server-managed `created` stamp on the Collection Metadata
+ * object, and the read-only `GET` form of the `changes` query. A stub `ZcapClient` captures
  * the request args and returns canned `HttpResponse`s, so no signer or server
  * is involved.
  */
 import { describe, it, expect } from 'vitest'
+import type { HttpResponse } from '@interop/http-client'
 
 import type {
   ReplicaRegistration,
@@ -21,10 +23,13 @@ import type {
 import {
   ConflictError,
   NotFoundError,
+  NotSupportedError,
+  PreconditionFailedError,
   ProblemTypes,
   ValidationError,
   WasServerError
 } from '../../src/index.js'
+import type { RequestArgs } from '../helpers/stubClient.js'
 import {
   clientWithRequestSpy,
   clientWithStub,
@@ -47,6 +52,8 @@ const registration = {
   },
   role: 'source'
 } as unknown as ReplicaRegistration
+
+const registrationUrl = 'https://was.example/space/s/replicas/peer'
 
 /**
  * A thrown `@interop/http-client` error carrying a `problem+json` body of the
@@ -137,7 +144,7 @@ describe('space.replica()', () => {
   it('GETs the per-id path and returns the record', async () => {
     const { client, calls } = clientWithRequestSpy({ data: registration })
     const result = await client.spaceAt(spaceUrlFor('s')).replica('peer')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/replicas/peer')
+    expect(calls[0]?.url).toBe(registrationUrl)
     expect(calls[0]?.method).toBe('GET')
     expect(result).toEqual(registration)
   })
@@ -160,7 +167,7 @@ describe('space.deregisterReplica()', () => {
     const result = await client
       .spaceAt(spaceUrlFor('s'))
       .deregisterReplica('peer')
-    expect(calls[0]?.url).toBe('https://was.example/space/s/replicas/peer')
+    expect(calls[0]?.url).toBe(registrationUrl)
     expect(calls[0]?.method).toBe('DELETE')
     expect(result).toEqual({ outcome: 'deleted' })
   })
@@ -211,6 +218,169 @@ describe('space.replicaStatus()', () => {
     expect(
       await client.spaceAt(spaceUrlFor('s')).replicaStatus('missing')
     ).toBeNull()
+  })
+})
+
+/**
+ * The stored form of `registration`, as a server serves it back: the write
+ * stamp members added, and `pausedAt` when asked for.
+ */
+function stored(
+  members: Partial<ReplicaRegistration> = {}
+): ReplicaRegistration {
+  return {
+    ...registration,
+    updatedAt: '2026-10-05T00:00:00.000Z',
+    updatedAtCounter: 0,
+    originId: 'urn:uuid:origin',
+    ...members
+  }
+}
+
+/**
+ * A Space handle over a stub that answers the `GET` of the registration with
+ * `record` (under `etag`, when given) and the `PUT` with `put`, recording
+ * both. `put` may throw, as the stub's `request` rejects with.
+ */
+function replaceStub({
+  record,
+  etag,
+  put = () => jsonResponse()
+}: {
+  record: ReplicaRegistration
+  etag?: string
+  put?: (args: RequestArgs) => HttpResponse
+}): { space: Space; calls: RequestArgs[] } {
+  const calls: RequestArgs[] = []
+  const client = clientWithStub(args => {
+    calls.push(args)
+    if (args.method === 'GET') {
+      return jsonResponse({
+        data: record,
+        headers: etag === undefined ? {} : { etag }
+      })
+    }
+    return put(args)
+  })
+  return { space: client.spaceAt(spaceUrlFor('s')), calls }
+}
+
+const nextCapability = {
+  ...registration.capability,
+  id: 'urn:uuid:2'
+} as ReplicaRegistration['capability']
+
+describe('space.pauseReplica()', () => {
+  it('reads the registration, then PUTs it back with pausedAt under If-Match', async () => {
+    const { space, calls } = replaceStub({ record: stored(), etag: '"1"' })
+    await expect(space.pauseReplica('peer')).resolves.toBeUndefined()
+    expect(calls.map(call => [call.method, call.url])).toEqual([
+      ['GET', registrationUrl],
+      ['PUT', registrationUrl]
+    ])
+    const body = calls[1]?.json as ReplicaRegistration
+    expect(body.pausedAt).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/)
+    // Every other member goes back as read, the stamp members included: the
+    // server ignores those in a write body and judges the rest unchanged.
+    const { pausedAt: _pausedAt, ...rest } = body
+    expect(rest).toEqual(stored())
+    expect(calls[1]?.headers).toEqual({ 'if-match': '"1"' })
+  })
+
+  it('throws NotSupportedError and sends no PUT when the read served no ETag', async () => {
+    const { space, calls } = replaceStub({ record: stored() })
+    await expect(space.pauseReplica('peer')).rejects.toBeInstanceOf(
+      NotSupportedError
+    )
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+  })
+
+  it('rebases on a stale If-Match, then surfaces PreconditionFailedError', async () => {
+    const { space, calls } = replaceStub({
+      record: stored(),
+      etag: '"1"',
+      put: () => {
+        throw problem({ status: 412, type: ProblemTypes.PRECONDITION_FAILED })
+      }
+    })
+    await expect(space.pauseReplica('peer')).rejects.toBeInstanceOf(
+      PreconditionFailedError
+    )
+    // Each lost race re-reads and re-sends, up to the shared attempt limit.
+    expect(calls.map(call => call.method)).toEqual([
+      'GET',
+      'PUT',
+      'GET',
+      'PUT',
+      'GET',
+      'PUT'
+    ])
+  })
+
+  it('throws WasServerError when the read is a 2xx with no JSON body', async () => {
+    const client = clientWithStub(() => jsonResponse())
+    await expect(
+      client.spaceAt(spaceUrlFor('s')).pauseReplica('peer')
+    ).rejects.toBeInstanceOf(WasServerError)
+  })
+})
+
+describe('space.resumeReplica()', () => {
+  it('PUTs the stored registration back without pausedAt', async () => {
+    const { space, calls } = replaceStub({
+      record: stored({ pausedAt: '2026-10-05T00:00:01.000Z' }),
+      etag: '"2"'
+    })
+    await space.resumeReplica('peer')
+    expect(calls[1]?.method).toBe('PUT')
+    expect(calls[1]?.json).toEqual(stored())
+    expect(calls[1]?.json).not.toHaveProperty('pausedAt')
+    expect(calls[1]?.headers).toEqual({ 'if-match': '"2"' })
+  })
+})
+
+describe('space.replaceReplicaCapability()', () => {
+  it('PUTs the stored registration back with the new capability, keeping pausedAt', async () => {
+    const paused = stored({ pausedAt: '2026-10-05T00:00:01.000Z' })
+    const { space, calls } = replaceStub({ record: paused, etag: '"3"' })
+    await space.replaceReplicaCapability('peer', nextCapability)
+    expect(calls[1]?.method).toBe('PUT')
+    expect(calls[1]?.url).toBe(registrationUrl)
+    expect(calls[1]?.json).toEqual({ ...paused, capability: nextCapability })
+    expect(calls[1]?.headers).toEqual({ 'if-match': '"3"' })
+  })
+
+  it.each([
+    [409, ProblemTypes.REPLICA_REFUSED, ConflictError],
+    [400, ProblemTypes.INVALID_REQUEST_BODY, ValidationError]
+  ])('maps a %s %s on the PUT to %s', async (status, type, errorClass) => {
+    const { space } = replaceStub({
+      record: stored(),
+      etag: '"1"',
+      put: () => {
+        throw problem({ status, type })
+      }
+    })
+    const failure = space.replaceReplicaCapability('peer', nextCapability)
+    await expect(failure).rejects.toBeInstanceOf(errorClass)
+    await expect(failure).rejects.toMatchObject({ type })
+  })
+})
+
+describe('replica registration changes on the masked 404', () => {
+  it.each<[string, (space: Space) => Promise<void>]>([
+    ['pauseReplica', space => space.pauseReplica('missing')],
+    ['resumeReplica', space => space.resumeReplica('missing')],
+    [
+      'replaceReplicaCapability',
+      space => space.replaceReplicaCapability('missing', nextCapability)
+    ]
+  ])('%s throws NotFoundError and sends no PUT', async (_name, change) => {
+    const { client, calls } = clientWithRequestSpy({ fail: 404 })
+    await expect(
+      change(client.spaceAt(spaceUrlFor('s')))
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(calls.map(call => call.method)).toEqual(['GET'])
   })
 })
 

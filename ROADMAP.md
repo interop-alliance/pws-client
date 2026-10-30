@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 143
+nextAvailableId: 144
 
 <!-- roadmap-order:index:start -->
 
@@ -93,11 +93,6 @@ Ready:
 - WCL-138 [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 
-Waiting on another repo:
-
-- WCL-137 [M] Pause, resume, and replace the capability of a replica
-  registration (after SC-11)
-
 **Performance**
 
 Ready:
@@ -120,6 +115,11 @@ Ready:
   in decisions/0001
 - WCL-97 [L] Docstring corrections in the EDV transport and the refresh policy
 - WCL-139 [L] Move chunk reaping on a replacing write into the EDV core
+
+Waiting on another repo:
+
+- WCL-143 [M] Live tests for replica pause, resume, capability replacement, and
+  the delegated route (after WAS-228, WAS-226)
 
 **Someday / Maybe**
 
@@ -1134,7 +1134,7 @@ once the spec or the server has settled them.
         caller holds; root capability ids and every URL beneath a Space derive
         from the Space URL; `spaceUrlOf` reads the Space off a capability's
         chain root. These carry forward unchanged under 0003
-  - [x] The client implementation (WCL-141) landed 2026-10-29 (unreleased)
+  - [x] The client implementation (WCL-141) landed 2026-10-29
   - [ ] The testing counterpart returns the server's base server URL (WAS-234),
         and was-react's and dcw's counterpart tests stay green on the release
   - [ ] Every `touches:` entry is annotated with the item re-scoped to 0003
@@ -1345,64 +1345,6 @@ front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
 
-### WCL-137: [M] [after SC-11] Pause, resume, and replace the capability of a replica registration
-
-- status: todo
-- priority: medium
-- labels: replication, spaces, api
-- discovered-from: freewallet FW-688 (2026-10-26)
-- blocked-by: SC-11
-- touches:
-  - storage-core: SC-11 (`ReplicaRegistration.pausedAt`, `ReplicaStatus.state`
-    gains `paused`), picked up by a storage-core bump
-  - was-teaching-server: the PUT on the registration URL, its body, and its
-    refusals -- shipped 2026-10-27 (full record as POST carries it, only
-    `capability` and `pausedAt` may differ, 400 on the member's pointer
-    otherwise; 201 on create, 204 on replace; optional `If-Match` /
-    `If-None-Match: *`, 412; `pausedAt` server-set; four-segment `ETag`); the
-    replicas route admitting a delegated invocation is still open there
-  - portable-web-spaces-spec: decision 0013 amended and WASS-50's text (the
-    pause, the in-place replacement, the delegated replicas route)
-  - wallet-core, freewallet: the consumers (the replica pass, Stop, re-start,
-    and the pre-strike replacement in freewallet FW-688 / FW-638)
-- acceptance:
-  - [ ] `Space` gains `pauseReplica(replicaId)` and `resumeReplica(replicaId)`:
-        a PUT on the registration URL that sets `pausedAt` (an ISO 8601 UTC
-        time) or clears it
-  - [ ] `Space` gains a call that replaces a registration's pull capability in
-        place by the same PUT (working name `replaceReplicaCapability`). The
-        registration keeps its `id` and its checkpoint
-  - [ ] The PUT body, any precondition, and the refusals map onto the server
-        item's settled shape, with each refusal's problem `type` documented as
-        `registerReplica` documents its own
-  - [ ] The "Controller-only" JSDoc on the replica methods is revised: on
-        `registerReplica` (`src/Space.ts:791`), `replicas` (`:833`), `replica`
-        (`:850`), `deregisterReplica` (`:870`), `replicaStatus` (`:902-903`),
-        and on `spaceReplicas` in `src/internal/paths.ts:189`. The route admits
-        a delegated invocation whose chain roots in the Space's root, for GET,
-        POST, PUT, and DELETE. A delegated POST may only name a `fromSpace`
-        already registered on the Space
-  - [ ] The JSDoc says how to hold such a grant: `fromCapability` refuses a
-        reserved sub-resource target (`src/WasClient.ts:563-570`), so a
-        replicas-route grant is opened with `was.space(id, { capability })`
-  - [ ] `replicaStatus` documents the `paused` state
-  - [ ] Integration tests against the teaching server cover pause, the `paused`
-        status, resume, the replacement keeping the `id`, and the replica
-        methods under a delegated replicas-route grant
-
-Context: freewallet FW-688 lets every session kind keep a replica of the account
-Space on a second server. A credential-anchored account has no key that can
-root-invoke on the promoted replica Space, so the server's replicas route will
-admit a root-chained delegated invocation. Stopping a replica keeps its copy,
-but the server refuses to remove the registration that maps the Space's
-did:webvh controller, so Stop pauses the registration instead. The pause is a
-`pausedAt` member written and cleared by PUT on the registration URL, and
-`status.state` reads `paused` while it is set. Every pull grant dies when its
-signer is withdrawn, so the same PUT also swaps a registration's pull capability
-in place. The registration keeps its `id`, its loop, and its checkpoint (loop
-state is per id). The replication version stays `0.1`. The `Space` handle has
-only POST, GET, and DELETE on the route today (`src/Space.ts:784-913`).
-
 ### WCL-138: [M] Export `spaceReplicas` and `replicaRegistration` from `/paths`
 
 - status: todo
@@ -1549,6 +1491,47 @@ review, 2026-09-11.
 
 Test coverage, docstring and decision-record corrections, and refactors with no
 behavior change.
+
+### WCL-143: [M] [after WAS-228, WAS-226] Live tests for replica pause, resume, capability replacement, and the delegated route
+
+- status: todo
+- priority: medium
+- labels: tests, replication, spaces
+- discovered-from: WCL-137 (2026-10-29)
+- blocked-by: WAS-228, WAS-226
+- touches:
+  - was-teaching-server: WAS-228 (`provisionServerIdentity` and the two-server
+    helpers from `was-teaching-server/testing`), WAS-226 (the delegated replicas
+    route)
+- acceptance:
+  - [ ] An integration suite boots a server with a server key seed and a
+        provisioned identity (through `was-teaching-server/testing`, nothing
+        copied from the server's test helpers), creates a source Space and a
+        replica Space under one controller, and registers the source on the
+        replica through `registerReplica`
+  - [ ] `pauseReplica` makes `replicaStatus` read `paused`, with `pausedAt`
+        server-set on the record; `resumeReplica` clears both and the next pull
+        applies a write made while paused
+  - [ ] `replaceReplicaCapability` keeps the registration's `id` and its
+        checkpoint (a pull after the swap resumes from where it left off), and a
+        capability delegated to another DID is `ConflictError`
+        (`replica-refused`)
+  - [ ] A concurrent write between the read and the `PUT` surfaces as
+        `PreconditionFailedError`
+  - [ ] Under a delegated replicas-route grant held through
+        `was.space(id, { capability })`, `replicas`, `replica`, `replicaStatus`,
+        `pauseReplica`, `resumeReplica`, `replaceReplicaCapability` and
+        `deregisterReplica` succeed, and a delegated `registerReplica` naming an
+        unregistered `fromSpace` is refused
+
+Context: the client half (the three calls, their `If-Match` read-then-`PUT`, and
+the unit tests over a stubbed transport) shipped with the pause and resume work
+on 2026-10-29. The live coverage was split out because the integration tier's
+one-server boot has no server identity, and the server accepts a registration
+only when its `server` Space holds a verifying did:webvh log listing the
+seed-derived key under `capabilityInvocation`. The provisioner for that lives in
+the server's own test helpers until WAS-228 exports it, and the delegated route
+is not served until WAS-226.
 
 ### WCL-72: [L] Collection internal-state hygiene
 

@@ -6,7 +6,8 @@
  * (`describe`/`configure`/`delete`/`deleteWithOutcome`), contained Collections
  * (`collection`/`createCollection`/`collections`), delegation (`grant`),
  * replica registration (`registerReplica`/`replicas`/`replica`/
- * `deregisterReplica`/`replicaStatus`), and whole-space `export`/`import`.
+ * `deregisterReplica`/`replicaStatus`/`pauseReplica`/`resumeReplica`/
+ * `replaceReplicaCapability`), and whole-space `export`/`import`.
  *
  * The Space is an ordinary container: its canonical URL lists its
  * Collections, creates one, and deletes the Space, while the Space's own
@@ -32,7 +33,7 @@ import {
   replicaStatusUrl
 } from './internal/paths.js'
 import { assertNotReserved } from './internal/reserved.js'
-import { composeAndSwap } from './internal/cas.js'
+import { compareAndSwap, composeAndSwap } from './internal/cas.js'
 import {
   collectionWritableFields,
   unreadableDescriptionError
@@ -40,7 +41,12 @@ import {
 import { delegateGrantAt } from './internal/grant.js'
 import { submitRevocation } from './internal/revoke.js'
 import type { ClientContext } from './internal/request.js'
-import { send, readData, readDataWithEtag } from './internal/request.js'
+import {
+  send,
+  readData,
+  readDataWithEtag,
+  missingJsonBodyError
+} from './internal/request.js'
 import { readEtag, writeHeaders } from './internal/conditional.js'
 import type { WritePrecondition } from './internal/conditional.js'
 import {
@@ -113,77 +119,6 @@ function spaceMetadataBody({
     controller,
     ...(type !== undefined && { type })
   }
-}
-
-/**
- * The error for a successful response that carried no parsed JSON body where
- * one is required. The request layer parses a body into `data` only for a JSON
- * content type, so naming the content type the server sent points at the
- * cause (a mislabeled or body-less 2xx).
- *
- * @param options {object}
- * @param options.response {HttpResponse | null}
- * @param options.operation {string}   the request, as the message's subject
- * @param options.expected {string}   what the body should have carried
- * @returns {WasServerError}
- */
-function missingJsonBodyError({
-  response,
-  operation,
-  expected
-}: {
-  response: HttpResponse | null
-  operation: string
-  expected: string
-}): WasServerError {
-  const contentType = response?.headers.get('content-type') ?? 'no content-type'
-  return new WasServerError(
-    `${operation} response carried no JSON body (the server sent ` +
-      `${contentType}); expected ${expected}.`
-  )
-}
-
-/**
- * A controller-only `GET` of a replica record: `null` on the masked 404
- * (missing, or the caller is not the controller), the parsed body otherwise.
- * Unlike `readData`, a 2xx with no JSON body is a server fault
- * (`WasServerError`), so a misbehaving server is not read as "nothing
- * registered".
- *
- * @param context {ClientContext}
- * @param options {object}
- * @param options.url {string}
- * @param [options.capability] {IZcap}
- * @param options.expected {string}   what the body should have carried, for
- *   the error message
- * @returns {Promise<T | null>}
- */
-async function readReplicaRecord<T>(
-  context: ClientContext,
-  {
-    url,
-    capability,
-    expected
-  }: { url: string; capability?: IZcap; expected: string }
-): Promise<T | null> {
-  const response = await send(context, {
-    url,
-    method: 'GET',
-    capability,
-    read: true
-  })
-  if (response === null) {
-    return null
-  }
-  const record = dataOrNull<T>(response)
-  if (record === null) {
-    throw missingJsonBodyError({
-      response,
-      operation: 'Replica read',
-      expected
-    })
-  }
-  return record
 }
 
 export class Space {
@@ -792,9 +727,18 @@ export class Space {
    * in the peer Space and its `allowedAction` lies within `GET` and `HEAD`),
    * the peer's `fromSpace` URL, this Space's `toSpace` URL, the `role`
    * (`source`), and an optional `collections` list naming what to pull (absent
-   * means every Collection). Controller-only: the server answers a delegated
-   * capability with the masked 404, so open the handle with the controller's
-   * authority.
+   * means every Collection).
+   *
+   * Authority on the replicas route: every method on it (`GET`, `POST`,
+   * `PUT`, `DELETE`) takes the controller's own capability, or a delegated
+   * capability whose chain roots in this Space's root capability. A delegated
+   * `POST` may only name a `fromSpace` the Space already has a registration
+   * for. Any other caller gets the masked 404, and so does every delegated
+   * caller on a server that still treats the route as controller-only.
+   * `fromCapability` refuses a grant whose target is the reserved `replicas`
+   * sub-resource (`{spaceUrl}replicas`), so a holder of such a grant opens
+   * the handle with `was.space(id, { capability })` (or
+   * `was.spaceAt(url, { capability })`) and calls the replica methods on it.
    *
    * Returns the stored record, as the server serves it back. The registration
    * is per-server state: it is not replicated or exported, and deleting the
@@ -834,15 +778,16 @@ export class Space {
   /**
    * Lists this Space's replica registrations (`GET /space/:id/replicas`): the
    * unpaginated `{ url, totalItems, items }` listing, each item a full
-   * registration with its pull capability. Controller-only, like the records
-   * it lists; returns `null` if the Space is missing or the caller is not its
-   * controller (404 conflation caveat). A 2xx with no JSON body throws
-   * `WasServerError` rather than reading as an empty listing.
+   * registration with its pull capability. Takes the authority
+   * {@link registerReplica} describes; returns `null` if the Space is
+   * missing or the caller holds none (404 conflation caveat). A 2xx with no
+   * JSON body throws `WasServerError` rather than reading as an empty
+   * listing.
    *
    * @returns {Promise<ReplicaListing | null>}
    */
   async replicas(): Promise<ReplicaListing | null> {
-    return readReplicaRecord<ReplicaListing>(this.#context, {
+    return readData<ReplicaListing>(this.#context, {
       url: spaceReplicasUrl({ spaceUrl: this.url }),
       capability: this.#capability,
       expected: 'the replica listing'
@@ -851,16 +796,16 @@ export class Space {
 
   /**
    * Reads one replica registration by id
-   * (`GET /space/:id/replicas/:replicaId`). Controller-only; returns `null`
-   * if the registration or the Space is missing, or the caller is not the
-   * controller (404 conflation caveat). A 2xx with no JSON body throws
-   * `WasServerError`.
+   * (`GET /space/:id/replicas/:replicaId`). Takes the authority
+   * {@link registerReplica} describes; returns `null` if the registration or
+   * the Space is missing, or the caller holds none (404 conflation caveat).
+   * A 2xx with no JSON body throws `WasServerError`.
    *
    * @param replicaId {string}
    * @returns {Promise<ReplicaRegistration | null>}
    */
   async replica(replicaId: string): Promise<ReplicaRegistration | null> {
-    return readReplicaRecord<ReplicaRegistration>(this.#context, {
+    return readData<ReplicaRegistration>(this.#context, {
       url: replicaRegistrationUrl({ spaceUrl: this.url, replicaId }),
       capability: this.#capability,
       expected: 'the replica registration'
@@ -871,12 +816,13 @@ export class Space {
    * Removes a replica registration (`DELETE /space/:id/replicas/:replicaId`)
    * and reports the server's answer. The data already pulled under it stays.
    *
-   * Controller-only, and the server answers a delegated capability with the
-   * same masked 404 as an absent registration, so the 404 is not swallowed as
-   * success the way an idempotent delete would: `'not-found'` means "absent
-   * or refused", and only a caller with its own prior discovery (a
-   * {@link replica} read under the same authority) may read it as absence. A
-   * caller that wants removing twice to be a no-op ignores the outcome.
+   * Takes the authority {@link registerReplica} describes, and the server
+   * answers a caller without it with the same masked 404 as an absent
+   * registration, so the 404 is not swallowed as success the way an
+   * idempotent delete would: `'not-found'` means "absent or refused", and
+   * only a caller with its own prior discovery (a {@link replica} read under
+   * the same authority) may read it as absence. A caller that wants removing
+   * twice to be a no-op ignores the outcome.
    *
    * The server refuses with `ConflictError` (409, `replica-refused`) when the
    * registration is the one that maps this Space's did:webvh controller,
@@ -901,20 +847,163 @@ export class Space {
   /**
    * Reads the pull loop's runtime state for one registration
    * (`GET /space/:id/replicas/:replicaId/status`): the loop `state` (`idle`,
-   * `pulling`, `backing-off`, `stalled`), its cycle timestamps, and one entry
-   * per Collection with its own `state` and, while stalled, a `stall` naming
-   * the `ReplicaStallReason` and when it began. Uncacheable and controller-
-   * only; returns `null` (and throws on a bodiless 2xx) on the same terms as
-   * {@link replica}.
+   * `pulling`, `paused`, `backing-off`, `stalled`), its cycle timestamps, and
+   * one entry per Collection with its own `state` and, while stalled, a
+   * `stall` naming the `ReplicaStallReason` and when it began. `paused` means
+   * the registration carries `pausedAt` ({@link pauseReplica}), and no cycle
+   * runs until {@link resumeReplica} clears it. Uncacheable; takes the
+   * authority {@link registerReplica} describes, and returns `null` (and
+   * throws on a bodiless 2xx) on the same terms as {@link replica}.
    *
    * @param replicaId {string}
    * @returns {Promise<ReplicaStatus | null>}
    */
   async replicaStatus(replicaId: string): Promise<ReplicaStatus | null> {
-    return readReplicaRecord<ReplicaStatus>(this.#context, {
+    return readData<ReplicaStatus>(this.#context, {
       url: replicaStatusUrl({ spaceUrl: this.url, replicaId }),
       capability: this.#capability,
       expected: 'the pull loop status'
+    })
+  }
+
+  /**
+   * Pauses a registration's pull loop: a `PUT` of the stored registration at
+   * `/space/:id/replicas/:replicaId` with `pausedAt` set. The server writes
+   * its own time into `pausedAt` (the value sent is ignored) and keeps it
+   * while the registration stays paused, so pausing twice changes nothing.
+   * {@link replicaStatus} reads `paused` from then on, the data already
+   * pulled stays, and the registration keeps its `id` and its checkpoint, so
+   * a {@link resumeReplica} continues where the loop stopped. Stopping a
+   * replica pauses it rather than removing the registration, which the
+   * server refuses for the one mapping this Space's did:webvh controller.
+   *
+   * A compare-and-swap: the registration is read with its `ETag`, changed,
+   * and written back under `If-Match`, rebasing on a write that lands in
+   * between and surfacing `PreconditionFailedError` (412,
+   * `precondition-failed`) only if it keeps losing the race. Throws
+   * `NotFoundError` when the read gets the masked 404 (the registration is
+   * absent, or the caller holds no authority on the route): a `PUT` there
+   * would register a new replica, which a pause never means to. Takes the
+   * authority {@link registerReplica} describes.
+   *
+   * @param replicaId {string}
+   * @returns {Promise<void>}
+   */
+  async pauseReplica(replicaId: string): Promise<void> {
+    await this.#replaceReplica({
+      replicaId,
+      change: stored => ({ ...stored, pausedAt: new Date().toISOString() })
+    })
+  }
+
+  /**
+   * Resumes a paused registration's pull loop: a `PUT` of the stored
+   * registration with `pausedAt` omitted. The loop wakes at once, continuing
+   * from the checkpoint the pause left. Resuming a registration that is not
+   * paused changes nothing. Same compare-and-swap and errors as
+   * {@link pauseReplica}.
+   *
+   * @param replicaId {string}
+   * @returns {Promise<void>}
+   */
+  async resumeReplica(replicaId: string): Promise<void> {
+    await this.#replaceReplica({
+      replicaId,
+      change: ({ pausedAt: _pausedAt, ...resumed }) => resumed
+    })
+  }
+
+  /**
+   * Replaces a registration's pull capability in place: a `PUT` of the
+   * stored registration with the new `capability`, every other member as
+   * stored (`pausedAt` included, so a paused registration stays paused). The
+   * registration keeps its `id`, its loop and its checkpoint, which a
+   * deregister-and-register would lose. A pull grant dies with the signer
+   * that delegated it, so this is the call to make before that signer is
+   * withdrawn.
+   *
+   * The new capability passes the peer checks a {@link registerReplica}
+   * does: it is `ConflictError` (409, `replica-refused`) when its controller
+   * is not the server's DID, its chain does not root in `fromSpace`, or the
+   * peer cannot be read under it, and `ValidationError` (400,
+   * `invalid-request-body`, pointer `#/capability`) when it is malformed. A
+   * capability equal to the stored one is accepted without a peer read. Same
+   * compare-and-swap and errors as {@link pauseReplica}.
+   *
+   * @param replicaId {string}
+   * @param capability {IDelegatedZcap}   the new pull capability: delegated
+   *   to the server's DID, rooted in the peer Space, `allowedAction` within
+   *   `GET` and `HEAD`
+   * @returns {Promise<void>}
+   */
+  async replaceReplicaCapability(
+    replicaId: string,
+    capability: IDelegatedZcap
+  ): Promise<void> {
+    await this.#replaceReplica({
+      replicaId,
+      change: stored => ({ ...stored, capability })
+    })
+  }
+
+  /**
+   * The compare-and-swap behind {@link pauseReplica}, {@link resumeReplica}
+   * and {@link replaceReplicaCapability}: the shared `compareAndSwap` loop
+   * over a store whose read is the registration `GET` with its `ETag` and
+   * whose replace is the `PUT` under `If-Match`. The loop refuses a read
+   * that served no `ETag` with `NotSupportedError` rather than writing
+   * unconditionally. The body goes back as read, stamp members included: the
+   * server ignores them in a write body. The masked 404 on the read is
+   * `NotFoundError`, since a `PUT` at an absent registration would create
+   * one and none of the three means to.
+   *
+   * @param options {object}
+   * @param options.replicaId {string}
+   * @param options.change {function}   `(stored) => record`, the registration
+   *   to write
+   * @returns {Promise<void>}
+   */
+  async #replaceReplica({
+    replicaId,
+    change
+  }: {
+    replicaId: string
+    change: (stored: ReplicaRegistration) => ReplicaRegistration
+  }): Promise<void> {
+    const url = replicaRegistrationUrl({ spaceUrl: this.url, replicaId })
+    await compareAndSwap<ReplicaRegistration>({
+      store: {
+        read: async () => {
+          const read = await readDataWithEtag<ReplicaRegistration>(
+            this.#context,
+            {
+              url,
+              capability: this.#capability,
+              expected: 'the replica registration'
+            }
+          )
+          if (read === null) {
+            throw new NotFoundError(
+              `Replica registration "${replicaId}" was not found at "${url}", ` +
+                'or the caller holds no authority on the replicas route, so ' +
+                'it cannot be changed.',
+              { status: 404, requestUrl: url }
+            )
+          }
+          return { value: read.data, etag: read.etag }
+        },
+        replace: async (value, { ifMatch }) => {
+          await send(this.#context, {
+            url,
+            method: 'PUT',
+            capability: this.#capability,
+            json: value,
+            headers: writeHeaders({ precondition: { ifMatch } })
+          })
+        }
+      },
+      mutate: change,
+      operation: `Replica registration "${replicaId}" change`
     })
   }
 

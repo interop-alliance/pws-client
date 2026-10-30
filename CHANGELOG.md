@@ -1,5 +1,36 @@
 # @interop/was-client Changelog
 
+## 0.101.0 - TBD
+
+### Added
+
+- `space.pauseReplica(replicaId)` and `space.resumeReplica(replicaId)` stop and
+  restart a registration's pull loop: a `PUT` of the stored registration at its
+  URL with `pausedAt` set or omitted. `replicaStatus()` reads `paused` while it
+  is set. The registration keeps its `id` and its checkpoint.
+- `space.replaceReplicaCapability(replicaId, capability)` swaps a registration's
+  pull capability in place by the same `PUT`, keeping its `id`, its loop and its
+  checkpoint.
+- The three are compare-and-swaps on the shared loop: read the stored record
+  with its `ETag`, write under `If-Match`, rebase on a 412, and surface
+  `PreconditionFailedError` only after the attempt limit. A read that served no
+  `ETag` is refused with `NotSupportedError`. The masked 404 on the read is
+  `NotFoundError`, since a `PUT` there would register a new replica.
+- `readData` / `readDataWithEtag` take an optional `expected`, turning a
+  bodiless 2xx into `WasServerError` instead of `null`; the replica getters use
+  it.
+
+### Changed
+
+- The replica methods' docs no longer call the route controller-only: it takes
+  the controller's capability or a delegated one whose chain roots in the
+  Space's root capability, for `GET`, `POST`, `PUT` and `DELETE`. A delegated
+  `POST` may only name a `fromSpace` already registered on the Space. A grant on
+  the route is held through `was.space(id, { capability })`, since
+  `fromCapability` refuses the reserved `replicas` target. A server that still
+  treats the route as controller-only answers a delegated caller with the
+  masked 404.
+
 ## 0.100.1 - 2026-10-29
 
 ### Changed

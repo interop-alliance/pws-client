@@ -4568,3 +4568,70 @@ wallet-core, the case that forced the reversal, becomes `space(derivedId)`
 followed by `PUT .../meta` with if-none-match, with no listing and no stored
 base. The option name `baseServerUrl`, the trailing-slash normalization and the
 `WasClient.forSpace` name were settled with the maintainer on 2026-10-29.
+
+### WCL-137: [M] [after SC-11] Pause, resume, and replace the capability of a replica registration
+
+- status: done (2026-10-29)
+- priority: medium
+- labels: replication, spaces, api
+- discovered-from: freewallet FW-688 (2026-10-26)
+- blocked-by: SC-11
+- touches:
+  - storage-core: SC-11 (`ReplicaRegistration.pausedAt`, `ReplicaStatus.state`
+    gains `paused`) -- the types shipped in 0.42.0, which this repo already
+    consumes; SC-11's JSDoc revision is still open there
+  - was-teaching-server: the PUT on the registration URL, its body, and its
+    refusals -- shipped 2026-10-27 (full record as POST carries it, only
+    `capability` and `pausedAt` may differ, 400 on the member's pointer
+    otherwise; 201 on create, 204 on replace; optional `If-Match` /
+    `If-None-Match: *`, 412; `pausedAt` server-set; four-segment `ETag`); the
+    replicas route admitting a delegated invocation is WAS-226, still open; the
+    server identity provisioner the live tests here need from
+    `was-teaching-server/testing` is WAS-228, still open
+  - portable-web-spaces-spec: decision 0013 amended and WASS-50's text (the
+    pause, the in-place replacement, the delegated replicas route)
+  - wallet-core, freewallet: the consumers (the replica pass, Stop, re-start,
+    and the pre-strike replacement in freewallet FW-688 / FW-638)
+- acceptance:
+  - [x] `Space` gains `pauseReplica(replicaId)` and `resumeReplica(replicaId)`:
+        a PUT on the registration URL that sets `pausedAt` (an ISO 8601 UTC
+        time) or clears it
+  - [x] `Space` gains a call that replaces a registration's pull capability in
+        place by the same PUT (working name `replaceReplicaCapability`). The
+        registration keeps its `id` and its checkpoint
+  - [x] The PUT body, any precondition, and the refusals map onto the server
+        item's settled shape, with each refusal's problem `type` documented as
+        `registerReplica` documents its own (the client reads the record and
+        writes under `If-Match` on its `ETag`; 412 is `PreconditionFailedError`,
+        the masked 404 on the read is `NotFoundError`)
+  - [x] The "Controller-only" JSDoc on the replica methods is revised: on
+        `registerReplica` (`src/Space.ts:791`), `replicas` (`:833`), `replica`
+        (`:850`), `deregisterReplica` (`:870`), `replicaStatus` (`:902-903`),
+        and on `spaceReplicas` in `src/internal/paths.ts:189`. The route admits
+        a delegated invocation whose chain roots in the Space's root, for GET,
+        POST, PUT, and DELETE. A delegated POST may only name a `fromSpace`
+        already registered on the Space
+  - [x] The JSDoc says how to hold such a grant: `fromCapability` refuses a
+        reserved sub-resource target (`src/WasClient.ts:563-570`), so a
+        replicas-route grant is opened with `was.space(id, { capability })`
+  - [x] `replicaStatus` documents the `paused` state
+  - [x] Integration tests against the teaching server cover pause, the `paused`
+        status, resume, the replacement keeping the `id`, and the replica
+        methods under a delegated replicas-route grant -- split out as WCL-143
+        (2026-10-29), since the one-server setup the integration tier boots has
+        no server identity and so accepts no registration (WAS-228), and the
+        delegated route is WAS-226. Unit tests over a stubbed transport cover
+        the three calls' requests and their error mapping
+
+Context: freewallet FW-688 lets every session kind keep a replica of the account
+Space on a second server. A credential-anchored account has no key that can
+root-invoke on the promoted replica Space, so the server's replicas route will
+admit a root-chained delegated invocation. Stopping a replica keeps its copy,
+but the server refuses to remove the registration that maps the Space's
+did:webvh controller, so Stop pauses the registration instead. The pause is a
+`pausedAt` member written and cleared by PUT on the registration URL, and
+`status.state` reads `paused` while it is set. Every pull grant dies when its
+signer is withdrawn, so the same PUT also swaps a registration's pull capability
+in place. The registration keeps its `id`, its loop, and its checkpoint (loop
+state is per id). The replication version stays `0.1`. The `Space` handle has
+only POST, GET, and DELETE on the route today (`src/Space.ts:784-913`).

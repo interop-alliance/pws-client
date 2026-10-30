@@ -524,7 +524,8 @@ export function spaceLinksetUrl({ spaceUrl }: { spaceUrl: string }): string {
 
 /**
  * `{spaceUrl}replicas` -- the Space's replica registrations: `GET` lists them
- * and `POST` registers one. Controller-only, both forms.
+ * and `POST` registers one. Both take the controller's capability or a
+ * delegated one whose chain roots in the Space's root capability.
  *
  * @param options {object}
  * @param options.spaceUrl {string}
@@ -535,8 +536,8 @@ export function spaceReplicasUrl({ spaceUrl }: { spaceUrl: string }): string {
 }
 
 /**
- * `{spaceUrl}replicas/{replicaId}` -- one replica registration (read and
- * delete by id).
+ * `{spaceUrl}replicas/{replicaId}` -- one replica registration (read,
+ * replace and delete by id).
  *
  * @param options {object}
  * @param options.spaceUrl {string}

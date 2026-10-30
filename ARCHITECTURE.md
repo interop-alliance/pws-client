@@ -948,7 +948,8 @@ No locks; safety is optimistic (ETag/CAS) throughout
   gets an unconditional write. That is the loop's `allowUnconditional` opt-out,
   which the handles' `setName` / `setTags` also take. Every other
   `compareAndSwap` caller (the recipient primitives, `declareIndex`,
-  provisioning's late encryption declaration) is refused with
+  provisioning's late encryption declaration, the replica registration changes
+  `pauseReplica` / `resumeReplica` / `replaceReplicaCapability`) is refused with
   `NotSupportedError` when its read returns no validator.
 - Both `configure` methods answer with `{ description, etag }`: the description
   the last attempt wrote, and that write's validator. A caller that configures a
@@ -1114,9 +1115,14 @@ it, and otherwise cover the client-side concepts this file names.
   peer Space that server pulls from. It is a directed `fromSpace` to `toSpace`
   edge carrying a GET-only pull capability delegated to the server's DID.
   Managed at the Space's reserved `replicas` segment (`spaceReplicas`) through
-  `Space.registerReplica` and its siblings, all controller-only. Per-server
-  state: not replicated, not exported. Its runtime state is the separate replica
-  status (`replicaStatus`). Avoid: sync peer, subscription, mirror.
+  `Space.registerReplica` and its siblings, under the controller's capability or
+  a delegated one rooted in the Space's root capability (a server that still
+  treats the route as controller-only answers a delegated caller with the masked
+  404). A `PUT` at the registration URL pauses and resumes its pull loop
+  (`pausedAt`) and replaces its capability in place, the registration keeping
+  its id and checkpoint. Per-server state: not replicated, not exported. Its
+  runtime state is the separate replica status (`replicaStatus`). Avoid: sync
+  peer, subscription, mirror.
 - **`ClientContext`** -- the single
   `{ zcapClient, controllerDid, encryption?, service }` record every handle
   shares by reference (`src/internal/request.ts`). It holds no base server URL.

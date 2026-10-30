@@ -13,7 +13,13 @@
 import type { ZcapClient } from '@interop/ezcap'
 import { isValidTarget } from '@interop/zcap'
 import type { HttpResponse } from '@interop/http-client'
-import { NotFoundError, WasError, mapError, httpStatus } from '../errors.js'
+import {
+  NotFoundError,
+  WasError,
+  WasServerError,
+  mapError,
+  httpStatus
+} from '../errors.js'
 import { dataOrNull } from './content.js'
 import { readEtag } from './conditional.js'
 import type { EncryptionProvider } from '../codec.js'
@@ -215,45 +221,78 @@ export async function send(
 }
 
 /**
+ * The `WasServerError` for a 2xx whose body was not the JSON object the
+ * operation required. The request layer parses a body into `data` only for a
+ * JSON content type, so naming the content type the server sent points at the
+ * cause (a mislabeled or body-less 2xx).
+ *
+ * @param options {object}
+ * @param options.response {HttpResponse | null}
+ * @param options.operation {string}   the request, as the message's subject
+ * @param options.expected {string}   what the body should have carried
+ * @returns {WasServerError}
+ */
+export function missingJsonBodyError({
+  response,
+  operation,
+  expected
+}: {
+  response: HttpResponse | null
+  operation: string
+  expected: string
+}): WasServerError {
+  const contentType = response?.headers.get('content-type') ?? 'no content-type'
+  return new WasServerError(
+    `${operation} response carried no JSON body (the server sent ` +
+      `${contentType}); expected ${expected}.`
+  )
+}
+
+/**
  * The GET-a-JSON-description read shared across the handles: a signed
- * null-on-404 `GET` of `url` whose pre-parsed body is unwrapped as `T`. Both
- * a missing/unauthorized target (404) and a bodyless/non-JSON response resolve
- * to `null` (see `dataOrNull`).
+ * null-on-404 `GET` of `url` whose pre-parsed body is unwrapped as `T`. A
+ * missing/unauthorized target (404) resolves to `null`. So does a
+ * bodyless/non-JSON 2xx (see `dataOrNull`), unless `expected` names what the
+ * body should have carried: then that 2xx is a server fault
+ * (`WasServerError`), for a read whose caller must not mistake a misbehaving
+ * server for "nothing stored".
  *
  * @param context {ClientContext}
  * @param options {object}
  * @param options.url {string}           the absolute URL to read
  * @param [options.capability] {IZcap}   capability attached to the request
+ * @param [options.expected] {string}    what a 2xx body must carry, for the
+ *   error message; absent, a bodyless 2xx reads as `null`
  * @returns {Promise<T | null>}
  */
 export async function readData<T>(
   context: ClientContext,
-  { url, capability }: { url: string; capability?: IZcap }
+  options: { url: string; capability?: IZcap; expected?: string }
 ): Promise<T | null> {
-  const response = await send(context, {
-    url,
-    method: 'GET',
-    capability,
-    read: true
-  })
-  return dataOrNull<T>(response)
+  const read = await readDataWithEtag<T>(context, options)
+  return read === null ? null : read.data
 }
 
 /**
  * {@link readData} keeping the response's `ETag` validator beside the body:
- * the read-with-validator shape a description compare-and-swap starts from.
- * `null` on the same conditions as `readData`; `etag` is absent against a
- * server that does not version the target.
+ * the read-with-validator shape a compare-and-swap starts from. `null` on the
+ * same conditions as `readData`, and `expected` has the same meaning; `etag`
+ * is absent against a server that does not version the target.
  *
  * @param context {ClientContext}
  * @param options {object}
  * @param options.url {string}           the absolute URL to read
  * @param [options.capability] {IZcap}   capability attached to the request
+ * @param [options.expected] {string}    see {@link readData}
  * @returns {Promise<{ data: T; etag?: string } | null>}
  */
 export async function readDataWithEtag<T>(
   context: ClientContext,
-  { url, capability }: { url: string; capability?: IZcap }
+  {
+    url,
+    capability,
+    expected
+  }: { url: string; capability?: IZcap; expected?: string }
 ): Promise<{ data: T; etag?: string } | null> {
   const response = await send(context, {
     url,
@@ -263,6 +302,9 @@ export async function readDataWithEtag<T>(
   })
   const data = dataOrNull<T>(response)
   if (data === null) {
+    if (response !== null && expected !== undefined) {
+      throw missingJsonBodyError({ response, operation: 'Read', expected })
+    }
     return null
   }
   return { data, etag: readEtag(response) }

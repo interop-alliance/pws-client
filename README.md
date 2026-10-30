@@ -991,17 +991,39 @@ const listing = await space.replicas() // { url, totalItems, items } | null
 const one = await space.replica('peer-1') // ReplicaRegistration | null
 
 const status = await space.replicaStatus('peer-1') // ReplicaStatus | null
-// status.state: 'idle' | 'pulling' | 'backing-off' | 'stalled'
+// status.state: 'idle' | 'pulling' | 'paused' | 'backing-off' | 'stalled'
 for (const entry of status?.collections ?? []) {
   if (entry.state === 'stalled') {
     // entry.stall: { reason, since, detail? }
   }
 }
 
+// Stop and restart the pull loop. The registration keeps its id and its
+// checkpoint, and the data already pulled stays.
+await space.pauseReplica('peer-1') // status.state reads 'paused'
+await space.resumeReplica('peer-1')
+
+// Swap the pull capability in place, before the signer that delegated the
+// old one is withdrawn. Same id, same checkpoint.
+await space.replaceReplicaCapability('peer-1', renewedCapability)
+
 // The data already pulled under the registration stays. 'not-found' is the
-// server's masked 404: absent, or the caller is not the controller.
+// server's masked 404: absent, or the caller holds no authority on the route.
 const { outcome } = await space.deregisterReplica('peer-1') // 'deleted' | 'not-found'
 ```
+
+`pauseReplica()`, `resumeReplica()` and `replaceReplicaCapability()` are each
+one `PUT` of the registration at its URL, run as a compare-and-swap: the client
+reads the stored record with its `ETag`, writes it back under `If-Match`, and
+re-reads and re-applies the change on a 412, so a write that lands in between is
+rebased on rather than clobbered. `PreconditionFailedError` (412) surfaces only
+after the attempt limit. A pause sets `pausedAt`, which the server fills with
+its own time and keeps while the registration stays paused, and a resume omits
+it. Only `capability` and `pausedAt` may change on a stored registration. All
+three throw `NotFoundError` on the masked 404, since a `PUT` at an absent
+registration would register a new replica. A replacement capability is checked
+against the peer the way `registerReplica()` checks one, so it can throw the
+same `ConflictError` (`replica-refused`) and `ValidationError`.
 
 `replicaStatus()` reports the pull loop's runtime state. The response is
 uncacheable and is not part of the registration record. Each Collection entry
@@ -1018,13 +1040,21 @@ Collections continue. Its `stall.reason` is one of:
   registration for.
 - `container-refused` -- the local Space or Collection refused the write.
 
-Every replica method is controller-only on the server, the reads included, since
-a registration holds the pull capability. A delegated capability gets the
-masked 404. `replicas()`, `replica()`, and `replicaStatus()` then return `null`,
-and `registerReplica()` throws `NotFoundError`. `deregisterReplica()` reports it
-as `{ outcome: 'not-found' }` rather than swallowing it, so a delegated caller
-can tell that nothing was removed. The three reads reserve `null` for that 404.
-A 2xx with no JSON body is a server fault and throws `WasServerError`.
+Every replica method takes the controller's capability or a delegated one whose
+chain roots in the Space's root capability, for `GET`, `POST`, `PUT` and
+`DELETE` alike. A delegated `POST` may only name a `fromSpace` the Space already
+has a registration for. Any other caller gets the masked 404, as does every
+delegated caller on a server that still treats the route as controller-only.
+`replicas()`, `replica()`, and `replicaStatus()` then return `null`, and
+`registerReplica()` throws `NotFoundError`. `deregisterReplica()` reports it as
+`{ outcome: 'not-found' }` rather than swallowing it, so such a caller can tell
+that nothing was removed. The three reads reserve `null` for that 404. A 2xx
+with no JSON body is a server fault and throws `WasServerError`.
+
+A grant on the route targets `{spaceUrl}replicas`. `fromCapability` refuses that
+target as a reserved sub-resource, so the holder opens the Space handle with
+`was.space(id, { capability })` (or `was.spaceAt(url, { capability })`) and
+calls the replica methods on it.
 
 `registerReplica()` throws `ValidationError` (400 `invalid-request-body`) for a
 malformed body. Each entry of the error's `problems` carries a `pointer` naming
