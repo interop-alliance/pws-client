@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 156
+nextAvailableId: 158
 
 <!-- roadmap-order:index:start -->
 
@@ -102,8 +102,6 @@ Waiting on another repo:
 
 Ready:
 
-- WCL-153 [M] Export the policy, linkset, backends, quotas and chunk URL
-  builders from `./paths`
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 - WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
 
@@ -118,7 +116,6 @@ Ready:
 
 Ready:
 
-- WCL-150 [M] Migrate the consumers to `@interop/pws-client`
 - WCL-80 [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by
   the seam but never invoked
 - WCL-88 [L] Record the upstream-owned `NotFoundError` / `DuplicateError` names
@@ -1594,42 +1591,6 @@ front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
 
-### WCL-153: [M] Export the policy, linkset, backends, quotas and chunk URL builders from `./paths`
-
-- status: todo
-- priority: medium
-- labels: paths, api, conformance
-- discovered-from: PWSCS-30 (2026-10-30)
-- touches:
-  - pws-conformance-suite: PWSCS-30 moves its URL building onto these exports
-    once they are published
-- acceptance:
-  - [ ] `./paths` exports `spacePolicyUrl`, `collectionPolicyUrl`,
-        `resourcePolicyUrl`, `spaceLinksetUrl`, `collectionLinksetUrl`,
-        `spaceBackendsUrl`, `spaceQuotasUrl`, `resourceChunkUrl` and
-        `resourceChunksUrl`
-  - [ ] A test imports each of the nine through the `./paths` entry rather than
-        `internal/paths.js`
-  - [ ] `./paths/layout` does not change, and the import-graph rules still pass
-  - [ ] The `src/paths/index.ts` doc comment, README and CHANGELOG name the new
-        exports
-
-Context: `./paths` exports the Space, Collection and Resource builders, but not
-the builders for the sub-routes beneath them. A consumer that has to form one of
-those URLs without a navigational handle must assemble it by hand. The entry's
-own doc comment warns against that, since the caller then re-derives the
-trailing-slash and percent-encoding rules that have to match the server. The
-conformance suite hits this gap. It is moving every request URL onto the `paths`
-helpers so that a mount path or a trailing slash on the base server URL builds
-correct URLs, and these nine routes have no public builder.
-
-All nine already exist in `src/internal/paths.ts`, are pure, and are covered by
-`test/node/paths.test.ts`, so this is an export-list change in
-`src/paths/index.ts`. That module is already in the `./paths` closure, so the
-fourth import-graph rule is unaffected. The other internal builders, such as
-`spaceExportUrl`, `spaceRevocationUrl` and `collectionQuotaUrl`, stay internal
-until a consumer needs them.
-
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 
 - status: todo
@@ -1767,32 +1728,6 @@ only when its `server` Space holds a verifying did:webvh log listing the
 seed-derived key under `capabilityInvocation`. The provisioner for that lives in
 the server's own test helpers until WSS-228 exports it, and the delegated route
 is not served until WSS-226.
-
-### WCL-150: [M] Migrate the consumers to `@interop/pws-client`
-
-- status: todo
-- priority: medium
-- labels: cross-repo, breaking
-- discovered-from: the package rename to `@interop/pws-client`, 2026-10-30
-- touches:
-  - wallet-core: imports, `PwsClient` types, and the sync error re-exports in
-    `src/sync/`
-  - freewallet: imports, and the name matching in `src/lib/storageErrors.ts`
-  - was-react: imports, and the error handling in `src/storage/wasSyncPort.ts`
-  - pws-sync: migrated (`@interop/pws-client` `^0.104.0`)
-  - dcw, wallet-backup, wallet-request, did-cli-typescript: imports
-  - pws-conformance-suite: migrated (`@interop/pws-client` `>=0.104.0 <1.0.0`)
-  - web-spaces-server: the `devDependencies` entry
-- acceptance:
-  - [ ] `@interop/pws-client` is published to npm
-  - [ ] Each repo under `touches:` has an item filed, or the migration landed
-
-Each consumer needs the new package name, the `Pws*` names, the `pws` option
-key, and the new error `name` strings. A consumer that matches an error by its
-old `name` still compiles and silently stops matching, so grep for the quoted
-strings as well as the imports. The `pws` binding also makes existing encrypted
-data unreadable. The `WasEpochConfiguration` state type is renamed separately
-under WCL-151.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked
 

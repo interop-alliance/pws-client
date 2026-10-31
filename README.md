@@ -333,6 +333,19 @@ await space.delete() // delete the whole space (idempotent)
 thing the handle points at -- so there is no "delete the collection" vs "delete
 one item" footgun. The next sections cover each level in turn.
 
+A consumer that has to form a URL without a handle imports the builders from
+`./paths` instead of assembling it by hand. Each one takes the Space URL and
+owns the trailing-slash and percent-encoding rules that have to match the
+server. Beneath a Space they are `spaceMetaUrl`, `spacePolicyUrl`,
+`spaceLinksetUrl`, `spaceBackendsUrl`, `spaceQuotasUrl`, `spaceExportUrl`,
+`spaceImportUrl`, `spaceReplicasUrl` and `replicaRegistrationUrl`. Beneath a
+Collection they are `collectionUrl`, `collectionMetaUrl`, `collectionLogUrl`,
+`collectionQueryUrl`, `collectionPolicyUrl`, `collectionLinksetUrl`,
+`collectionBackendUrl` and `collectionQuotaUrl`. Beneath a Resource they are
+`resourceUrl`, `resourceMetaUrl`, `resourcePolicyUrl`, `resourceChunkUrl` and
+`resourceChunksUrl`. `resourceChunkUrl` throws a `ValidationError` on a
+`chunkIndex` that is not a non-negative integer.
+
 ### Spaces
 
 A Space is the top-level container, created from the spaces repository. The

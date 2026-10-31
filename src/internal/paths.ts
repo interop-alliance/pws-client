@@ -9,9 +9,10 @@
  * linkset, the caller's stored pointer) and used as given.
  *
  * The convention: a trailing slash marks a container in canonical form (the
- * Space URL itself, and `{spaceUrl}{collectionId}/`), everything else has
- * none, and no two URLs differ only by a trailing slash. Path segments are
- * percent-encoded so ids never break out of their slot.
+ * Space URL itself, `{spaceUrl}{collectionId}/`, and a chunked Resource's
+ * `chunks/` container), everything else has none, and no two URLs differ only
+ * by a trailing slash. Path segments are percent-encoded so ids never break
+ * out of their slot.
  *
  * A container's own description is not at its URL: it lives at the reserved
  * `meta` segment (`spaceMetaUrl`, `collectionMetaUrl`), beside the
@@ -32,6 +33,7 @@
  * trailing-slash rules must match the server's per-operation `allowedTarget`
  * exactly or signature verification fails.
  */
+import { ValidationError } from '../errors.js'
 import {
   canonicalSpaceUrl,
   encode,
@@ -516,7 +518,8 @@ export function resourcePolicyUrl({
  * stored chunk of a chunked Resource. Member form, no trailing slash: get /
  * put / delete one chunk by its ordinal index. The `chunkIndex` is a
  * non-negative integer, emitted verbatim (it is never a reserved or dot
- * segment, so it needs no percent-encoding).
+ * segment, so it needs no percent-encoding). Any other value throws a
+ * `ValidationError`, since it would otherwise reach the path unencoded.
  *
  * @param options {object}
  * @param options.spaceUrl {string}
@@ -536,6 +539,11 @@ export function resourceChunkUrl({
   resourceId: string
   chunkIndex: number
 }): string {
+  if (!Number.isSafeInteger(chunkIndex) || chunkIndex < 0) {
+    throw new ValidationError(
+      `Chunk index must be a non-negative integer, got "${String(chunkIndex)}".`
+    )
+  }
   return `${resourceUrl({ spaceUrl, collectionId, resourceId })}/chunks/${chunkIndex}`
 }
 

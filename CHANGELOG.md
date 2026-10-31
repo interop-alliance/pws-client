@@ -1,5 +1,20 @@
 # @interop/pws-client Changelog
 
+## 0.106.0 - TBD
+
+### Added
+
+- `./paths` exports `spacePolicyUrl`, `collectionPolicyUrl`,
+  `resourcePolicyUrl`, `spaceLinksetUrl`, `collectionLinksetUrl`,
+  `spaceBackendsUrl`, `collectionBackendUrl`, `spaceQuotasUrl`,
+  `collectionQuotaUrl`, `spaceExportUrl`, `spaceImportUrl`, `resourceChunkUrl`
+  and `resourceChunksUrl`.
+
+### Changed
+
+- `resourceChunkUrl` throws a `ValidationError` on a `chunkIndex` that is not a
+  non-negative integer.
+
 ## 0.105.0 - 2026-10-30
 
 ### Changed

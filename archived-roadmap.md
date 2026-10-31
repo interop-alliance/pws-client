@@ -4943,3 +4943,126 @@ reverses the 0.104.0 changelog entry, which kept the value as permanent.
 existing roster and collection descriptor logs stop reading under this change.
 Log entries are chained and signed, so they cannot be rewritten in place. No
 fallback for the old value is planned.
+
+### WCL-153: [M] Export the policy, linkset, backends, quotas and chunk URL builders from `./paths`
+
+- status: done
+- done: 2026-10-30
+- priority: medium
+- labels: paths, api, conformance
+- discovered-from: PWSCS-30 (2026-10-30)
+- touches:
+  - pws-conformance-suite: PWSCS-30 moves its URL building onto these exports
+    once they are published (PWSCS-30, filed)
+- acceptance:
+  - [x] `./paths` exports `spacePolicyUrl`, `collectionPolicyUrl`,
+        `resourcePolicyUrl`, `spaceLinksetUrl`, `collectionLinksetUrl`,
+        `spaceBackendsUrl`, `spaceQuotasUrl`, `resourceChunkUrl` and
+        `resourceChunksUrl`
+  - [x] A test imports each of the nine through the `./paths` entry rather than
+        `internal/paths.js`
+  - [x] `./paths/layout` does not change, and the import-graph rules still pass
+  - [x] The `src/paths/index.ts` doc comment, README and CHANGELOG name the new
+        exports
+
+Context: `./paths` exports the Space, Collection and Resource builders, but not
+the builders for the sub-routes beneath them. A consumer that has to form one of
+those URLs without a navigational handle must assemble it by hand. The entry's
+own doc comment warns against that, since the caller then re-derives the
+trailing-slash and percent-encoding rules that have to match the server. The
+conformance suite hits this gap. It is moving every request URL onto the `paths`
+helpers so that a mount path or a trailing slash on the base server URL builds
+correct URLs, and these nine routes have no public builder.
+
+All nine already exist in `src/internal/paths.ts`, are pure, and are covered by
+`test/node/paths.test.ts`, so this is an export-list change in
+`src/paths/index.ts`. That module is already in the `./paths` closure, so the
+fourth import-graph rule is unaffected. The other internal builders, such as
+`spaceExportUrl`, `spaceRevocationUrl` and `collectionQuotaUrl`, stay internal
+until a consumer needs them.
+
+### WCL-156: [M] Export the backend, quota and Space archive URL builders from `./paths`
+
+- status: done
+- done: 2026-10-30
+- priority: medium
+- labels: paths, api, conformance
+- discovered-from: WCL-153 (review, 2026-10-30)
+- touches:
+  - pws-conformance-suite: PWSCS-30 moves these routes onto the exports once
+    they are published (noted on PWSCS-30)
+- acceptance:
+  - [x] `./paths` exports `collectionBackendUrl`, `collectionQuotaUrl`,
+        `spaceExportUrl` and `spaceImportUrl`
+  - [x] A test calls each of the four through the `./paths` entry
+  - [x] The `src/paths/index.ts` doc comment, README and CHANGELOG name them
+
+Context: WCL-153 left these four builders internal, but the conformance suite
+also forms these routes by hand. `src/suites/authz-ordering-api.ts` and
+`src/suites/write-validation-api.ts` assemble quota and export URLs, and
+`src/suites/reserved-methods-api.ts` covers export, import, backend and quota.
+Without the exports those requests stay wrong under a mounted server, so
+PWSCS-30 could not finish. `registeredBackendUrl`, `replicaStatusUrl` and
+`spaceRevocationUrl` stay internal: no consumer forms those routes by hand.
+
+### WCL-157: [M] Reject an invalid `chunkIndex` in `resourceChunkUrl`
+
+- status: done
+- done: 2026-10-30
+- priority: medium
+- labels: paths, api, correctness
+- discovered-from: WCL-153 (review, 2026-10-30)
+- touches:
+  - pws-conformance-suite: PWSCS-30 keeps a hand-built suffix for the malformed
+    indices `chunks-api.ts` sends on purpose (noted on PWSCS-30)
+- acceptance:
+  - [x] `resourceChunkUrl` throws a `ValidationError` unless `chunkIndex` is a
+        non-negative safe integer
+  - [x] A test covers a negative, fractional, non-finite and oversized number,
+        and a path-traversal string from a plain-JS caller
+  - [x] The doc comments, README and CHANGELOG state the behavior
+
+Context: `resourceChunkUrl` interpolated `chunkIndex` with no check, because the
+index only ever came from trusted code. WCL-153 made the builder public, so a
+bad value could now produce a malformed URL, or a signed `invocationTarget`
+aimed outside the chunk slot. The check uses the existing `ValidationError`, as
+the reserved-segment guard does.
+
+### WCL-150: Migrate the consumers to `@interop/pws-client`
+
+- status: done
+- done: 2026-10-30
+- priority: medium
+- labels: cross-repo, breaking
+- discovered-from: the package rename to `@interop/pws-client`, 2026-10-30
+- touches:
+  - wallet-core: migrated, published in 0.113.0
+  - freewallet: filed as FW-698 (in progress, uncommitted when this item
+    closed), FW-700, and FW-701. `src/lib/storageErrors.ts` already matches the
+    `Pws*` names
+  - was-react: migrated on `main` as `@interop/pws-react`, 0.33.0 not yet
+    published. Follow-ups are WR-100, WR-101, and WR-103. The sync port moved to
+    `src/storage/pwsSyncPort.ts`
+  - pws-sync: migrated (`@interop/pws-client` `^0.104.0`), published in 0.13.0.
+    0.14.0 raises the peer range to `>=0.105.0` and renames the remaining `Was*`
+    names (WS-33)
+  - dcw: migrated on `main` (`@interop/pws-client` `^0.105.0`)
+  - wallet-backup: migrated, published in 0.10.0
+  - wallet-request: migrated, published in 0.7.0
+  - did-cli-typescript: migrated, published in 0.18.0. It still takes
+    `@interop/was-client` 0.103.0 through wallet-request 0.6.0 (CLI-26)
+  - pws-conformance-suite: migrated (`@interop/pws-client` `>=0.104.0 <1.0.0`),
+    published in 0.36.0. The state type follows under PWSCS-34
+  - web-spaces-server: migrated (`devDependencies` on `^0.105.0`), published in
+    0.45.0. The transitive `@interop/was-client` clears with CLI-26, and the
+    fixtures follow under WSS-244
+- acceptance:
+  - [x] `@interop/pws-client` is published to npm
+  - [x] Each repo under `touches:` has an item filed, or the migration landed
+
+Each consumer needs the new package name, the `Pws*` names, the `pws` option
+key, and the new error `name` strings. A consumer that matches an error by its
+old `name` still compiles and silently stops matching, so grep for the quoted
+strings as well as the imports. The `pws` binding also makes existing encrypted
+data unreadable. The `WasEpochConfiguration` state type is renamed separately
+under WCL-151.

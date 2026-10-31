@@ -160,6 +160,21 @@ describe('URL builders', () => {
     ).toBe('https://pws.example/space/home/docs/note/chunks/12')
   })
 
+  it('refuses a chunk index that is not a non-negative integer', () => {
+    // The string is a plain-JS caller's value; the guard keeps the slot closed.
+    const invalid = [-1, 1.5, NaN, Infinity, 1e21, '../../policy'] as number[]
+    for (const chunkIndex of invalid) {
+      expect(() =>
+        resourceChunkUrl({
+          spaceUrl: SPACE_URL,
+          collectionId: 'docs',
+          resourceId: 'note',
+          chunkIndex
+        })
+      ).toThrow(ValidationError)
+    }
+  })
+
   it('percent-encodes ids so they cannot break out of their slot', () => {
     expect(collectionUrl({ spaceUrl: SPACE_URL, collectionId: 'd?x' })).toBe(
       'https://pws.example/space/home/d%3Fx/'
@@ -720,22 +735,35 @@ describe('the ./paths subpath barrel', () => {
         'baseServerUrlOf',
         'canonicalBaseServerUrl',
         'canonicalSpaceUrl',
+        'collectionBackendUrl',
+        'collectionLinksetUrl',
         'collectionLogUrl',
         'collectionMetaUrl',
+        'collectionPolicyUrl',
         'collectionQueryUrl',
+        'collectionQuotaUrl',
         'collectionUrl',
         'isReservedCollectionId',
         'isReservedResourceId',
         'parseSpaceTarget',
         'replicaRegistrationUrl',
+        'resourceChunkUrl',
+        'resourceChunksUrl',
         'resourceMetaUrl',
+        'resourcePolicyUrl',
         'resourceUrl',
         'rootCapability',
         'rootCapabilityId',
         'rootCapabilityTarget',
         'serviceDescriptionUrl',
+        'spaceBackendsUrl',
+        'spaceExportUrl',
         'spaceIdOfUrl',
+        'spaceImportUrl',
+        'spaceLinksetUrl',
         'spaceMetaUrl',
+        'spacePolicyUrl',
+        'spaceQuotasUrl',
         'spaceReplicasUrl',
         'spaceUrlById',
         'spaceUrlOf',
@@ -764,6 +792,39 @@ describe('the ./paths subpath barrel', () => {
     expect(
       barrel.replicaRegistrationUrl({ spaceUrl: SPACE_URL, replicaId: 'r 1' })
     ).toBe('https://pws.example/space/home/replicas/r%201')
+  })
+
+  it('forms the policy, linkset, backends, quotas and chunk routes', async () => {
+    const barrel = await import('../../src/paths/index.js')
+    const spaceUrl = SPACE_URL
+    const inCollection = { spaceUrl, collectionId: 'my docs' }
+    const inResource = { ...inCollection, resourceId: 'a/b' }
+    const space = 'https://pws.example/space/home'
+    const collection = `${space}/my%20docs`
+    const resource = `${collection}/a%2Fb`
+
+    expect(barrel.spacePolicyUrl({ spaceUrl })).toBe(`${space}/policy`)
+    expect(barrel.collectionPolicyUrl(inCollection)).toBe(
+      `${collection}/policy`
+    )
+    expect(barrel.resourcePolicyUrl(inResource)).toBe(`${resource}/policy`)
+    expect(barrel.spaceLinksetUrl({ spaceUrl })).toBe(`${space}/linkset`)
+    expect(barrel.collectionLinksetUrl(inCollection)).toBe(
+      `${collection}/linkset`
+    )
+    expect(barrel.spaceBackendsUrl({ spaceUrl })).toBe(`${space}/backends`)
+    expect(barrel.spaceQuotasUrl({ spaceUrl })).toBe(`${space}/quotas`)
+    expect(barrel.spaceExportUrl({ spaceUrl })).toBe(`${space}/export`)
+    expect(barrel.spaceImportUrl({ spaceUrl })).toBe(`${space}/import`)
+    expect(barrel.collectionBackendUrl(inCollection)).toBe(
+      `${collection}/backend`
+    )
+    expect(barrel.collectionQuotaUrl(inCollection)).toBe(`${collection}/quota`)
+    expect(barrel.resourceChunkUrl({ ...inResource, chunkIndex: 3 })).toBe(
+      `${resource}/chunks/3`
+    )
+    // The chunk container keeps its trailing slash; the member form has none.
+    expect(barrel.resourceChunksUrl(inResource)).toBe(`${resource}/chunks/`)
   })
 
   it('mints the root capability id and its object form', async () => {

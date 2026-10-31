@@ -9,15 +9,16 @@
  * Every builder takes the Space URL the server named (the `Location` of the
  * create response, a listing item's `url`, a stored pointer) and derives one
  * URL beneath it: `collectionUrl({ spaceUrl, collectionId })`,
- * `resourceUrl({ spaceUrl, collectionId, resourceId })`, and the `meta`,
- * `log`, and `query` sub-resources. No builder forms a Space URL, and none
- * takes a server root: the spec places a Space beside nothing, so a Space URL
- * is received rather than assembled. `canonicalSpaceUrl` is the one rule for
- * what a Space URL is, and `spaceIdOfUrl` reads the id off its last segment.
+ * `resourceUrl({ spaceUrl, collectionId, resourceId })`, and the routes
+ * beneath each. No builder forms a Space URL, and none takes a server root:
+ * the spec places a Space beside nothing, so a Space URL is received rather
+ * than assembled. `canonicalSpaceUrl` is the one rule for what a Space URL is,
+ * and `spaceIdOfUrl` reads the id off its last segment.
  *
  * The builders own the trailing-slash canonicalization (a trailing slash
- * marks a container in canonical form -- the Space URL, `{spaceUrl}{c}/` --
- * everything else has none, and no two URLs differ only by a trailing slash)
+ * marks a container in canonical form -- the Space URL, `{spaceUrl}{c}/`, the
+ * `chunks/` container -- everything else has none, and no two URLs differ only
+ * by a trailing slash)
  * and the per-segment percent-encoding, and the zcap `invocationTarget` is
  * derived from the request URL -- so a caller that hand-assembles a URL is
  * re-deriving rules that must match the server's `allowedTarget` byte for
@@ -26,6 +27,14 @@
  * `collectionMetaUrl`) instead of at the container URL. `spaceReplicasUrl`
  * and `replicaRegistrationUrl` form the replicas route and one registration
  * beneath it, for a consumer minting a grant on that route.
+ * `spacePolicyUrl`, `collectionPolicyUrl` and `resourcePolicyUrl` form the
+ * policy routes, and `spaceLinksetUrl` and `collectionLinksetUrl` the linkset
+ * routes. `spaceBackendsUrl` and `collectionBackendUrl` form the backend
+ * routes, `spaceQuotasUrl` and `collectionQuotaUrl` the quota routes, and
+ * `spaceExportUrl` and `spaceImportUrl` the Space archive routes.
+ * `resourceChunksUrl` forms a chunked Resource's chunk container, with a
+ * trailing slash, and `resourceChunkUrl` one chunk in it. That builder throws
+ * on a `chunkIndex` that is not a non-negative integer.
  *
  * `parseSpaceTarget` is the inverse grammar (an absolute URL back to the
  * containment depth it addresses beneath a Space), `spaceUrlOf` reads the
@@ -44,12 +53,25 @@
  */
 export {
   spaceMetaUrl,
+  spacePolicyUrl,
+  spaceLinksetUrl,
+  spaceBackendsUrl,
+  spaceQuotasUrl,
+  spaceExportUrl,
+  spaceImportUrl,
   collectionUrl,
   collectionMetaUrl,
   collectionLogUrl,
   collectionQueryUrl,
+  collectionPolicyUrl,
+  collectionLinksetUrl,
+  collectionBackendUrl,
+  collectionQuotaUrl,
   resourceUrl,
   resourceMetaUrl,
+  resourcePolicyUrl,
+  resourceChunkUrl,
+  resourceChunksUrl,
   spaceReplicasUrl,
   replicaRegistrationUrl,
   parseSpaceTarget
