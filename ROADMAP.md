@@ -89,8 +89,6 @@ Ready:
 
 Waiting on another repo:
 
-- WCL-140 [H] Construct from a base server URL under a fixed server layout; open
-  a fixed Space by its own URL (after WASS-60)
 - WCL-142 [M] Remove the late in-place `encryption` declaration from
   provisioning (after WSS-194)
 - WCL-144 [M] Follow the replication companion: the server DID on the core
@@ -1193,76 +1191,6 @@ means the PWS codec cannot fully control `indexed` emission on the chunked path
 without this upstream fix.
 
 ## Spec and protocol
-
-### WCL-140: [H] [after WASS-60] Construct from a base server URL under a fixed server layout; open a fixed Space by its own URL
-
-- status: in-progress
-- priority: high
-- labels: discovery, paths, breaking, cross-repo, api
-- decision: decisions/0003-server-layout-is-fixed-under-a-base-server-url.md
-  (accepted 2026-10-29; supersedes 0002, whose shape shipped in 0.100.0)
-- blocked-by: WASS-60 (the spec text; drafted for 0002 on 2026-10-28, redrafted
-  to the 0003 layout on the spec's `clarify-url-derivation` branch 2026-10-29)
-- touches:
-  - pws-client: the 0002 shape SHIPPED in 0.100.0 (2026-10-28):
-    `src/PwsClient.ts` (`serviceUrl` / `spacesUrl` arms, `spaceAt`,
-    `createSpace` from `Location`), `src/paths.ts` and `src/internal/paths.ts`
-    (`*Url` builders beneath a Space URL), `src/internal/service.ts`,
-    `src/internal/grant.ts` (`GrantOptions.spaceUrl`), `src/internal/revoke.ts`
-    (`spaceUrlOf`), the EDV and sync seams, docs. The 0003 shape is the
-    remaining work here: `src/PwsClient.ts` (`baseServerUrl` arm, `space(id)`,
-    the fixed-Space entry point, the description consistency check),
-    `src/paths.ts` (server-level builders from a base server URL),
-    `src/internal/service.ts` (direct read from `{base}service`; HEAD discovery
-    kept for the fixed-Space entry point), ARCHITECTURE.md, AGENTS.md,
-    README.md, CHANGELOG.md; `test/integration/globalSetup.ts`
-  - wallet-core: WC-307 (re-scoped 2026-10-29 to 0003: the DID inverse also
-    yields the base server URL, the unlock Space returns to
-    `PUT {base}space/{derivedId}/meta`, `serviceUrl` parameters become
-    `baseServerUrl`)
-  - wallet-request: WR-4 (filed 2026-10-28 as a draft; `WalletOnboardingQuery`
-    carries `did` plus an optional `baseServerUrl`)
-  - freewallet: FW-694 (filed 2026-10-28; re-scope to 0003); was-react: WR-98
-    (re-scoped 2026-10-29: grants-only stores use `forSpace`, configured
-    sessions use `baseServerUrl`, parked behind WC-307 and WS-30); pws-sync:
-    WS-30 (filed 2026-10-29: the controller port takes `spaceUrl`); dcw: DCW-104
-    (`profile_sync` stores `baseServerUrl`)
-  - storage-core: `ORIGIN_ROOT_RESERVED_COLLECTION_IDS` and optional
-    `SpaceMetadata.id` landed locally 2026-10-29 (0.42.0, unpublished;
-    pws-client consumes it via `link:` until it is on npm)
-  - web-spaces-server: WSS-234 (re-scoped 2026-10-29: `startTestServer` returns
-    the base server URL; the server confirms the fixed layout and reserves
-    `service`, `spaces` and `space` at a root-mounted Space)
-  - portable-web-spaces-spec: WASS-60 (drafted 2026-10-28 for 0002; reverse per
-    0003: Reading This Document, Service Description and Spaces Repositories
-    state the fixed layout under a base server URL, the reserved segments gain
-    the three names, and the did:webvh text notes that the DID yields the base
-    server URL)
-- acceptance:
-  - [x] 0.100.0: `createSpace` returns a Space handle built from the response's
-        `Location`; `spaceAt(url)` opens a handle on an absolute Space URL the
-        caller holds; root capability ids and every URL beneath a Space derive
-        from the Space URL; `spaceUrlOf` reads the Space off a capability's
-        chain root. These carry forward unchanged under 0003
-  - [x] The client implementation (WCL-141) landed 2026-10-29
-  - [ ] The testing counterpart returns the server's base server URL (WSS-234),
-        and was-react's and dcw's counterpart tests stay green on the release
-  - [ ] Every `touches:` entry is annotated with the item re-scoped to 0003
-
-Since 0.99 the constructor took the Spaces Repository URL and derived a base by
-stripping the final `spaces` segment. Decision 0002 (0.100.0) read the spec's
-silence above a Space as a prohibition: the client was built from a service URL
-or a Spaces URL, assembled no Space URL, and `space(spaceId)` was removed. The
-first wallet-core port found a consumer that rule cannot serve: a passphrase
-login holds a derived Space id and nothing that resolves to its URL, and the
-spec-conformant ways out (a List Spaces round trip on every login, or a Space
-URL template on the service description) cost more than the convention every
-consumer had already assumed. Decision 0003 fixes that convention in the spec
-instead: `{base}service`, `{base}spaces/` and `{base}space/{space_id}/` are
-peers under one base server URL, the client is built from it, and a server that
-is a single fixed Space with no id is opened from its own URL through a separate
-entry point. discovered-from: the dcw /simplify pass of 2026-10-27, the spec
-reading that followed, and the wallet-core port of 2026-10-29.
 
 ### WCL-146: [M] Check for the Portable Wallet Profile entry in the service description
 
