@@ -5237,3 +5237,45 @@ server answers the write with a 409 that `rethrow` surfaces as a
 fallback. A Collection that exists without a descriptor never becomes encrypted
 in place; the path is a new Collection and a copy, which the migration code
 already takes for a key rotation it cannot express as an epoch.
+
+### WCL-161: [H] A reader rotated off the current epoch refuses to write
+
+- status: done
+- done: 2026-11-12
+- priority: high
+- labels: encryption, key-epochs, security
+- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
+  (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/edv/epochKeys.ts` (`resolveEpochKeys`),
+    `src/edv/EdvCodec.ts` (the write paths), `src/edv/docCipher.ts`, and the
+    rotation text in ARCHITECTURE.md and README.md; shipped with this item
+  - portable-web-spaces-spec: WASS-130 (the profile text for the refusal); filed
+    there, still open
+  - wallet-core, freewallet, was-react, dcw: a codec or cipher held across a
+    removal now throws on write where it used to seal a document its holder
+    could not read back. Filed FW-704 (freewallet), WR-104 (was-react) and
+    DCW-121 (dcw). unaffected: wallet-core (it builds ciphers per call and reads
+    no `writeKey`; its long-lived writer is the encrypt-only build)
+  - web-spaces-server: unaffected (the refusal is client-side)
+- acceptance:
+  - [x] `resolveEpochKeys` no longer gives a reader that is not named in
+        `currentEpoch` the public-only write key
+  - [x] A write through a codec or cipher built for such a reader throws a typed
+        error before any request is sent
+  - [x] The error's name is chosen by the maintainer before it is coded, since
+        it is a new error-name contract. The maintainer picked
+        `NotCurrentRecipientError` (an `EncryptionError`) on 2026-11-12
+  - [x] Reads of the epochs that still name the reader are unchanged
+  - [x] The explicit encrypt-only build (`createEdvEncryptOnlyDocCipher`,
+        `encryptOnlyEdvCodec`) is unchanged and still seals to `currentEpoch`
+  - [x] A test covers a reader removed by `removeRecipient`: its reads pass and
+        its write throws
+
+A reader that holds old epoch secrets and none for `currentEpoch` is built as a
+write-only codec today, through the public-only stand-in the encrypt-only build
+uses. Its caller asked for a reader and is not told. It then writes documents it
+cannot read back, and an update that opens the prior envelope fails later with a
+decrypt error. The decision of 2026-11-12 is to refuse the write. A writer that
+holds no key-agreement key at all is a different, deliberate role and stays.
+Related: WCL-56 covers a write epoch that goes stale inside a long-lived handle.

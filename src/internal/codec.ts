@@ -141,9 +141,15 @@ export class CodecHolder {
    * because a snapshot taken for an earlier operation may already be stale. The
    * snapshot is handed out at most once, and `reset()` drops it.
    *
+   * @param [options] {object}
+   * @param [options.forWrite] {boolean}   the caller is about to write, so a
+   *   codec that cannot write at all refuses here (see
+   *   {@link CodecHolder.getWritable})
    * @returns {Promise<CodecResolution>}
    */
-  async resolve(): Promise<CodecResolution> {
+  async resolve({
+    forWrite = false
+  }: { forWrite?: boolean } = {}): Promise<CodecResolution> {
     const initiated = !this.#memo.started
     const resolution = await this.#memo.get()
     const { codec, meta, baseline } = resolution
@@ -151,10 +157,46 @@ export class CodecHolder {
     // copy of it survives the call.
     resolution.meta = undefined
     resolution.baseline = undefined
+    if (forWrite) {
+      this.#assertWritable(codec)
+    }
     if (!initiated || meta === undefined) {
       return { codec }
     }
     return { codec, meta, ...(baseline !== undefined && { baseline }) }
+  }
+
+  /**
+   * Returns the memoized codec for a write, refusing when it cannot write at
+   * all. Every write entry point of a handle resolves its codec here or
+   * through `resolve({ forWrite: true })`, ahead of its first request.
+   *
+   * A refusal drops the memoized codec before it propagates, so the handle's
+   * next operation re-resolves. A reader re-added to the current key epoch
+   * since the refused codec was built then writes again without a new handle.
+   *
+   * @returns {Promise<ResourceCodec>}
+   */
+  async getWritable(): Promise<ResourceCodec> {
+    const codec = await this.get()
+    this.#assertWritable(codec)
+    return codec
+  }
+
+  /**
+   * Runs a resolved codec's `assertWritable` check, dropping the memoized
+   * codec when it refuses.
+   *
+   * @param codec {ResourceCodec}   a codec this holder resolved
+   * @returns {void}
+   */
+  #assertWritable(codec: ResourceCodec): void {
+    try {
+      codec.assertWritable?.()
+    } catch (err) {
+      this.reset()
+      throw err
+    }
   }
 
   /**

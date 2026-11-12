@@ -1,5 +1,44 @@
 # @interop/pws-client Changelog
 
+## 0.109.0 - TBD
+
+### Changed
+
+- **BREAKING**: A reader that is named in older key epochs and not in
+  `currentEpoch` no longer encrypts. A write that seals through its Collection
+  or Resource handle, EDV codec or doc cipher throws the new
+  `NotCurrentRecipientError` (an `EncryptionError`) before any request is sent.
+  That covers `add`, `put`, `setMeta`, `setName`, `setTags`, `declareIndex`,
+  `declareIndexes`, `encrypt` and `encryptUpdate`. It used to seal the document
+  to the current epoch's public key, which it could not read back. Its reads of
+  the epochs that name it are unchanged.
+- Writes that seal nothing are not refused: `resource.delete()`,
+  `collection.delete()`, a plaintext `configure({ name })`, `setPolicy()` and
+  `putHistoryLog()`. The capability alone governs them.
+- A refusal drops the handle's cached codec, so a reader re-added with
+  `addRecipient` writes again through the same handle. A `createEdvDocCipher`
+  cipher must be rebuilt. A `createRefreshingEdvDocCipher` cipher re-acquires
+  the descriptor and retries once per instance on a refused `encrypt` or
+  `encryptUpdate`.
+- A scheme-changing `configure({ encryption })` by a caller the incoming
+  descriptor's current epoch does not name throws `NotCurrentRecipientError` and
+  sends no write. It would otherwise have dropped the stored name and tags.
+- **BREAKING**: `ResolvedEpochKeys.writeKey` is `null` for such a reader, and
+  the `EdvCodec` constructor's `keyAgreementKey` accepts `null`.
+- **BREAKING**: `ResolvedEpochKeys.namedInWriteEpoch` is removed. Check
+  `writeKey === null` to detect a reader rotated off the current epoch.
+- `createEdvEncryptOnlyDocCipher` and `encryptOnlyEdvCodec` are unchanged and
+  still seal to `currentEpoch`.
+
+### Added
+
+- `NotCurrentRecipientError`, exported from the package root and the `./edv`,
+  `./edv/core` and `./edv/cipher` subpaths.
+- `isNotCurrentRecipientError`, exported from `./sync` and `./edv` beside
+  `isKeyUnwrapError`.
+- `ResourceCodec.assertWritable()`, an optional member the write paths call
+  before their first request.
+
 ## 0.108.0 - 2026-11-12
 
 ### Changed

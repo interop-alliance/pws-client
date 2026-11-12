@@ -46,6 +46,7 @@ export {
   QuotaExceededError,
   EncryptionError,
   EncryptOnlyCipherError,
+  NotCurrentRecipientError,
   UnverifiedDescriptorError,
   KeyUnwrapError,
   IntegrityError,

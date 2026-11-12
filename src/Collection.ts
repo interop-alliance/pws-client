@@ -417,13 +417,20 @@ export class Collection {
    * `CodecHolder.resolve`). The read behind the snapshot is kept as the next
    * write's baseline, as a `GET` of the object would be.
    *
+   * @param [options] {object}
+   * @param [options.forWrite] {boolean}   the operation writes, so a codec
+   *   that cannot write refuses before any request the write starts with
    * @returns {Promise<{ codec: ResourceCodec; meta?: (CollectionMetadata & { etag?: string }) | null }>}
    */
-  async #resolveSnapshot(): Promise<{
+  async #resolveSnapshot({
+    forWrite = false
+  }: { forWrite?: boolean } = {}): Promise<{
     codec: ResourceCodec
     meta?: (CollectionMetadata & { etag?: string }) | null
   }> {
-    const { codec, meta, baseline } = await this.#codecHolder.resolve()
+    const { codec, meta, baseline } = await this.#codecHolder.resolve({
+      forWrite
+    })
     if (baseline !== undefined) {
       this.#remember(baseline)
     }
@@ -929,8 +936,10 @@ export class Collection {
     if (stored.custom === undefined) {
       return null
     }
+    let opened: ResourceMetadataCustom
+    let to: ResourceCodec
     try {
-      const [from, to] = await Promise.all([
+      const [from, target] = await Promise.all([
         codecForDescriptor(this.#context, {
           spaceUrl: this.spaceUrl,
           collectionId: this.id,
@@ -942,13 +951,24 @@ export class Collection {
           ...(encryption !== undefined && { descriptor: encryption })
         })
       ])
-      if (from === null || to === null) {
+      if (from === null || target === null) {
         return {}
       }
-      const opened = await openStoredCustom({ codec: from, stored })
-      if (opened === null) {
+      const custom = await openStoredCustom({ codec: from, stored })
+      if (custom === null) {
         return {}
       }
+      opened = custom
+      to = target
+    } catch {
+      return {}
+    }
+    // A caller the incoming descriptor's current epoch does not name could
+    // open the stored annotations and cannot seal them. That refuses the
+    // configuration write. Dropping the name and tags instead would lose
+    // them without a word.
+    to.assertWritable?.()
+    try {
       const { custom, epoch } = await to.encodeMeta({
         custom: opened,
         slot: { kind: 'collection' }
@@ -1003,6 +1023,21 @@ export class Collection {
    * @returns {Promise<(CollectionMetadata & { etag?: string }) | null>}
    */
   async meta(): Promise<(CollectionMetadata & { etag?: string }) | null> {
+    return this.#readMeta()
+  }
+
+  /**
+   * The read behind {@link meta}. `setName` and `setTags` run it with
+   * `forWrite`, so a codec that cannot write refuses before the read their
+   * patch starts with, and the read still reuses the resolution's snapshot.
+   *
+   * @param [options] {object}
+   * @param [options.forWrite] {boolean}   the read is the first step of a write
+   * @returns {Promise<(CollectionMetadata & { etag?: string }) | null>}
+   */
+  async #readMeta({ forWrite = false }: { forWrite?: boolean } = {}): Promise<
+    (CollectionMetadata & { etag?: string }) | null
+  > {
     // Resolving the codec on a blinded-index collection reads `meta` itself
     // (for the index schema). When this call is the one that started that
     // resolution, its snapshot is this read's answer -- take it rather than
@@ -1010,7 +1045,7 @@ export class Collection {
     // it as the next write's baseline, as the `GET` below would be kept. Every
     // other caller gets no snapshot and reads for itself, so a `meta()` never
     // serves a point-in-time copy another client may have overwritten since.
-    const { codec, meta } = await this.#resolveSnapshot()
+    const { codec, meta } = await this.#resolveSnapshot({ forWrite })
     if (meta !== undefined) {
       return meta
     }
@@ -1140,14 +1175,18 @@ export class Collection {
    * caller pinned one, and otherwise the plaintext codec, because the body it
    * sends declares no descriptor.
    *
-   * @param creating {boolean}   whether this write is the guarded create
+   * Every write entry point resolves its codec here before its first request,
+   * so a codec that cannot write (see `ResourceCodec.assertWritable`) refuses
+   * ahead of any read the write starts with.
+   *
+   * @param [creating] {boolean}   whether this write is the guarded create
    * @returns {Promise<ResourceCodec>}
    */
-  async #codecForWrite(creating: boolean): Promise<ResourceCodec> {
+  async #codecForWrite(creating = false): Promise<ResourceCodec> {
     if (creating && this.#encryptionOverride === undefined) {
       return identityCodec
     }
-    return this.#codec()
+    return this.#codecHolder.getWritable()
   }
 
   /**
@@ -1169,7 +1208,11 @@ export class Collection {
    * @returns {Promise<void>}
    */
   async setName(name: string): Promise<void> {
-    return patchCustom(this, { name }, { operation: 'Collection name update' })
+    return patchCustom(
+      this.#patchTarget(),
+      { name },
+      { operation: 'Collection name update' }
+    )
   }
 
   /**
@@ -1181,7 +1224,24 @@ export class Collection {
    * @returns {Promise<void>}
    */
   async setTags(tags: Record<string, string>): Promise<void> {
-    return patchCustom(this, { tags }, { operation: 'Collection tags update' })
+    return patchCustom(
+      this.#patchTarget(),
+      { tags },
+      { operation: 'Collection tags update' }
+    )
+  }
+
+  /**
+   * This handle as `patchCustom` drives it: the metadata read declares its
+   * write intent, so a codec that cannot write refuses before that read.
+   *
+   * @returns {object}   the `meta` / `setMeta` pair
+   */
+  #patchTarget(): Parameters<typeof patchCustom>[0] {
+    return {
+      meta: () => this.#readMeta({ forWrite: true }),
+      setMeta: (meta, options) => this.setMeta(meta, options)
+    }
   }
 
   /**
@@ -1319,13 +1379,20 @@ export class Collection {
    * `meta` is `undefined` whenever there is no snapshot to reuse.
    *
    * @param operation {string}   what the caller was trying to do, for the message
+   * @param [options] {object}
+   * @param [options.writing] {boolean}   the operation writes, so a codec
+   *   that cannot write refuses first (it also carries no index key, and the
+   *   write refusal is the accurate one)
    * @returns {Promise<{ indexing: CodecIndexing; meta?: (CollectionMetadata & { etag?: string }) | null }>}
    */
-  async #resolveIndexing(operation: string): Promise<{
+  async #resolveIndexing(
+    operation: string,
+    { writing = false }: { writing?: boolean } = {}
+  ): Promise<{
     indexing: CodecIndexing
     meta?: (CollectionMetadata & { etag?: string }) | null
   }> {
-    const { codec, meta } = await this.#resolveSnapshot()
+    const { codec, meta } = await this.#resolveSnapshot({ forWrite: writing })
     if (!codec.indexing) {
       throw new ValidationError(
         `Cannot ${operation} on collection "${this.id}": it carries no ` +
@@ -1428,8 +1495,10 @@ export class Collection {
   }: {
     indexes: Array<{ attribute: string | string[]; unique?: boolean }>
   }): Promise<IndexSchema> {
-    const { indexing, meta: snapshot } =
-      await this.#resolveIndexing('declare indexes')
+    const { indexing, meta: snapshot } = await this.#resolveIndexing(
+      'declare indexes',
+      { writing: true }
+    )
     // Repeats within the request are settled up front: a conflict there is a
     // caller error that does not depend on the stored schema.
     const requested = normalizeIndexRequests(indexes)
@@ -1598,7 +1667,7 @@ export class Collection {
       // `codec` is supplied.
       ...(options.encryption !== undefined
         ? { encryption: options.encryption }
-        : { codec: () => this.#codec() })
+        : { codec: this.#codecHolder })
     })
   }
 
@@ -1629,7 +1698,7 @@ export class Collection {
     data: ResourceData,
     options: { contentType?: string } = {}
   ): Promise<AddResult> {
-    const codec = await this.#codec()
+    const codec = await this.#codecForWrite()
     const outcome = await insertResource(this.#context, {
       itemsUrl: this.url,
       urlForId: mintedId => this.#resourceUrl(mintedId),

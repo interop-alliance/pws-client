@@ -50,10 +50,12 @@ export {
   EncryptOnlyCipherError,
   IntegrityError,
   KeyUnwrapError,
+  NotCurrentRecipientError,
   UnknownEpochError,
   isEncryptedEnvelope,
   isIntegrityError,
   isKeyUnwrapError,
+  isNotCurrentRecipientError,
   edvIdFromBytes,
   blobBytes
 } from './cipher.js'

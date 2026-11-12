@@ -69,7 +69,8 @@ export async function readerWithDescriptor(): Promise<{
  * `If-Match` is looked at, as the server does). `failWhen` makes a chosen
  * request fail with its
  * `status` (default 503), to tear a write, and `beforeRequest` lets a test
- * act as a concurrent writer.
+ * act as a concurrent writer. `client` takes an optional `resolveKeys`
+ * keystore, for a handle that discovers its descriptor from the server.
  *
  * @returns {object}   the client, the stored bodies by path, and the hooks
  */
@@ -80,6 +81,7 @@ export function memoryServer(): {
     maxBlobBytes: number
     chunkSize: number
     idDerivation?: 'random' | 'content'
+    resolveKeys?: Parameters<typeof createEdvEncryption>[0]['resolveKeys']
   }) => PwsClient
   failWhen: {
     test?: (args: RequestArgs, path: string) => boolean
@@ -196,11 +198,13 @@ export function memoryServer(): {
   const client = ({
     maxBlobBytes,
     chunkSize,
-    idDerivation
+    idDerivation,
+    resolveKeys = async () => null
   }: {
     maxBlobBytes: number
     chunkSize: number
     idDerivation?: 'random' | 'content'
+    resolveKeys?: Parameters<typeof createEdvEncryption>[0]['resolveKeys']
   }): PwsClient =>
     new PwsClient({
       baseServerUrl: baseServerUrlFor(),
@@ -210,7 +214,7 @@ export function memoryServer(): {
         request
       } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient'],
       encryption: createEdvEncryption({
-        resolveKeys: async () => null,
+        resolveKeys,
         maxBlobBytes,
         chunkSize,
         ...(idDerivation !== undefined && { idDerivation })

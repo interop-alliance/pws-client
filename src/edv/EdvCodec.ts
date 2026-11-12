@@ -103,6 +103,7 @@ import {
   EncryptionError,
   IntegrityError,
   KeyUnwrapError,
+  NotCurrentRecipientError,
   NotFoundError,
   NotSupportedError,
   PreconditionFailedError,
@@ -393,9 +394,11 @@ export class EdvCodec implements ResourceCodec {
    * The static JWE recipient descriptor every write encrypts to (the write
    * key's `{ kid, alg }` header; the ephemeral `epk` is minted later inside
    * `encrypt`). Deterministic per codec, so computed once here instead of per
-   * write.
+   * write. `null` on a codec built without a write key (a reader that is not
+   * a recipient of the current epoch), which refuses every encode. Read
+   * through `#writeRecipients`.
    */
-  readonly #recipients: IRecipientTemplate[]
+  readonly #recipients: IRecipientTemplate[] | null
   readonly #readKeys: IKeyAgreementKey[]
   /**
    * The key-epoch id writes stamp (the descriptor's `currentEpoch`). Every
@@ -474,8 +477,10 @@ export class EdvCodec implements ResourceCodec {
   /**
    * @param options {object}
    * @param options.edv {EdvClientCore}             holds the cipher + key resolver
-   * @param options.keyAgreementKey {IKeyAgreementKey}   the key writes encrypt
-   *   under: the reconstructed `currentEpoch` key pair.
+   * @param options.keyAgreementKey {IKeyAgreementKey | null}   the key writes
+   *   encrypt under: the reconstructed `currentEpoch` key pair. `null` for a
+   *   reader that is not a recipient of the current epoch, whose codec reads
+   *   and refuses every write.
    * @param options.readKeys {IKeyAgreementKey[]}   the candidate keys a read
    *   may decrypt with: one per epoch this reader can unwrap. A read selects
    *   the one whose id matches the stored envelope's recipient, so a resource
@@ -526,7 +531,7 @@ export class EdvCodec implements ResourceCodec {
     hmac
   }: {
     edv: EdvClientCore
-    keyAgreementKey: IKeyAgreementKey
+    keyAgreementKey: IKeyAgreementKey | null
     readKeys: IKeyAgreementKey[]
     writeEpoch: string
     contentType: string
@@ -541,7 +546,9 @@ export class EdvCodec implements ResourceCodec {
   }) {
     this.#edv = edv
     this.#recipients =
-      edv.documentCipher.createDefaultRecipients(keyAgreementKey)
+      keyAgreementKey === null
+        ? null
+        : edv.documentCipher.createDefaultRecipients(keyAgreementKey)
     this.#readKeys = readKeys
     this.#writeEpoch = writeEpoch
     this.#contentType = contentType
@@ -649,6 +656,35 @@ export class EdvCodec implements ResourceCodec {
   /**
    * @inheritdoc
    */
+  assertWritable(): void {
+    this.#writeRecipients()
+  }
+
+  /**
+   * The JWE recipients a write seals to, or the refusal for a codec built for
+   * a reader that is not a recipient of the current epoch.
+   *
+   * @returns {IRecipientTemplate[]}
+   */
+  #writeRecipients(): IRecipientTemplate[] {
+    if (this.#recipients === null) {
+      throw new NotCurrentRecipientError(
+        `Cannot write to collection "${this.#collectionId}": this reader is ` +
+          `not a recipient of its current key epoch "${this.#writeEpoch}". ` +
+          'It still reads the epochs that name it, and it could not read ' +
+          'back anything it wrote under the current one. Have a current ' +
+          'recipient re-add this reader with addRecipient. A Collection or ' +
+          'Resource handle re-reads the descriptor on its next operation. A ' +
+          'cipher from createEdvDocCipher is bound to the descriptor it was ' +
+          'built from, so build a new one from the re-read descriptor.'
+      )
+    }
+    return this.#recipients
+  }
+
+  /**
+   * @inheritdoc
+   */
   async encode({
     id,
     data,
@@ -662,6 +698,7 @@ export class EdvCodec implements ResourceCodec {
     current?: ResponseLike | null
     precondition?: WritePrecondition
   }): Promise<CodecWrite> {
+    this.assertWritable()
     if (id !== undefined && !current) {
       try {
         // A full multibase decode + multihash length check (the same assertion
@@ -1353,7 +1390,7 @@ export class EdvCodec implements ResourceCodec {
       epoch: this.#writeEpoch
     })
     return {
-      recipients: this.#recipients,
+      recipients: this.#writeRecipients(),
       keyResolver: this.#edv.keyResolver,
       hmac,
       additionalProtectedParams: { pws }
@@ -2030,6 +2067,7 @@ export class EdvCodec implements ResourceCodec {
     custom: ResourceMetadataCustomInput
     slot: MetaWriteSlot
   }): Promise<{ custom: object; epoch: string }> {
+    this.assertWritable()
     const { documentCipher } = this.#edv
     // The document needs an EDV id (the cipher asserts one on decrypt). It is
     // opaque to the server -- carried inside the un-decryptable envelope -- and
@@ -2657,6 +2695,8 @@ export async function buildEdvCodec({
   // Epoch keys are self-describing did:key key-agreement keys, so a
   // resource's recipient (the epoch public key) resolves through the
   // standard did:key resolver, independent of the reader's own keystore.
+  // `null` for a reader rotated off the current epoch: the codec then reads
+  // the epochs that name the reader and refuses every write.
   const keyAgreementKey = epochKeys.writeKey
   // The collection's blinding key: an explicitly supplied one (a keystore
   // custodying the HMAC key itself) wins over unwrapping the descriptor's
@@ -2667,10 +2707,10 @@ export async function buildEdvCodec({
     (await resolveHmacKey({
       encryption: descriptor,
       keyAgreementKey: keys.keyAgreementKey,
-      required: epochKeys.namedInWriteEpoch
+      required: keyAgreementKey !== null
     }))
   const edv = new EdvClientCore({
-    keyAgreementKey,
+    ...(keyAgreementKey !== null && { keyAgreementKey }),
     keyResolver: didKeyResolver,
     ...(hmac !== null && { hmac })
   })

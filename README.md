@@ -635,12 +635,16 @@ Three properties are easy to get wrong:
   revoke a capability naming it. What dies is the capability: on such a target
   the revoked zcap's read still succeeds while its write does not.
 - **It is prospective, and not idempotent.** A revoked reader of an encrypted
-  Collection keeps the keys for ciphertext it already fetched. And revoking an
-  already-revoked capability throws `AlreadyRevokedError`, a `ValidationError`
-  subclass named for the server's `capability-already-revoked` problem type. A
-  tampered or expired capability stays a plain `ValidationError`, and the client
-  swallows none of them. Catch `AlreadyRevokedError` if you want revoking twice
-  to be a no-op.
+  Collection keeps the keys for ciphertext it already fetched. Once a rotation
+  leaves it out of the current key epoch, its writes that encrypt are refused
+  client-side with `NotCurrentRecipientError`, whether or not its capability is
+  revoked yet. Writes that seal nothing (`delete`, `setPolicy`, a plaintext
+  `configure({ name })`, `putHistoryLog`) are not refused. Only revoking its
+  capability stops those. And revoking an already-revoked capability throws
+  `AlreadyRevokedError`, a `ValidationError` subclass named for the server's
+  `capability-already-revoked` problem type. A tampered or expired capability
+  stays a plain `ValidationError`, and the client swallows none of them. Catch
+  `AlreadyRevokedError` if you want revoking twice to be a no-op.
 
 ### Public sharing and access-control policies
 
@@ -1394,19 +1398,19 @@ plugs into:
   `problem+json` fields.
 - **`isSyncConflictError` / `isSyncNotFoundError` / `isSyncCheckpointError` /
   `isSyncAuthError` / `isUnknownEpochError` / `isKeyUnwrapError` /
-  `isIntegrityError`** classify those signals by `err.name`. Use them rather
-  than `instanceof`: the port and the `DocCipher` are seams your app injects,
-  and a tree that resolves two copies of this package makes an `instanceof`
-  check quietly false. Read what you need off the matched value, such as
-  `err.status` on an auth error to tell a 401 from the masked 404. The last two
-  tell a decrypt's two no-key outcomes apart: an epoch the reader's descriptor
-  does not list (a re-read may fix it) and an epoch it lists but this reader
-  holds no key for (real data, permanently unreadable here, never garbage).
-  `isIntegrityError` matches a stored body that does not verify against the
-  resource id it was read under, a sealed envelope whose AEAD tag fails for a
-  key this reader holds, or a descriptor recipient entry addressed to this
-  reader whose wrapped epoch key fails its integrity check. Do not apply that
-  row.
+  `isNotCurrentRecipientError` / `isIntegrityError`** classify those signals by
+  `err.name`. Use them rather than `instanceof`: the port and the `DocCipher`
+  are seams your app injects, and a tree that resolves two copies of this
+  package makes an `instanceof` check quietly false. Read what you need off the
+  matched value, such as `err.status` on an auth error to tell a 401 from the
+  masked 404. The last two tell a decrypt's two no-key outcomes apart: an epoch
+  the reader's descriptor does not list (a re-read may fix it) and an epoch it
+  lists but this reader holds no key for (real data, permanently unreadable
+  here, never garbage). `isIntegrityError` matches a stored body that does not
+  verify against the resource id it was read under, a sealed envelope whose AEAD
+  tag fails for a key this reader holds, or a descriptor recipient entry
+  addressed to this reader whose wrapped epoch key fails its integrity check. Do
+  not apply that row.
 - **`SyncStatus`** (`'idle' | 'syncing' | 'synced' | 'error'`) is the closed
   vocabulary a replication driver reports one feed's state through.
 - **`DocCipher`** is the per-collection encrypt/decrypt seam sitting above the
@@ -1634,7 +1638,13 @@ Spec endpoints a given server has not yet implemented surface as
 The client-side errors (`EncryptionError` and its subtypes, `NotSupportedError`,
 `UnknownEpochError`) are `PwsError`s too; they carry no `status`. An
 `UnknownEpochError` carries the `collectionId` whose descriptor to re-read and
-the envelope's unroutable `kids`.
+the envelope's unroutable `kids`. A `NotCurrentRecipientError` (an
+`EncryptionError`) is a refused write: this reader is named in older key epochs
+of the Collection and not in the current one, so it still reads and no longer
+encrypts. It is thrown before any request is sent. Writes that seal nothing are
+not refused. After a current recipient re-adds the reader, the same handle
+writes again. A `createEdvDocCipher` cipher must be rebuilt, and a
+`createRefreshingEdvDocCipher` cipher retries once on its own.
 
 `IncompatibleServerError` comes from service discovery, not from a response
 status. Any signed method, read methods included, throws it when the server

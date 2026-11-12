@@ -320,6 +320,18 @@ export interface ResourceCodec {
   readonly conditionalWrites?: boolean
 
   /**
+   * Throws when this codec cannot write at all, whatever the value (the EDV
+   * codec built for a reader that is not a recipient of the current key
+   * epoch). A handle calls it where it resolves the codec for a write, ahead
+   * of the first request. A refused write therefore sends nothing, including
+   * the pre-read a conditional write starts with and the metadata read behind
+   * `setName` / `setTags` / `declareIndexes`. {@link encode} and
+   * {@link encodeMeta} refuse on their own as well.
+   * Absent on a codec that can always write.
+   */
+  assertWritable?(): void
+
+  /**
    * Transforms a caller's write value into its stored representation. `id` is
    * present for `put(id, ...)` (and absent for `add(...)`, where the codec may
    * mint one by returning {@link EncodedWrite.id}).

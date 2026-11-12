@@ -69,8 +69,8 @@
  * root. Both assign their `name` explicitly, and a consumer whose cipher
  * arrives through an injected seam matches on that name rather than
  * `instanceof`, since the seam may resolve to a second copy of this package:
- * `isKeyUnwrapError` here, and `isUnknownEpochError` on `./sync`, are those
- * matchers.
+ * `isKeyUnwrapError` and `isNotCurrentRecipientError` here, and
+ * `isUnknownEpochError` on `./sync`, are those matchers.
  */
 export { EdvCodec } from './EdvCodec.js'
 export type { ChunkSource, CodecTransportFactory, EdvKeys } from './EdvCodec.js'
@@ -118,10 +118,15 @@ export {
   EncryptOnlyCipherError,
   IntegrityError,
   KeyUnwrapError,
+  NotCurrentRecipientError,
   UnknownEpochError,
   isEncryptedEnvelope
 } from './docCipher.js'
 export type { DocCipher, EdvDocCipher } from './docCipher.js'
-export { isIntegrityError, isKeyUnwrapError } from '../sync/predicates.js'
+export {
+  isIntegrityError,
+  isKeyUnwrapError,
+  isNotCurrentRecipientError
+} from '../sync/predicates.js'
 export { edvIdFromBytes } from './edvId.js'
 export { blobBytes } from '../internal/blob.js'

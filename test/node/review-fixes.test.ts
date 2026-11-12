@@ -19,7 +19,6 @@ import {
   ValidationError,
   PwsServerError,
   EncryptionError,
-  EncryptOnlyCipherError,
   NotFoundError,
   NotSupportedError,
   PreconditionFailedError
@@ -216,11 +215,11 @@ describe('resolveEpochKeys write-epoch selection', () => {
       keyAgreementKey: alice.kak
     })
     expect(resolved!.writeEpoch).toBe(first.id)
-    expect(resolved!.writeKey.id).toBe(epochKeyIdFor(first.id))
+    expect(resolved!.writeKey!.id).toBe(epochKeyIdFor(first.id))
     expect(resolved!.readKeys.length).toBe(2)
   })
 
-  it('writes to currentEpoch through a stand-in when rotated off it', async () => {
+  it('resolves no write key for a reader rotated off currentEpoch', async () => {
     const bob = await makeReader()
     const inX = await epochEntryFor([bob])
     const inY = await epochEntryFor([bob])
@@ -228,7 +227,9 @@ describe('resolveEpochKeys write-epoch selection', () => {
     // Bob is a recipient of X and Y but not of the current epoch Z. He must
     // NOT fall back to Y: writing under an epoch he was rotated off of would
     // seal fresh plaintext to a key every removed recipient of Y still holds.
-    // The write epoch stays Z, sealed through a public-only stand-in.
+    // The write epoch stays Z, and Bob gets no key to write under it: not
+    // the public-only stand-in either, since he could not read back what he
+    // sealed.
     const encryption = {
       scheme: 'edv',
       epochs: [inX, inY, notInZ],
@@ -239,14 +240,7 @@ describe('resolveEpochKeys write-epoch selection', () => {
       keyAgreementKey: bob.kak
     })
     expect(resolved!.writeEpoch).toBe(notInZ.id)
-    expect(resolved!.writeKey.id).toBe(epochKeyIdFor(notInZ.id))
-    expect(resolved!.namedInWriteEpoch).toBe(false)
-    // The stand-in seals to Z and unseals nothing under it.
-    await expect(
-      resolved!.writeKey.deriveSecret({
-        publicKey: { type: 'X25519KeyAgreementKey2020' }
-      } as never)
-    ).rejects.toThrow(EncryptOnlyCipherError)
+    expect(resolved!.writeKey).toBeNull()
     // Bob's history stays readable: X and Y, and never Z.
     expect(resolved!.readKeys.map(key => key.id).sort()).toEqual(
       [epochKeyIdFor(inX.id), epochKeyIdFor(inY.id)].sort()

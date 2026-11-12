@@ -18,7 +18,9 @@
  * appends a fresh epoch that excludes it. This module is the **read** axis
  * only: it turns a reader's own key-agreement key plus the descriptor into a
  * cipher that encrypts under the current epoch and decrypts any epoch that
- * reader still holds a key for.
+ * reader still holds a key for. A reader the current epoch does not name gets
+ * a cipher that decrypts the epochs it is still named in and refuses
+ * `encrypt` and `encryptUpdate` with `NotCurrentRecipientError`.
  *
  * Alongside the reader's build sits `createEdvEncryptOnlyDocCipher`, the
  * write-only counterpart built from the descriptor alone: encryption seals to
@@ -88,6 +90,7 @@ export {
   EncryptOnlyCipherError,
   IntegrityError,
   KeyUnwrapError,
+  NotCurrentRecipientError,
   UnknownEpochError
 } from '../errors.js'
 
@@ -235,12 +238,17 @@ export interface EdvDocCipher extends DocCipher {
  * does not list, and `KeyUnwrapError` for one whose listed epoch this reader
  * is not a recipient of) lives in the codec, not here.
  *
- * The reader must be a recipient of every epoch on the descriptor (the owner is
- * "recipient zero"). If it is a recipient of none, building the cipher
- * throws {@link KeyUnwrapError}; this surfaces it with a clearer error rather
- * than silently writing envelopes other recipients cannot read. An entry that
- * names this reader but fails its key-wrap integrity check throws
- * {@link IntegrityError} instead, and that propagates untouched.
+ * The reader must be a recipient of one or more epochs on the descriptor (the
+ * owner is "recipient zero"). If it is a recipient of none, building the
+ * cipher throws {@link KeyUnwrapError}; this surfaces it with a clearer error
+ * rather than silently writing envelopes other recipients cannot read. If it
+ * is a recipient of older epochs and not of `currentEpoch` (it was removed and
+ * the epoch rotated), the cipher builds and reads those epochs, and its
+ * `encrypt` and `encryptUpdate` throw {@link NotCurrentRecipientError}. The
+ * cipher is bound to the descriptor it was built from, so a reader re-added
+ * later builds a new one. An entry that names this reader but fails its
+ * key-wrap integrity check throws {@link IntegrityError} instead, and that
+ * propagates untouched.
  *
  * @param options {object}
  * @param options.keyAgreementKey {IKeyAgreementKey}

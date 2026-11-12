@@ -131,6 +131,21 @@ export function isKeyUnwrapError(err: unknown): boolean {
 }
 
 /**
+ * Whether an error is the cipher's refused-write signal
+ * (`NotCurrentRecipientError`): the reader is named in older key epochs and
+ * not in the descriptor's current one, so `encrypt` / `encryptUpdate` refuse.
+ * Not transient. Retrying the write as-is fails the same way until a current
+ * recipient re-adds this reader, so a push loop parks the row instead of
+ * retrying it. The reader's decrypts of the epochs it is named in still work.
+ *
+ * @param err {unknown}   the caught error
+ * @returns {boolean}
+ */
+export function isNotCurrentRecipientError(err: unknown): boolean {
+  return nameOf(err) === 'NotCurrentRecipientError'
+}
+
+/**
  * Whether an error is the cipher's tamper signal (`IntegrityError`): a stored
  * body failed verification against the resource id it was read under, or an
  * envelope this reader holds a key for failed to authenticate. The server

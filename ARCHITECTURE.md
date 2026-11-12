@@ -611,8 +611,32 @@ Multi-recipient sharing uses **key epochs** (`epochCrypto`/`epochKeys`/
 reader's key-agreement key (`ECDH-ES+A256KW`) on the descriptor. Access has two
 orthogonal axes: _pull_ (zcap, server-enforced, immediate) and _read_ (epoch-key
 possession, client-side, prospective -- rotation never claws back already-held
-keys or fetched ciphertext). `removeRecipient` does both halves because doing
-only one is a footgun (the pull half is the default zcap revocation, or a
+keys or fetched ciphertext). A reader named in older epochs and not in
+`currentEpoch` keeps reading those epochs and does not encrypt.
+`resolveEpochKeys` gives it no write key (`writeKey` is `null`), and its codec
+refuses every write that encrypts with `NotCurrentRecipientError` before any
+request is sent. That covers resource content writes, resource and collection
+metadata writes, `declareIndex` / `declareIndexes`, a scheme-changing
+`configure({ encryption })` and the doc cipher's `encrypt` / `encryptUpdate`.
+The refusal lives in one place: `assertWritable` on the codec seam, called from
+the handle's write-codec resolution (`CodecHolder.getWritable`, or
+`CodecHolder.resolve({ forWrite: true })` where the write reuses the
+resolution's metadata snapshot). It runs ahead of any request, including the
+metadata read behind `setName`, `setTags` and `declareIndexes`. The reader is
+not handed the current epoch's public key, since it could not read back what it
+sealed. Writes that seal nothing are not refused: `delete`, a plaintext
+`configure({ name })`, `setPolicy` and `putHistoryLog`. The capability alone
+governs those, so revoking the removed reader's capability is still what stops
+them. The encrypt-only build is a separate role and is unaffected. Recovery is
+not sticky. A refusal drops the handle's memoized codec, so its next operation
+re-reads the descriptor, and a reader re-added with `addRecipient` writes again
+through the same handle. A cipher from `createEdvDocCipher` is bound to the
+descriptor it was built from and must be rebuilt. A cipher from
+`createRefreshingEdvDocCipher` re-acquires the descriptor and retries once per
+instance on a refused `encrypt` / `encryptUpdate`, apart from its one
+unknown-epoch read refresh. If the reader is still removed, the error propagates
+with no further descriptor reads. `removeRecipient` does both halves because
+doing only one is a footgun (the pull half is the default zcap revocation, or a
 caller-supplied `pull` action for descriptors whose access lives elsewhere). A
 rotation (`removeRecipient` / `replaceRecipient`) takes a required
 `resolveRecipientKey` and wraps the fresh epoch only to keys it vouches for. The
@@ -670,9 +694,9 @@ whose decrypt seam is the cipher itself. The two no-key signals are what the
 policy dispatches on: only `UnknownEpochError` drives a refresh, and
 `KeyUnwrapError` propagates untouched, since re-reading the same descriptor
 cannot produce a key the reader was never given. Their `err.name` matchers,
-`isUnknownEpochError` and `isKeyUnwrapError`, live in `sync/predicates.ts`
-beside the other injected-seam signals, as does `isIntegrityError` for a body
-that fails verification against its resource id.
+`isUnknownEpochError`, `isKeyUnwrapError` and `isNotCurrentRecipientError`, live
+in `sync/predicates.ts` beside the other injected-seam signals, as does
+`isIntegrityError` for a body that fails verification against its resource id.
 
 A write that declares or changes the `encryption` descriptor re-seals the
 Collection `/meta` envelope in the same body: the server validates `custom`

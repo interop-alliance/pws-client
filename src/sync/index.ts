@@ -22,7 +22,8 @@
  *   Collection provisioning, and its Space half alone (ensure the Space once,
  *   then thread the returned description through every collection).
  * - `isSyncConflictError` / `isSyncNotFoundError` / `isSyncAuthError` /
- *   `isUnknownEpochError` / `isKeyUnwrapError` / `isIntegrityError` /
+ *   `isUnknownEpochError` / `isKeyUnwrapError` /
+ *   `isNotCurrentRecipientError` / `isIntegrityError` /
  *   `isNotSupportedError` -- the classification contract for the signals
  *   below. A consumer matches by `err.name` and never with `instanceof`,
  *   because these errors are raised inside a seam the app injects (the port,
@@ -44,8 +45,10 @@
  * (`IntegrityError`: the stored body does not verify against the resource id
  * it was read under, an envelope a held key opened fails its AEAD check, or
  * the recipient entry addressed to this reader fails its key-wrap check).
- * `EncryptionError`, the fail-closed umbrella both `KeyUnwrapError` and
- * `IntegrityError` fall under, rides along. So does the
+ * So is the refused-write signal (`NotCurrentRecipientError`: the reader is
+ * off the descriptor's current epoch, so its cipher does not encrypt).
+ * `EncryptionError`, the fail-closed umbrella `KeyUnwrapError`,
+ * `IntegrityError` and `NotCurrentRecipientError` fall under, rides along. So does the
  * affordance gate (`NotSupportedError`), a permanent refusal raised before any
  * request: by a guarded write whose pinned read returned no `ETag` validator
  * (`/log`, `/edv`, and the client's own content-addressed store), and by a
@@ -82,12 +85,14 @@ export {
   isSyncNotFoundError,
   isIntegrityError,
   isKeyUnwrapError,
+  isNotCurrentRecipientError,
   isUnknownEpochError
 } from './predicates.js'
 export {
   EncryptionError,
   IntegrityError,
   KeyUnwrapError,
+  NotCurrentRecipientError,
   NotSupportedError,
   UnknownEpochError,
   PwsSyncAuthError,

@@ -7,7 +7,8 @@
  * reader's own key-agreement key, it reconstructs each epoch the reader is a
  * recipient of as an X25519 key pair the EDV `documentCipher` can use -- the
  * write epoch's key for writes, and one read key per epoch the reader holds (so
- * a resource written under an older epoch stays readable). The write epoch is
+ * a resource written under an older epoch stays readable). A reader that is
+ * not a recipient of the write epoch gets no write key. The write epoch is
  * unwrapped eagerly; the other epochs' keys unwrap lazily on first decrypt
  * naming them, so a write-only handle does not pay to unwrap history it never
  * reads. A lazy unwrap that fails its key-wrap check is remembered, so a run of
@@ -48,25 +49,19 @@ export interface ResolvedEpochKeys {
    */
   writeEpoch: string
   /**
-   * the key writes encrypt under. Where this reader is a recipient of
-   * `writeEpoch`, its own unwrapped epoch key pair; where it is not (a reader
-   * rotated off the current epoch), a public-only stand-in reconstructed from
-   * the epoch id, which seals writes to the current epoch but decrypts nothing
+   * the key writes encrypt under: this reader's own unwrapped key pair for
+   * `writeEpoch`. `null` where this reader is not a recipient of `writeEpoch`
+   * (a reader rotated off the current epoch), which is what reports the
+   * removal. Such a reader reads the history it is still named in, and a
+   * codec built for it refuses to encrypt with `NotCurrentRecipientError`
    */
-  writeKey: IKeyAgreementKey
+  writeKey: IKeyAgreementKey | null
   /**
    * every epoch key this reader can unwrap, for decrypting any epoch (the
    * `writeKey`, unwrapped eagerly, plus a lazily-unwrapped key per other epoch
-   * this reader is a recipient of). A rotated-off reader's `writeKey` is not
-   * among them -- it holds no secret for the current epoch
+   * this reader is a recipient of)
    */
   readKeys: IKeyAgreementKey[]
-  /**
-   * whether this reader is a recipient of `writeEpoch`. `false` marks a reader
-   * rotated off the current epoch: it reads the history it is still named in,
-   * and anything it writes it cannot read back
-   */
-  namedInWriteEpoch: boolean
 }
 
 /**
@@ -81,11 +76,11 @@ export interface ResolvedEpochKeys {
  * epoch, on first decrypt for a lazily-unwrapped read epoch).
  *
  * The write epoch is always the descriptor's current epoch, whether or not
- * this reader is a recipient of it: a reader rotated off the current epoch
- * keeps reading the epochs it is still named in, and writes through a
- * public-only stand-in for the current one rather than falling back to an
- * epoch it was rotated off of. `namedInWriteEpoch` reports which of the two it
- * is.
+ * this reader is a recipient of it. A reader rotated off the current epoch
+ * keeps reading the epochs it is still named in and gets no write key
+ * (`writeKey` is `null`). It is not given a key for an epoch it was rotated
+ * off of, and it is not given the current epoch's public key either, since it
+ * could not read back what it sealed.
  *
  * @param options {object}
  * @param options.encryption {CollectionEncryption}   the Collection's descriptor
@@ -143,20 +138,16 @@ export async function resolveEpochKeys({
   if (!namedInWriteEpoch) {
     // A rotated-off reader: still a recipient of older epochs (history stays
     // readable -- rotation is prospective, never retroactive), but of no key
-    // for the current one. It seals writes to the current epoch's PUBLIC key,
-    // reconstructed from the epoch id exactly as an encrypt-only writer does,
-    // so nothing it writes reaches a rotated-out epoch and nothing it writes
-    // is readable back to it.
+    // for the current one. It gets no write key. Sealing to the current
+    // epoch's public key, as an encrypt-only writer does, would leave it
+    // writing documents it cannot read back, and its caller asked for a
+    // reader.
     return {
       writeEpoch: writeEpochEntry.id,
-      writeKey: await epochWriteStandIn({
-        epochId: writeEpochEntry.id,
-        label
-      }),
+      writeKey: null,
       readKeys: namedEpochs.map(epoch =>
         lazyEpochKey({ epoch, keyAgreementKey })
-      ),
-      namedInWriteEpoch
+      )
     }
   }
   // The write epoch is unwrapped eagerly: `writeKey` must be a full key pair the
@@ -189,8 +180,7 @@ export async function resolveEpochKeys({
   return {
     writeEpoch: writeEpochEntry.id,
     writeKey,
-    readKeys,
-    namedInWriteEpoch
+    readKeys
   }
 }
 
@@ -202,9 +192,8 @@ export async function resolveEpochKeys({
  * `deriveSecret` refuses with {@link EncryptOnlyCipherError}, so the key can
  * never be mistaken for one that decrypts.
  *
- * Shared by the encrypt-only build (a writer holding no key-agreement key at
- * all) and the rotated-off reader (one holding keys, but none for the current
- * epoch), so the two cannot drift.
+ * Used by the encrypt-only build alone (a writer holding no key-agreement key
+ * at all). A reader rotated off the current epoch does not get one.
  *
  * @param options {object}
  * @param options.epochId {string}   the epoch to seal to
@@ -239,8 +228,7 @@ export async function epochWriteStandIn({
       throw new EncryptOnlyCipherError(
         `The cipher for collection ${label} holds no key-agreement secret ` +
           `for key epoch "${epochId}": it was built from the descriptor ` +
-          'alone, or this reader was rotated off that epoch. It encrypts to ' +
-          'the epoch and decrypts nothing under it.'
+          'alone. It encrypts to the epoch and decrypts nothing under it.'
       )
     }
   }

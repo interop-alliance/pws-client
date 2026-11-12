@@ -21,9 +21,14 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import { isKeyUnwrapError as isKeyUnwrapErrorFromEdv } from '../../src/edv/index.js'
+import { NotCurrentRecipientError } from '../../src/index.js'
+import {
+  isKeyUnwrapError as isKeyUnwrapErrorFromEdv,
+  isNotCurrentRecipientError as isNotCurrentRecipientErrorFromEdv
+} from '../../src/edv/index.js'
 import {
   isKeyUnwrapError,
+  isNotCurrentRecipientError,
   isNotSupportedError,
   isSyncAuthError,
   isSyncCheckpointError,
@@ -178,6 +183,31 @@ describe('the sync error predicates', () => {
     expect(isKeyUnwrapError(new Error('socket hang up'))).toBe(false)
     expect(isKeyUnwrapError(undefined)).toBe(false)
     expect(isKeyUnwrapError(null)).toBe(false)
+  })
+})
+
+describe('the NotCurrentRecipientError predicate', () => {
+  it('classifies the refusal, own class and foreign realm alike', () => {
+    const own = new NotCurrentRecipientError(
+      'This reader is not named in the current key epoch.'
+    )
+    const foreign = foreignRealmError('NotCurrentRecipientError')
+
+    expect(foreign instanceof NotCurrentRecipientError).toBe(false)
+    expect(isNotCurrentRecipientError(own)).toBe(true)
+    expect(isNotCurrentRecipientError(foreign)).toBe(true)
+    // The `./edv` export is the same predicate, one owner per name.
+    expect(isNotCurrentRecipientErrorFromEdv).toBe(isNotCurrentRecipientError)
+  })
+
+  it('does not match the other no-key signals, and rejects nullish and foreign errors', () => {
+    expect(isNotCurrentRecipientError(new KeyUnwrapError('no key'))).toBe(false)
+    expect(
+      isNotCurrentRecipientError(foreignRealmError('UnknownEpochError'))
+    ).toBe(false)
+    expect(isNotCurrentRecipientError(new Error('socket hang up'))).toBe(false)
+    expect(isNotCurrentRecipientError(undefined)).toBe(false)
+    expect(isNotCurrentRecipientError(null)).toBe(false)
   })
 })
 

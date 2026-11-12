@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 166
+nextAvailableId: 169
 
 <!-- roadmap-order:index:start -->
 
@@ -16,7 +16,6 @@ Ready:
 
 - WCL-44 [H] Chunked reads never verify a chunk against its parent document
   (cross-document chunk splice)
-- WCL-161 [H] A reader rotated off the current epoch refuses to write
 - WCL-52 [M] The envelope `sequence` is unauthenticated and never validated on
   read
 - WCL-55 [M] Stale and foreign `indexed` entries are carried forward into the
@@ -35,6 +34,8 @@ Ready:
 
 - WCL-49 [H] `declareIndex`'s first write is unconditional, so a concurrent
   first declaration is lost
+- WCL-166 [H] A Collection-scoped grant no longer writes the Collection Metadata
+  object
 - WCL-53 [M] `#buildQuery` silently drops query terms a caller named
 - WCL-54 [M] A content-addressed collection accepts an in-place `put()` update
 - WCL-65 [M] A codec resolved without read access to the Collection `/meta`
@@ -62,6 +63,7 @@ Ready:
 - WCL-164 [M] A governed descriptor whose log state carries `revisions` is
   refused as tampering
 - WCL-165 [M] A 404 on a `DELETE` is reported as success
+- WCL-167 [M] A governing log write retried after a dropped response is refused
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -77,6 +79,7 @@ Ready:
 - WCL-26 [L] Bare `Error` for `did:key` validation failures in the EDV recipient
   path
 - WCL-14 [L] Upstream: `_updateStream` overrides caller hmac suppression
+- WCL-168 [L] Callers that read a 401 from a Space, Collection or Resource URL
 
 **Spec and protocol**
 
@@ -253,43 +256,6 @@ decision only if a new header member is added instead of reading the existing
 one; that choice needs the maintainer's byte-level sign-off before it is coded.
 
 discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-161: [H] A reader rotated off the current epoch refuses to write
-
-- status: todo
-- priority: high
-- labels: encryption, key-epochs, security
-- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
-  (2026-11-12)
-- touches:
-  - pws-client (this repo): `src/edv/epochKeys.ts` (`resolveEpochKeys`),
-    `src/edv/EdvCodec.ts` (the write paths), `src/edv/docCipher.ts`, and the
-    rotation text in ARCHITECTURE.md and README.md
-  - portable-web-spaces-spec: WASS-130 (the profile text for the refusal)
-  - wallet-core, freewallet, was-react, dcw: a codec or cipher held across a
-    removal now throws on write where it used to seal a document its holder
-    could not read back
-  - web-spaces-server: unaffected (the refusal is client-side)
-- acceptance:
-  - [ ] `resolveEpochKeys` no longer gives a reader that is not named in
-        `currentEpoch` the public-only write key
-  - [ ] A write through a codec or cipher built for such a reader throws a typed
-        error before any request is sent
-  - [ ] The error's name is chosen by the maintainer before it is coded, since
-        it is a new error-name contract
-  - [ ] Reads of the epochs that still name the reader are unchanged
-  - [ ] The explicit encrypt-only build (`createEdvEncryptOnlyDocCipher`,
-        `encryptOnlyEdvCodec`) is unchanged and still seals to `currentEpoch`
-  - [ ] A test covers a reader removed by `removeRecipient`: its reads pass and
-        its write throws
-
-A reader that holds old epoch secrets and none for `currentEpoch` is built as a
-write-only codec today, through the public-only stand-in the encrypt-only build
-uses. Its caller asked for a reader and is not told. It then writes documents it
-cannot read back, and an update that opens the prior envelope fails later with a
-decrypt error. The decision of 2026-11-12 is to refuse the write. A writer that
-holds no key-agreement key at all is a different, deliberate role and stays.
-Related: WCL-56 covers a write epoch that goes stale inside a long-lived handle.
 
 ### WCL-52: [M] The envelope `sequence` is unauthenticated and never validated on read
 
@@ -542,6 +508,42 @@ does not exist" -- so the guarded-create fix here is not the WCL-41 fix. The
 client stays exposed until v0.5 lands. Client-only, using preconditions the spec
 and the reference server already define. discovered-from: whole-codebase review,
 2026-09-11.
+
+### WCL-166: [H] A Collection-scoped grant no longer writes the Collection Metadata object
+
+- status: todo
+- priority: high
+- labels: zcap, delegation, collection-metadata, indexes, wire-contract
+- discovered-from: web-spaces-server WSS-260 (2026-11-12)
+- touches:
+  - web-spaces-server: WSS-260. SHIPPED (2026-11-12, unreleased):
+    `PUT /space/:spaceId/:collectionId/meta` admits a root invocation, or a
+    delegated one whose invoked capability targets exactly the Space's canonical
+    URL. A capability targeting the Collection URL, the Metadata URL or a
+    Resource URL answers the masked `not-found` (404)
+  - freewallet: FW-705 (the grants a wallet issues, and who declares an app's
+    indexes)
+  - pws-react: check for a hook that calls one of the writers below under an
+    app's Collection-scoped grant
+- acceptance:
+  - [ ] Every method that sends `PUT .../meta` is listed with the capability it
+        can be invoked under: `configure`, `replaceDescription`, `setMeta`,
+        `setName`, `setTags`, `declareIndex` and `declareIndexes` on a
+        Collection handle, and the create-by-`PUT` path
+  - [ ] A handle built on a capability that does not target the Space URL fails
+        such a write with a typed error that names the cause, before or after
+        the request, in place of a bare `NotFoundError`
+  - [ ] The README and ARCHITECTURE.md say which grant each of those writes
+        needs, and that an app holding one Collection's grant does not declare
+        its own indexes or `encryption`
+  - [ ] The tests that write Collection Metadata under a Collection-scoped
+        delegation are updated, against a server that carries the rule
+
+The server once admitted any attenuating target on this route, so an app holding
+a grant on one Collection could declare its own blinded indexes and rename the
+Collection. It now applies the container rule the governing log write carries.
+Such an app reads a masked 404 from those writes, which this library maps to
+`NotFoundError`, the same error an absent Collection gives.
 
 ### WCL-53: [M] `#buildQuery` silently drops query terms a caller named
 
@@ -1051,6 +1053,36 @@ caller whose capability was revoked sees its delete succeed. The sync port does
 the same and the engine drops the tombstone from its queue. Decided 2026-11-12:
 the client changes.
 
+### WCL-167: [M] A governing log write retried after a dropped response is refused
+
+- status: todo
+- priority: medium
+- labels: history-log, retry, wire-contract
+- discovered-from: web-spaces-server WSS-259 (2026-11-12)
+- touches:
+  - web-spaces-server: WSS-259. SHIPPED (2026-11-12, unreleased):
+    `PUT .../meta/log` with a body equal to the stored log is
+    `invalid-request-body` (400) once its precondition passes, where it
+    answered 204. Under the `If-Match` of the first attempt it is
+    `precondition-failed` (412), since the first attempt moved the `ETag`
+  - portable-web-spaces-spec: WASS-109 (first checkbox, decided 2026-11-12)
+- acceptance:
+  - [ ] A log append or guarded create whose response was lost, and whose retry
+        is refused, reads the stored log and resolves as written when the stored
+        bytes equal the body it sent
+  - [ ] A retry that finds other bytes stays a `ResourceLogConflictError`
+  - [ ] A test drops the response of a log write with the server's `faults`
+        helper and asserts the caller sees one successful write
+  - [ ] The transport's own retry of a 5xx or a dropped connection is covered by
+        the same test
+
+`src/log/logStore.ts` translates a 412 into `ResourceLogConflictError`, which
+sends the caller into its rebase-and-retry loop. Before this server change a
+re-sent body was a 204, so a lost response was invisible. Now the retry of an
+append that landed is a 412 under the old `ETag`, and a caller cannot tell it
+from a concurrent writer without reading the log. The `did.jsonl` log of a
+self-hosted `did:webvh` is not affected: a re-sent body there stays a no-op.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1305,6 +1337,35 @@ discovered-from: WCL-2. Harmless today -- routed blobs declare no indexable
 attributes, so the extra hmac application emits nothing meaningful -- but it
 means the PWS codec cannot fully control `indexed` emission on the chunked path
 without this upstream fix.
+
+### WCL-168: [L] Callers that read a 401 from a Space, Collection or Resource URL
+
+- status: todo
+- priority: low
+- labels: errors, authorization, wire-contract
+- discovered-from: web-spaces-server WSS-258 (2026-11-12)
+- touches:
+  - web-spaces-server: WSS-258. SHIPPED (2026-11-12, unreleased): a request with
+    no `Authorization` or no `Capability-Invocation` header beneath
+    `/space/:spaceId` answers the masked `not-found` (404) where it answered
+    `missing-authorization` (401). `POST /spaces/` and every `/kms` route keep
+    the 401
+  - portable-web-spaces-spec: WASS-92 (second and third checkboxes, decided
+    2026-11-12)
+- acceptance:
+  - [ ] Each place that branches on 401 is checked against the new answer:
+        `mapError` (`AuthRequiredError` for 401 and 403), the anonymous read
+        fallback in `src/internal/request.ts`, and `isAuthStatus` in
+        `src/sync/port.ts`
+  - [ ] An unsigned write beneath a Space surfaces an error a caller can tell
+        from a missing target, or the docs say it cannot
+  - [ ] A test pins what an unsigned read of a policy document and an unsigned
+        write map to
+
+A client that signs every request never met the 401, so this is a check of the
+anonymous paths. `isAuthStatus` and the read fallback already treat 404 as an
+authorization answer. `AuthRequiredError` is now reachable from a Space URL only
+through a 403.
 
 ## Spec and protocol
 

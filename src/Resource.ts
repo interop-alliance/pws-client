@@ -17,6 +17,7 @@ import { assertNotReserved } from './internal/reserved.js'
 import type { ClientContext } from './internal/request.js'
 import { send } from './internal/request.js'
 import { collectionCodecHolder } from './internal/codec.js'
+import type { CodecHolder } from './internal/codec.js'
 import { writeHeaders, readEtag } from './internal/conditional.js'
 import type { WritePrecondition } from './internal/conditional.js'
 import { withCodec } from './internal/withCodec.js'
@@ -97,14 +98,21 @@ export class Resource {
   readonly #codec: () => Promise<ResourceCodec>
 
   /**
+   * The codec for a write: the same one, refused up front when it cannot
+   * write at all (see `CodecHolder.getWritable`). Every write entry point
+   * resolves its codec here before its first request.
+   */
+  readonly #codecForWrite: () => Promise<ResourceCodec>
+
+  /**
    * @param options {object}
    * @param options.context {ClientContext}
    * @param options.spaceUrl {string}   the Space's URL, as the server named it
    * @param options.collectionId {string}
    * @param options.resourceId {string}
    * @param [options.capability] {IZcap}   capability attached to every request
-   * @param [options.codec] {function}   resolver sharing the parent collection's
-   *   codec, so a resource handle obtained via `collection.resource(id)` does
+   * @param [options.codec] {CodecHolder}   the parent collection's codec
+   *   holder, so a resource handle obtained via `collection.resource(id)` does
    *   not repeat the backend() round-trip. A standalone resource resolves its
    *   own.
    * @param [options.encryption] {EncryptionOverride}   per-handle encryption
@@ -125,7 +133,7 @@ export class Resource {
     collectionId: string
     resourceId: string
     capability?: IZcap
-    codec?: () => Promise<ResourceCodec>
+    codec?: CodecHolder
     encryption?: EncryptionOverride
   }) {
     // Guard the id against the Reserved Path Segment Registry up front, so a
@@ -148,17 +156,16 @@ export class Resource {
     this.#metaUrl = resourceMetaUrl(beneath)
     this.#policyUrl = resourcePolicyUrl(beneath)
     this.#capability = capability
-    if (codec) {
-      this.#codec = codec
-    } else {
-      const holder = collectionCodecHolder(context, {
+    const holder =
+      codec ??
+      collectionCodecHolder(context, {
         spaceUrl: this.spaceUrl,
         collectionId,
         override: encryption,
         capability
       })
-      this.#codec = () => holder.get()
-    }
+    this.#codec = () => holder.get()
+    this.#codecForWrite = () => holder.getWritable()
   }
 
   /**
@@ -384,7 +391,7 @@ export class Resource {
       ifNoneMatch?: boolean
     } = {}
   ): Promise<{ etag?: string }> {
-    const codec = await this.#codec()
+    const codec = await this.#codecForWrite()
     return await upsertResource(this.#context, {
       url: this.url,
       codec,
@@ -486,7 +493,7 @@ export class Resource {
   ): Promise<{ etag?: string }> {
     return writeMeta(this.#context, {
       metaUrl: this.#metaUrl,
-      codec: this.#codec(),
+      codec: this.#codecForWrite(),
       custom: meta.custom ?? {},
       slot: { kind: 'resource', id: this.id },
       ifMatch: options.ifMatch,
@@ -506,6 +513,8 @@ export class Resource {
    * @returns {Promise<void>}
    */
   async setName(name: string): Promise<void> {
+    // Refused before the metadata read the patch starts with.
+    await this.#codecForWrite()
     return patchCustom(this, { name }, { create: true })
   }
 
@@ -517,6 +526,7 @@ export class Resource {
    * @returns {Promise<void>}
    */
   async setTags(tags: Record<string, string>): Promise<void> {
+    await this.#codecForWrite()
     return patchCustom(this, { tags }, { create: true })
   }
 

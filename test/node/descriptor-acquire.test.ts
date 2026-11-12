@@ -27,12 +27,14 @@ import {
 import {
   EncryptionError,
   IntegrityError,
+  NotCurrentRecipientError,
   PreconditionFailedError
 } from '../../src/index.js'
 import { spaceUrlFor } from '../helpers/stubClient.js'
 import type { CollectionEncryption, PwsClient } from '../../src/index.js'
 import {
   acquireDescriptor,
+  addRecipient,
   acquireDescriptors,
   createEdvDocCipher,
   createRefreshingEdvDocCipher,
@@ -965,5 +967,175 @@ describe('createRefreshingEdvDocCipher', () => {
     ).toEqual({
       name: 'Ada Lovelace'
     })
+  })
+})
+
+describe('createRefreshingEdvDocCipher write refusal refresh', () => {
+  /**
+   * A removed reader's whole history: `removed` names only the owner in its
+   * current epoch (the reader sits in the older one), and `readded` is the
+   * descriptor after the owner adds the reader back.
+   */
+  async function mintRemovedThenReadded(): Promise<{
+    owner: Awaited<ReturnType<typeof makeReader>>
+    reader: Awaited<ReturnType<typeof makeReader>>
+    removed: CollectionEncryption
+    readded: CollectionEncryption
+  }> {
+    const owner = await makeReader()
+    const reader = await makeReader()
+    const store = memoryDescriptorStore()
+    await initRecipients({
+      store,
+      recipients: [
+        ownerRecipient({ keyAgreementKey: owner.keyAgreementKey }),
+        ownerRecipient({ keyAgreementKey: reader.keyAgreementKey })
+      ]
+    })
+    const removed = await removeRecipient({
+      resolveRecipientKey: trustRosterDidKeys,
+      store,
+      recipientId: reader.keyAgreementKey.id as string,
+      pull: async () => {}
+    })
+    const readded = await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: reader.keyAgreementKey }),
+      owner: { keyAgreementKey: owner.keyAgreementKey }
+    })
+    return { owner, reader, removed, readded }
+  }
+
+  it('re-acquires the descriptor on a refused encrypt and writes once re-added', async () => {
+    const { reader, removed, readded } = await mintRemovedThenReadded()
+    const source = memorySource()
+    const cache = memoryCache()
+    source._set(COLLECTION_ID, removed)
+
+    const cipher = await createRefreshingEdvDocCipher({
+      ...reader,
+      collectionId: COLLECTION_ID,
+      source,
+      cache
+    })
+    expect(source.fetches).toBe(1)
+
+    source._set(COLLECTION_ID, readded)
+    const stored = await cipher.encrypt({ data: { n: 1 } })
+    expect(source.fetches).toBe(2)
+    expect(stored.epoch).toBe(readded.currentEpoch)
+    expect(
+      await cipher.decrypt({ id: stored.id, envelope: stored.envelope })
+    ).toEqual({ n: 1 })
+    // Later writes ride the rebuilt cipher without another read.
+    await cipher.encrypt({ data: { n: 2 } })
+    expect(source.fetches).toBe(2)
+  })
+
+  it('re-acquires the descriptor on a refused encryptUpdate too', async () => {
+    const { owner, reader, removed, readded } = await mintRemovedThenReadded()
+    const source = memorySource()
+    source._set(COLLECTION_ID, removed)
+    const ownerCipher = await createEdvDocCipher({
+      ...owner,
+      collectionId: COLLECTION_ID,
+      idDerivation: 'random',
+      encryption: removed
+    })
+    const created = await ownerCipher.encrypt({ data: { n: 1 } })
+
+    const cipher = await createRefreshingEdvDocCipher({
+      ...reader,
+      collectionId: COLLECTION_ID,
+      idDerivation: 'random',
+      source,
+      cache: memoryCache()
+    })
+    source._set(COLLECTION_ID, readded)
+    const updated = await cipher.encryptUpdate!({
+      id: created.id,
+      data: { n: 2 },
+      current: created.envelope
+    })
+    expect(source.fetches).toBe(2)
+    expect(
+      await cipher.decrypt({ id: created.id, envelope: updated.envelope })
+    ).toEqual({ n: 2 })
+  })
+
+  it('propagates the refusal when still removed, and a second one reads nothing', async () => {
+    const { reader, removed } = await mintRemovedThenReadded()
+    const source = memorySource()
+    source._set(COLLECTION_ID, removed)
+    const cipher = await createRefreshingEdvDocCipher({
+      ...reader,
+      collectionId: COLLECTION_ID,
+      source,
+      cache: memoryCache()
+    })
+    expect(source.fetches).toBe(1)
+
+    await expect(cipher.encrypt({ data: { n: 1 } })).rejects.toBeInstanceOf(
+      NotCurrentRecipientError
+    )
+    expect(source.fetches).toBe(2)
+    await expect(cipher.encrypt({ data: { n: 2 } })).rejects.toBeInstanceOf(
+      NotCurrentRecipientError
+    )
+    expect(source.fetches).toBe(2)
+  })
+
+  it('does no refresh without a source', async () => {
+    const { reader, removed, readded } = await mintRemovedThenReadded()
+    const cache = memoryCache()
+    cache._set(COLLECTION_ID, removed)
+    const cipher = await createRefreshingEdvDocCipher({
+      ...reader,
+      collectionId: COLLECTION_ID,
+      cache
+    })
+    // Even a fresher cached descriptor is not consulted again.
+    cache._set(COLLECTION_ID, readded)
+    await expect(cipher.encrypt({ data: { n: 1 } })).rejects.toBeInstanceOf(
+      NotCurrentRecipientError
+    )
+  })
+
+  it('keeps the write refresh when an unknown-epoch read spent the read refresh', async () => {
+    const { reader, removed, readded } = await mintRemovedThenReadded()
+    const source = memorySource()
+    source._set(COLLECTION_ID, removed)
+    const cipher = await createRefreshingEdvDocCipher({
+      ...reader,
+      collectionId: COLLECTION_ID,
+      source,
+      cache: memoryCache()
+    })
+    expect(source.fetches).toBe(1)
+
+    // A foreign envelope spends the read refresh (the descriptor is unchanged).
+    const stranger = await makeReader()
+    const foreignDescriptor = await initRecipients({
+      store: memoryDescriptorStore(),
+      recipients: [
+        ownerRecipient({ keyAgreementKey: stranger.keyAgreementKey })
+      ]
+    })
+    const foreign = await createEdvDocCipher({
+      ...stranger,
+      collectionId: COLLECTION_ID,
+      encryption: foreignDescriptor
+    })
+    const { id, envelope } = await foreign.encrypt({ data: { n: 1 } })
+    await expect(cipher.decrypt({ id, envelope })).rejects.toThrow(
+      UnknownEpochError
+    )
+    expect(source.fetches).toBe(2)
+
+    // The write refresh is still unspent.
+    source._set(COLLECTION_ID, readded)
+    const stored = await cipher.encrypt({ data: { n: 2 } })
+    expect(source.fetches).toBe(3)
+    expect(stored.epoch).toBe(readded.currentEpoch)
   })
 })

@@ -46,6 +46,7 @@ import {
   trustRosterDidKeys
 } from '../../src/edv/recipients.js'
 import { flipFirst } from '../helpers/bytes.js'
+import { memoryDescriptorHolder } from '../helpers/descriptorHolder.js'
 
 /**
  * Generates a self-describing did:key X25519 reader: its `id` is
@@ -314,7 +315,7 @@ describe('resolveEpochKeys', () => {
     expect(resolved!.readKeys.length).toBe(2)
     expect(resolved!.writeEpoch).toBe(encryption.currentEpoch)
     // The write key is the currentEpoch key pair.
-    expect(resolved!.writeKey.id).toBe(epochKeyIdFor(encryption.currentEpoch!))
+    expect(resolved!.writeKey!.id).toBe(epochKeyIdFor(encryption.currentEpoch!))
   })
 
   it('throws KeyUnwrapError when the reader is a recipient of no epoch', async () => {
@@ -398,7 +399,9 @@ describe('resolveEpochKeys', () => {
     // plaintext to a key the rotation exists to retire.
     expect(resolvedBob!.readKeys.length).toBe(1)
     expect(resolvedBob!.writeEpoch).toBe(newer.currentEpoch)
-    expect(resolvedBob!.namedInWriteEpoch).toBe(false)
+    // He gets no write key at all: a reader rotated off the current epoch
+    // does not write.
+    expect(resolvedBob!.writeKey).toBeNull()
   })
 })
 
@@ -708,26 +711,10 @@ describe('rotation preserves the blinded-index hmac key', () => {
       currentEpoch: seed.epochId
     } as unknown as CollectionEncryption
 
-    const state = { encryption: descriptor }
-    const fake = {
-      describeWithEtag: async () => ({
-        description: {
-          id: 'c',
-          type: ['Collection'],
-          encryption: state.encryption
-        },
-        etag: '"v1"'
-      }),
-      replaceDescription: async (desc: {
-        encryption?: CollectionEncryption
-      }) => {
-        state.encryption = desc.encryption!
-        return { description: { id: 'c', type: ['Collection'] }, etag: '"v2"' }
-      }
-    }
+    const { collection } = memoryDescriptorHolder(descriptor)
 
     const afterAdd = await addRecipient({
-      collection: fake as unknown as Collection,
+      collection,
       recipient: { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase },
       owner: { keyAgreementKey: alice.kak }
     })
@@ -737,7 +724,7 @@ describe('rotation preserves the blinded-index hmac key', () => {
     const fakeSpace = { revoke: async () => undefined }
     const afterRemove = await removeRecipient({
       resolveRecipientKey: trustRosterDidKeys,
-      collection: fake as unknown as Collection,
+      collection,
       space: fakeSpace as unknown as Space,
       recipientId: bob.kak.id,
       revoke: []
@@ -761,25 +748,9 @@ describe('initRecipients', () => {
   it('mints the first epoch and wraps it to each initial reader', async () => {
     const alice = await makeReader()
     const bob = await makeReader()
-    const state = { encryption: { scheme: 'edv' } as CollectionEncryption }
-    const fake = {
-      describeWithEtag: async () => ({
-        description: {
-          id: 'c',
-          type: ['Collection'],
-          encryption: state.encryption
-        },
-        etag: '"v1"'
-      }),
-      replaceDescription: async (desc: {
-        encryption?: CollectionEncryption
-      }) => {
-        state.encryption = desc.encryption!
-        return { description: { id: 'c', type: ['Collection'] }, etag: '"v2"' }
-      }
-    }
+    const { collection } = memoryDescriptorHolder({ scheme: 'edv' })
     const descriptor = await initRecipients({
-      collection: fake as unknown as Collection,
+      collection,
       recipients: [
         { id: alice.kak.id, publicKeyMultibase: alice.publicKeyMultibase },
         { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase }
@@ -863,36 +834,6 @@ describe('ensureFirstEpoch', () => {
   }
 
   /**
-   * A fake Collection whose Description hosts an epoch-less `edv` descriptor --
-   * the state the crypto-free `ensureSpaceAndCollection` leaves an encrypted
-   * collection in -- counting its description writes.
-   *
-   * @param initial {CollectionEncryption}
-   * @returns {object}
-   */
-  function fakeCollection(initial: CollectionEncryption) {
-    const state = { encryption: initial, writes: 0 }
-    return {
-      describeWithEtag: async () => ({
-        description: {
-          id: 'c',
-          type: ['Collection'],
-          encryption: state.encryption
-        },
-        etag: '"v1"'
-      }),
-      replaceDescription: async (desc: {
-        encryption?: CollectionEncryption
-      }) => {
-        state.writes += 1
-        state.encryption = desc.encryption!
-        return { description: { id: 'c', type: ['Collection'] }, etag: '"v2"' }
-      },
-      _state: state
-    }
-  }
-
-  /**
    * Seeds an epoch-bearing descriptor, as a concurrent provisioner's winning
    * install would leave it.
    *
@@ -928,10 +869,10 @@ describe('ensureFirstEpoch', () => {
   it('installs epoch[0] onto an epoch-less collection descriptor', async () => {
     const alice = await makeReader()
     const bob = await makeReader()
-    const fake = fakeCollection({ scheme: 'edv' })
+    const { collection, state } = memoryDescriptorHolder({ scheme: 'edv' })
 
     const { descriptor, installed } = await ensureFirstEpoch({
-      collection: fake as unknown as Collection,
+      collection,
       recipients: [
         { id: alice.kak.id, publicKeyMultibase: alice.publicKeyMultibase },
         { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase }
@@ -939,7 +880,7 @@ describe('ensureFirstEpoch', () => {
     })
 
     expect(installed).toBe(true)
-    expect(fake._state.writes).toBe(1)
+    expect(state.writes).toBe(1)
     expect(descriptor.version).toBe(EDV_SCHEME_VERSION)
     expect(descriptor.epochs).toHaveLength(1)
     const epoch = descriptor.epochs![0]!

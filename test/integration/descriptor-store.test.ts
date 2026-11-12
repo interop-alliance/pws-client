@@ -172,12 +172,11 @@ describeLive('resource-hosted descriptor store (live server)', () => {
       encryption: rotated,
       keyAgreementKey: bob.kak
     })
-    // A rotated-off reader still writes UNDER the current epoch (through a
-    // public-only stand-in), so its `writeEpoch` is the current one and
-    // `namedInWriteEpoch` is what reports the removal; the only epoch key it
+    // A rotated-off reader's `writeEpoch` is still the current one, and the
+    // `null` write key is what reports the removal. The only epoch key it
     // holds is the older one it is still named in.
     expect(bobKeys!.writeEpoch).toBe(rotated.currentEpoch)
-    expect(bobKeys!.namedInWriteEpoch).toBe(false)
+    expect(bobKeys!.writeKey).toBeNull()
     expect(bobKeys!.readKeys).toHaveLength(1)
     const stranger = await makeReader()
     await expect(

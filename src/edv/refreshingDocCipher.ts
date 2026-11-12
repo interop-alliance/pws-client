@@ -30,12 +30,21 @@
  * rotated). The second is rethrown immediately, with the refresh left
  * untouched, since re-reading the same descriptor cannot produce a key the
  * reader was not given.
+ *
+ * A write has the same one refresh, counted apart from the read's. A cipher
+ * built while this reader was off the current epoch (it had been removed, or
+ * the fetch failed and an older cached descriptor answered) refuses `encrypt`
+ * and `encryptUpdate` with `NotCurrentRecipientError`. The first such refusal
+ * re-acquires the descriptor, rebuilds, and retries that write once, so a
+ * reader re-added since writes again. Still off the current epoch after the
+ * refresh, the refusal propagates, and so does every later one for this
+ * cipher instance, without another descriptor read.
  */
 import type {
   IKeyAgreementKey,
   IKeyResolver
 } from '@interop/data-integrity-core'
-import { UnknownEpochError } from '../errors.js'
+import { NotCurrentRecipientError, UnknownEpochError } from '../errors.js'
 import { createEdvDocCipher, type EdvDocCipher } from './docCipher.js'
 import {
   acquireDescriptor,
@@ -46,7 +55,8 @@ import {
 /**
  * Builds an {@link EdvDocCipher} whose descriptor is acquired through the
  * source/cache seams and refreshed (once per instance) on an unknown-epoch
- * decrypt or `isPendingStub`. The metadata last installed with `applyMeta` is
+ * decrypt or `isPendingStub`, and once more on a write refused because this
+ * reader is off the current epoch. The metadata last installed with `applyMeta` is
  * re-applied to the rebuilt cipher, so a refresh keeps the index schema.
  *
  * With no `source` the descriptor is served from the cache alone and the
@@ -126,69 +136,80 @@ export async function createRefreshingEdvDocCipher({
   }
 
   let inner = await build()
-  // The one descriptor refresh this cipher instance (= this collection this
-  // session) may spend, shared so concurrent unknown-epoch decrypts ride a
-  // single re-read instead of each spending one.
-  let refreshed: Promise<void> | null = null
 
   /**
-   * Runs a read on the current inner cipher, refreshing the descriptor and
-   * retrying once when it throws `UnknownEpochError`.
+   * Binds one kind of operation to its own descriptor refresh. The returned
+   * runner executes an operation on the current inner cipher and, when it
+   * throws the error class a fresher descriptor may cure, refreshes the
+   * descriptor and retries once.
    *
-   * @param read {function}   the read to run against a cipher
-   * @returns {Promise<T>}
+   * @param stale {function}   the error class the refresh answers:
+   *   `UnknownEpochError` for a read, `NotCurrentRecipientError` for a write
+   * @returns {function}   the runner
    */
-  async function withRefresh<T>(
-    read: (cipher: EdvDocCipher) => Promise<T>
-  ): Promise<T> {
-    try {
-      return await read(inner)
-    } catch (err) {
-      // `instanceof` is safe here and only here: `inner` is built in this
-      // package by `createEdvDocCipher`, which raises this package's own
-      // class, so no injected seam is crossed. A caller classifying what
-      // THIS cipher throws is crossing one, and uses `isUnknownEpochError` /
-      // `isKeyUnwrapError` instead.
-      if (!(err instanceof UnknownEpochError) || !source) {
-        throw err
-      }
-      if (!refreshed) {
-        const attempt = build().then(cipher => {
-          inner = cipher
-        })
-        refreshed = attempt
-        // Only a COMPLETED refresh is spent. A rejected one (the description
-        // could not be read and no cached copy answered either) un-arms the
-        // guard so a later unknown-epoch decrypt may try again; a successful
-        // refresh that still cannot route the envelope stays spent for the
-        // session, which is what keeps a genuinely foreign envelope from
-        // driving a refetch loop.
-        attempt.catch(() => {
-          if (refreshed === attempt) {
-            refreshed = null
-          }
-        })
-      }
+  function refreshingOn(
+    stale: typeof UnknownEpochError | typeof NotCurrentRecipientError
+  ): <T>(run: (cipher: EdvDocCipher) => Promise<T>) => Promise<T> {
+    // The one descriptor refresh this cipher instance (= this collection this
+    // session) may spend on this kind of operation: the in-flight or
+    // completed re-read, or `null` while it is still unspent. Shared, so
+    // concurrent failures ride a single re-read instead of each spending one.
+    let refreshed: Promise<void> | null = null
+    return async run => {
       try {
-        await refreshed
-      } catch {
-        // The refresh failed, so nothing was learned about this envelope's
-        // epoch: surface the original UnknownEpochError rather than the
-        // build failure, so callers classifying on it (the create-loss
-        // re-mint) still see the row they exist to repair.
-        throw err
+        return await run(inner)
+      } catch (err) {
+        // `instanceof` is safe here and only here: `inner` is built in this
+        // package by `createEdvDocCipher`, which raises this package's own
+        // class, so no injected seam is crossed. A caller classifying what
+        // THIS cipher throws is crossing one, and uses `isUnknownEpochError` /
+        // `isKeyUnwrapError` instead.
+        if (!(err instanceof stale) || !source) {
+          throw err
+        }
+        if (!refreshed) {
+          const attempt = build().then(cipher => {
+            inner = cipher
+          })
+          refreshed = attempt
+          // Only a COMPLETED refresh is spent. A rejected one (the description
+          // could not be read and no cached copy answered either) un-arms the
+          // guard so a later failure of this kind may try again; a successful
+          // refresh that still does not cure the operation stays spent for the
+          // session, which is what keeps a genuinely foreign envelope from
+          // driving a refetch loop.
+          attempt.catch(() => {
+            if (refreshed === attempt) {
+              refreshed = null
+            }
+          })
+        }
+        try {
+          await refreshed
+        } catch {
+          // The refresh failed, so nothing new was learned: surface the
+          // original error rather than the build failure, so callers
+          // classifying on it (the create-loss re-mint) still see the row
+          // they exist to repair.
+          throw err
+        }
+        // One retry under the swapped cipher. If the refresh was already
+        // spent before this operation began, this re-attempt is local and
+        // fails the same way, so a genuinely foreign envelope still surfaces
+        // UnknownEpochError without a second description read.
+        return run(inner)
       }
-      // One retry under the swapped cipher. If the refresh was already
-      // spent before this decrypt began, this re-attempt is a local
-      // no-network decrypt that fails the same way -- so a genuinely
-      // foreign envelope still surfaces UnknownEpochError, and never a
-      // second description read.
-      return read(inner)
     }
   }
 
+  const onUnknownEpoch = refreshingOn(UnknownEpochError)
+  // Counted apart from the read's, so an unknown-epoch decrypt earlier in the
+  // session does not spend the write's refresh.
+  const onNotCurrentRecipient = refreshingOn(NotCurrentRecipientError)
+
   return {
-    encrypt: options => inner.encrypt(options),
+    encrypt: options =>
+      onNotCurrentRecipient(cipher => cipher.encrypt(options)),
 
     encryptUpdate: options => {
       if (!inner.encryptUpdate) {
@@ -196,13 +217,14 @@ export async function createRefreshingEdvDocCipher({
           `Collection "${collectionId}" cipher has no in-place update.`
         )
       }
-      return inner.encryptUpdate(options)
+      // Every cipher `build` returns carries the in-place update.
+      return onNotCurrentRecipient(cipher => cipher.encryptUpdate!(options))
     },
 
-    decrypt: options => withRefresh(cipher => cipher.decrypt(options)),
+    decrypt: options => onUnknownEpoch(cipher => cipher.decrypt(options)),
 
     isPendingStub: options =>
-      withRefresh(cipher => cipher.isPendingStub(options)),
+      onUnknownEpoch(cipher => cipher.isPendingStub(options)),
 
     async applyMeta(options) {
       appliedMeta = options

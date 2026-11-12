@@ -269,6 +269,30 @@ export class EncryptOnlyCipherError extends EncryptionError {
 }
 
 /**
+ * A write was attempted through a codec or cipher whose reader is not a
+ * recipient of the descriptor's current key epoch. The reader is still named
+ * in one or more older epochs, so it keeps reading the resources written
+ * under them. It holds no key for the current epoch, so anything it wrote
+ * there it could not read back, and an update that opens the prior envelope
+ * would fail later with a decrypt error. The write is refused instead, before
+ * any request is sent. Only writes that encrypt are refused. A delete, a
+ * policy write or a plaintext configuration write seals nothing and is
+ * governed by the capability alone. Recover by having a current recipient
+ * re-add this reader with `addRecipient`. A Collection or Resource handle
+ * drops its codec on the refusal and re-reads the descriptor on its next
+ * operation. A cipher from `createEdvDocCipher` is rebuilt by the caller from
+ * the re-read descriptor, and one from `createRefreshingEdvDocCipher`
+ * re-reads it once on its own. Match it across an injected cipher seam with
+ * `isNotCurrentRecipientError`. A writer that holds no key-agreement key at all is a
+ * different role with its own build (`createEdvEncryptOnlyDocCipher`). A
+ * subtype of {@link EncryptionError}, so fail-closed handling still catches
+ * it. Raised client-side, so it carries no HTTP status.
+ */
+export class NotCurrentRecipientError extends EncryptionError {
+  override name = 'NotCurrentRecipientError'
+}
+
+/**
  * A fail-closed descriptor-acquisition error: a fetched encryption descriptor
  * declares a governing log (it carries `history`), but the source that served
  * it does not verify that log (it does not declare `verifiesHistory`). The

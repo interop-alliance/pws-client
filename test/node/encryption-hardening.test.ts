@@ -23,8 +23,8 @@ import type { HttpResponse } from '@interop/http-client'
 import { EncryptionError, IntegrityError } from '../../src/index.js'
 import type { CollectionEncryption } from '../../src/index.js'
 import { spaceUrlFor } from '../helpers/stubClient.js'
+import { memoryDescriptorHolder } from '../helpers/descriptorHolder.js'
 import type { SingleWriteCodec } from '../helpers/codec.js'
-import type { Collection } from '../../src/Collection.js'
 import type { Space } from '../../src/Space.js'
 import { createEdvEncryption, EdvCodec } from '../../src/edv/index.js'
 import {
@@ -688,38 +688,12 @@ describe('epoch-from-birth routing rule', () => {
   })
 })
 
-/**
- * A minimal in-memory Collection whose description read returns the evolving
- * descriptor and whose write applies it.
- *
- * @param initial {CollectionEncryption}
- * @returns {object}
- */
-function mutableCollection(initial: CollectionEncryption) {
-  const state = { encryption: initial }
-  return {
-    describeWithEtag: async () => ({
-      description: {
-        id: 'c',
-        type: ['Collection'],
-        encryption: state.encryption
-      },
-      etag: '"v1"'
-    }),
-    replaceDescription: async (desc: { encryption?: CollectionEncryption }) => {
-      state.encryption = desc.encryption!
-      return { description: { id: 'c', type: ['Collection'] }, etag: '"v2"' }
-    },
-    _state: state
-  }
-}
-
 describe('epoch configuration lifecycle', () => {
   it('initRecipients stamps version 1', async () => {
     const alice = await makeReader()
-    const fake = mutableCollection({ scheme: 'edv' })
+    const { collection } = memoryDescriptorHolder({ scheme: 'edv' })
     const descriptor = await initRecipients({
-      collection: fake as unknown as Collection,
+      collection,
       recipients: [
         { id: alice.kak.id, publicKeyMultibase: alice.publicKeyMultibase }
       ]
@@ -734,15 +708,15 @@ describe('epoch configuration lifecycle', () => {
   it('addRecipient leaves the version untouched', async () => {
     const alice = await makeReader()
     const bob = await makeReader()
-    const fake = mutableCollection({ scheme: 'edv' })
+    const { collection } = memoryDescriptorHolder({ scheme: 'edv' })
     await initRecipients({
-      collection: fake as unknown as Collection,
+      collection,
       recipients: [
         { id: alice.kak.id, publicKeyMultibase: alice.publicKeyMultibase }
       ]
     })
     const afterAdd = await addRecipient({
-      collection: fake as unknown as Collection,
+      collection,
       recipient: { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase },
       owner: { keyAgreementKey: alice.kak }
     })
@@ -756,9 +730,9 @@ describe('epoch configuration lifecycle', () => {
   it('removeRecipient rotates to a new epoch the survivor resolves', async () => {
     const alice = await makeReader()
     const bob = await makeReader()
-    const fake = mutableCollection({ scheme: 'edv' })
+    const { collection } = memoryDescriptorHolder({ scheme: 'edv' })
     const initial = await initRecipients({
-      collection: fake as unknown as Collection,
+      collection,
       recipients: [
         { id: alice.kak.id, publicKeyMultibase: alice.publicKeyMultibase },
         { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase }
@@ -767,7 +741,7 @@ describe('epoch configuration lifecycle', () => {
     const fakeSpace = { revoke: async () => undefined }
     const afterRemove = await removeRecipient({
       resolveRecipientKey: trustRosterDidKeys,
-      collection: fake as unknown as Collection,
+      collection,
       space: fakeSpace as unknown as Space,
       recipientId: bob.kak.id,
       revoke: []
