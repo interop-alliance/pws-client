@@ -8,9 +8,10 @@
  * encryption descriptor in particular) and the lost-race recovery behind them,
  * the non-clobbering reads-only behavior over an already-provisioned Space
  * (existing Space description, encryption descriptor, and public policy all
- * left untouched), the late in-place encryption declaration, the write-free
- * `'governed'` mode, the world-read heal for a public collection, and the
- * labelled-error + `cause` wrapping on failure, without a live server.
+ * left untouched), the refusal of a spec whose mode differs from the standing
+ * collection's, the write-free `'governed'` mode, the world-read heal for a
+ * public collection, and the labelled-error + `cause` wrapping on failure,
+ * without a live server.
  */
 import { describe, it, expect } from 'vitest'
 import type { CollectionGenerator, PwsClient } from '../../src/index.js'
@@ -38,15 +39,13 @@ interface CollectionDesc {
 class FakeCollection {
   readonly replaceCalls: {
     fields: CollectionDesc
-    ifMatch?: string
     ifNoneMatch?: boolean
   }[] = []
   describeCalls = 0
   isPublicCalls = 0
   setPublicCalls = 0
-  // The served description and its validator; a replace that matches the
-  // validator bumps it, a stale one is refused with a 412 the way the server
-  // would, and `collideOnce` lets a test slip a rival write in before ours.
+  // The served description and its validator, which every applied replace
+  // bumps; `collideOnce` lets a test slip a rival write in before ours.
   private state: { current: CollectionDesc | null; version: number }
   constructor(
     private readonly opts: {
@@ -80,11 +79,10 @@ class FakeCollection {
   }
   replaceDescription = async (
     fields: CollectionDesc,
-    { ifMatch, ifNoneMatch }: { ifMatch?: string; ifNoneMatch?: boolean } = {}
+    { ifNoneMatch }: { ifNoneMatch?: boolean } = {}
   ): Promise<{ description: CollectionDesc; etag: string }> => {
     this.replaceCalls.push({
       fields,
-      ...(ifMatch !== undefined && { ifMatch }),
       ...(ifNoneMatch !== undefined && { ifNoneMatch })
     })
     if (this.opts.failReplace) {
@@ -114,9 +112,6 @@ class FakeCollection {
     // server does under `If-None-Match: *`.
     if (ifNoneMatch && this.state.current !== null) {
       throw new PreconditionFailedError('already exists', { status: 412 })
-    }
-    if (ifMatch !== undefined && ifMatch !== `"${this.state.version}"`) {
-      throw new PreconditionFailedError('stale description', { status: 412 })
     }
     this.state = { current: fields, version: this.state.version + 1 }
     return { description: fields, etag: `"${this.state.version}"` }
@@ -228,6 +223,11 @@ const DID = 'did:key:zController'
 const SPACE = 'space-abc'
 const COLL = 'private-credentials'
 const EDV = { scheme: 'edv', version: EDV_SCHEME_VERSION }
+// The derived form: a served `encryption` naming the governing log.
+const GOVERNED = {
+  ...EDV,
+  history: { method: 'vh-resource-log', resource: 'https://x/meta/log' }
+}
 
 describe('ensureSpaceAndCollection', () => {
   it('creates the absent space then the collection with the edv encryption descriptor', async () => {
@@ -279,7 +279,11 @@ describe('ensureSpaceAndCollection', () => {
   it('adopts a rival collection create that lands between the read and the guarded PUT', async () => {
     const collection = new FakeCollection({
       collideOnce: state => {
-        state.current = { name: 'Rival', backend: { id: 'urn:backend:blob' } }
+        state.current = {
+          name: 'Rival',
+          backend: { id: 'urn:backend:blob' },
+          encryption: EDV
+        }
       }
     })
     const space = new FakeSpace({
@@ -292,20 +296,43 @@ describe('ensureSpaceAndCollection', () => {
       controllerDid: DID,
       collectionId: COLL
     })
-    // The guarded create lost; the re-read found a descriptor-less rival, so
-    // the late in-place `edv` declaration ran over it, keeping its fields.
+    // The guarded create lost; the re-read found the rival's encrypted
+    // collection and adopted it as-is, with no second write.
     expect(collection.describeCalls).toBe(2)
-    expect(collection.replaceCalls).toHaveLength(2)
-    expect(collection.replaceCalls[0]).toEqual({
-      fields: { name: COLL, encryption: EDV },
-      ifNoneMatch: true
-    })
-    expect(collection.replaceCalls[1]!.ifMatch).toBeDefined()
+    expect(collection.replaceCalls).toEqual([
+      { fields: { name: COLL, encryption: EDV }, ifNoneMatch: true }
+    ])
     expect(collection.current()).toEqual({
       name: 'Rival',
       backend: { id: 'urn:backend:blob' },
       encryption: EDV
     })
+  })
+
+  it('refuses a descriptor-less rival that won the create race', async () => {
+    const collection = new FakeCollection({
+      collideOnce: state => {
+        state.current = { name: 'Rival' }
+      }
+    })
+    const space = new FakeSpace({
+      current: { name: 'Wallet Space' },
+      collection
+    })
+    await expect(
+      ensureSpaceAndCollection({
+        pws: new FakePws(space).asClient(),
+        spaceUrl: spaceUrlFor(SPACE),
+        controllerDid: DID,
+        collectionId: COLL
+      })
+    ).rejects.toBeInstanceOf(ValidationError)
+    // The guarded create had already gone out when the rival was read back.
+    // Nothing follows it, and the rival's collection is kept.
+    expect(collection.replaceCalls).toEqual([
+      { fields: { name: COLL, encryption: EDV }, ifNoneMatch: true }
+    ])
+    expect(collection.current()).toEqual({ name: 'Rival' })
   })
 
   it('adopts a rival collection create that already installed key epochs', async () => {
@@ -426,34 +453,50 @@ describe('ensureSpaceAndCollection', () => {
     expect(space.collectionObj.replaceCalls).toEqual([])
   })
 
-  it('declares encryption in place on an existing descriptor-less collection, keeping its name', async () => {
+  it('refuses to declare encryption on an existing descriptor-less collection', async () => {
+    // `encryption` is creation-only on the server, so the client refuses
+    // before any write rather than sending one the server must refuse.
+    const collection = new FakeCollection({
+      current: { name: 'Kept Name', generator: { id: 'did:key:zApp' } }
+    })
     const space = new FakeSpace({
       current: { name: 'Wallet Space' },
-      collection: new FakeCollection({ current: { name: 'Kept Name' } })
+      collection
     })
-    const pws = new FakePws(space)
-    await ensureSpaceAndCollection({
-      pws: pws.asClient(),
-      spaceUrl: spaceUrlFor(SPACE),
-      controllerDid: DID,
-      collectionId: COLL,
-      collectionName: 'Ignored On Existing'
+    await expect(
+      ensureSpaceAndCollection({
+        pws: new FakePws(space).asClient(),
+        spaceUrl: spaceUrlFor(SPACE),
+        controllerDid: DID,
+        collectionId: COLL,
+        isPublic: true
+      })
+    ).rejects.toMatchObject({
+      name: 'ValidationError',
+      // The message names both readings of a descriptor-less collection: a
+      // governed one whose log is not created yet, and a plaintext one.
+      message: expect.stringMatching(
+        /encryption: 'governed'.*create a new Collection and copy its Resources into it\./
+      )
     })
-
-    // Not `configure`: the declaration is compare-and-swapped against the
-    // description's validator, carrying every writable field forward.
-    expect(space.collectionObj.replaceCalls).toEqual([
-      {
-        fields: { name: 'Kept Name', backend: undefined, encryption: EDV },
-        ifMatch: '"1"'
-      }
-    ])
-    expect(space.collectionObj.describeCalls).toBe(1)
+    expect(collection.replaceCalls).toEqual([])
+    expect(collection.describeCalls).toBe(1)
+    // The world-read step is not reached either.
+    expect(collection.isPublicCalls).toBe(0)
+    expect(collection.setPublicCalls).toBe(0)
+    expect(collection.current()).toEqual({
+      name: 'Kept Name',
+      generator: { id: 'did:key:zApp' }
+    })
   })
 
-  it('carries an existing backend through the in-place declaration', async () => {
+  it('keeps an existing backend on an encrypted collection, writing nothing', async () => {
     const collection = new FakeCollection({
-      current: { name: COLL, backend: { id: 'urn:backend:blob' } }
+      current: {
+        name: COLL,
+        backend: { id: 'urn:backend:blob' },
+        encryption: EDV
+      }
     })
     const space = new FakeSpace({
       current: { name: 'Wallet Space' },
@@ -465,37 +508,12 @@ describe('ensureSpaceAndCollection', () => {
       controllerDid: DID,
       collectionId: COLL
     })
+    expect(collection.replaceCalls).toEqual([])
     expect(collection.current()).toEqual({
       name: COLL,
       backend: { id: 'urn:backend:blob' },
       encryption: EDV
     })
-  })
-
-  it('adopts a rival declaration that lands between the read and the write', async () => {
-    const rivalDescriptor = { scheme: 'edv', version: EDV_SCHEME_VERSION + 1 }
-    const collection = new FakeCollection({
-      current: { name: COLL },
-      collideOnce: state => {
-        state.current = { name: COLL, encryption: rivalDescriptor }
-      }
-    })
-    const space = new FakeSpace({
-      current: { name: 'Wallet Space' },
-      collection
-    })
-    await ensureSpaceAndCollection({
-      pws: new FakePws(space).asClient(),
-      spaceUrl: spaceUrlFor(SPACE),
-      controllerDid: DID,
-      collectionId: COLL
-    })
-    // The first write lost the race; the re-read found a descriptor and left
-    // it alone (a second write would have tripped `encryption-immutable` or,
-    // worse, replaced the rival's roster).
-    expect(collection.replaceCalls).toHaveLength(1)
-    expect(collection.describeCalls).toBe(2)
-    expect(collection.current()!.encryption).toEqual(rivalDescriptor)
   })
 
   it('creates a governed collection with no encryption member', async () => {
@@ -531,47 +549,71 @@ describe('ensureSpaceAndCollection', () => {
       encryption: 'governed'
     })
 
-    // The late in-place declaration must not fire: the server refuses to
-    // govern a Description that already carries a client-written descriptor.
+    // No descriptor is declared: the server refuses to govern a Description
+    // that already carries a client-written descriptor.
     expect(collection.replaceCalls).toEqual([])
     expect(collection.describeCalls).toBe(1)
     expect(collection.current()).toEqual({ name: COLL })
   })
 
-  it('refuses to govern a collection carrying a client-written descriptor', async () => {
+  it.each([
     // The server keeps a declared descriptor immutable, so the caller's log
     // create would fail with its 409; the misfit is named here instead.
-    const collection = new FakeCollection({
-      current: { name: COLL, encryption: EDV }
-    })
-    const space = new FakeSpace({
-      current: { name: 'Wallet Space' },
-      collection
-    })
-    await expect(
-      ensureSpaceAndCollection({
-        pws: new FakePws(space).asClient(),
-        spaceUrl: spaceUrlFor(SPACE),
-        controllerDid: DID,
-        collectionId: COLL,
-        encryption: 'governed'
+    {
+      requested: 'governed',
+      standingName: 'client-written',
+      standing: EDV,
+      reason: 'cannot be governed'
+    },
+    {
+      requested: 'plaintext',
+      standingName: 'client-written',
+      standing: EDV,
+      reason: 'is not plaintext'
+    },
+    {
+      requested: 'edv',
+      standingName: 'governed',
+      standing: GOVERNED,
+      reason: 'is governed by a history log'
+    },
+    {
+      requested: 'plaintext',
+      standingName: 'governed',
+      standing: GOVERNED,
+      reason: 'is governed by a history log'
+    }
+  ] as const)(
+    'refuses a $requested spec over a collection carrying a $standingName descriptor',
+    async ({ requested, standing, reason }) => {
+      const collection = new FakeCollection({
+        current: { name: COLL, encryption: standing }
       })
-    ).rejects.toMatchObject({
-      name: 'ValidationError',
-      message: expect.stringContaining('cannot be governed')
-    })
-    expect(collection.replaceCalls).toEqual([])
-  })
+      const space = new FakeSpace({
+        current: { name: 'Wallet Space' },
+        collection
+      })
+      await expect(
+        ensureSpaceAndCollection({
+          pws: new FakePws(space).asClient(),
+          spaceUrl: spaceUrlFor(SPACE),
+          controllerDid: DID,
+          collectionId: COLL,
+          encryption: requested,
+          isPublic: true
+        })
+      ).rejects.toMatchObject({
+        name: 'ValidationError',
+        message: expect.stringContaining(reason)
+      })
+      expect(collection.replaceCalls).toEqual([])
+      expect(collection.setPublicCalls).toBe(0)
+    }
+  )
 
   it('writes nothing to an already governed collection', async () => {
-    // The derived form: a served `encryption` naming the governing log.
-    const derived = {
-      scheme: 'edv',
-      version: EDV_SCHEME_VERSION,
-      history: { method: 'vh-resource-log', resource: 'https://x/meta/log' }
-    }
     const collection = new FakeCollection({
-      current: { name: COLL, encryption: derived }
+      current: { name: COLL, encryption: GOVERNED }
     })
     const space = new FakeSpace({
       current: { name: 'Wallet Space' },
@@ -587,7 +629,7 @@ describe('ensureSpaceAndCollection', () => {
 
     // A Description PUT may not carry the derived member, so nothing is sent.
     expect(collection.replaceCalls).toEqual([])
-    expect(collection.current()!.encryption).toBe(derived)
+    expect(collection.current()!.encryption).toBe(GOVERNED)
   })
 
   it('leaves an existing encryption descriptor untouched on re-run', async () => {
@@ -957,31 +999,6 @@ describe('ensureSpaceAndCollection app attribution', () => {
     })
 
     expect(collection.replaceCalls).toEqual([])
-  })
-
-  it('carries a stored generator through the late encryption declaration', async () => {
-    // Replace semantics: a body that omitted the attribution would drop it.
-    const collection = new FakeCollection({
-      current: { name: COLL, generator: APP }
-    })
-    const space = new FakeSpace({
-      current: { name: 'Wallet Space' },
-      collection
-    })
-    await ensureSpaceAndCollection({
-      pws: new FakePws(space).asClient(),
-      spaceUrl: spaceUrlFor(SPACE),
-      controllerDid: DID,
-      collectionId: COLL
-    })
-
-    expect(collection.replaceCalls).toHaveLength(1)
-    expect(collection.current()).toEqual({
-      name: COLL,
-      backend: undefined,
-      encryption: EDV,
-      generator: APP
-    })
   })
 })
 

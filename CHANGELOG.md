@@ -1,5 +1,22 @@
 # @interop/pws-client Changelog
 
+## 0.107.0 - TBD
+
+### Changed
+
+- **BREAKING**: `ensureSpaceAndCollection` with `encryption: 'edv'` over an
+  existing Collection that has no encryption descriptor throws a
+  `ValidationError`. It no longer adds the descriptor in place, since
+  `encryption` is creation-only on the server. The way forward is a new
+  Collection with the Resources copied into it, or `encryption: 'governed'` when
+  the Collection is a governed one whose history log is not created yet.
+- **BREAKING**: `ensureSpaceAndCollection` throws `ValidationError` for every
+  mode that differs from the standing Collection's. `'plaintext'` over an
+  encrypted Collection and `'edv'` over a governed one used to resolve
+  `{ created: false }`.
+- The README and the `configure` JSDoc describe `encryption` as creation-only.
+  The README no longer suggests declaring it on a pre-descriptor vault.
+
 ## 0.106.0 - 2026-10-30
 
 ### Added

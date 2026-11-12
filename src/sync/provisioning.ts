@@ -7,8 +7,9 @@
  * an existing encryption descriptor (which may carry a key-epoch roster other
  * clients encrypt under), and an existing access policy are never overwritten,
  * so ANY controller-tier client -- including one that joined a Space some
- * other wallet provisioned -- can re-run it to heal a torn provisioning run.
- * On a fully settled Space it issues only reads.
+ * other wallet provisioned -- can re-run it to heal a torn provisioning run,
+ * provided it asks for the mode the collection was provisioned in. On a fully
+ * settled Space it issues only reads.
  *
  * This module ensures the CONTAINER only and stays crypto-free: an `'edv'`
  * collection is declared encrypted here, but its key-epoch roster -- which
@@ -20,11 +21,16 @@
  * `'plaintext'` (no descriptor), and `'governed'` (a Collection whose
  * `encryption` member the server derives from its history log). A `'governed'`
  * collection is created descriptor-less here and declared governed afterwards,
- * by the caller's guarded create of the log.
+ * by the caller's guarded create of the log. The `encryption` member is
+ * creation-only on the server, so a standing collection keeps the mode it was
+ * created in. A request for a different mode is refused with
+ * `ValidationError`. A descriptor-less collection reads the same whether it is
+ * plaintext or a governed one whose log is not created yet, so both of those
+ * modes accept it and `'edv'` is refused over it.
  */
 import type {
+  CollectionEncryption,
   CollectionGenerator,
-  CollectionMetadata,
   IZcap,
   SpaceMetadata
 } from '../types.js'
@@ -33,7 +39,6 @@ import type { PwsClient } from '../PwsClient.js'
 // sync module does not pull the EDV crypto graph for one number.
 import { EDV_SCHEME_VERSION } from '../edv/constants.js'
 import { ValidationError, PwsError } from '../errors.js'
-import { compareAndSwap } from '../internal/cas.js'
 import { isGovernedDescriptor } from '../internal/describe.js'
 
 /**
@@ -42,10 +47,75 @@ import { isGovernedDescriptor } from '../internal/describe.js'
 const DEFAULT_SPACE_NAME = 'PWS Space'
 
 /**
- * The encryption descriptor declared on a fresh (or not yet encrypted)
- * collection when the caller asks for `encryption: 'edv'`.
+ * The encryption descriptor a fresh collection is created with when the caller
+ * asks for `encryption: 'edv'`.
  */
 const EDV_DESCRIPTOR = { scheme: 'edv', version: EDV_SCHEME_VERSION } as const
+
+/**
+ * Compares the mode a caller asked for with the `encryption` member a standing
+ * collection serves, and says why the two disagree. The member is
+ * creation-only on the server, so a disagreement cannot be repaired by a write
+ * from here.
+ *
+ * A descriptor-less collection satisfies both `'plaintext'` and `'governed'`:
+ * a governed collection is created without the member and gains the derived
+ * one when its history log is created, so the two are indistinguishable until
+ * then.
+ *
+ * @param options {object}
+ * @param options.requested {'edv' | 'plaintext' | 'governed'}   the mode the
+ *   caller asked for
+ * @param [options.standing] {CollectionEncryption}   the `encryption` member
+ *   the standing collection serves, if any
+ * @returns {string | undefined}   the reason the standing collection cannot
+ *   serve the requested mode, phrased to follow the collection's name; or
+ *   `undefined` when it can
+ */
+function standingModeMismatch({
+  requested,
+  standing
+}: {
+  requested: 'edv' | 'plaintext' | 'governed'
+  standing?: CollectionEncryption
+}): string | undefined {
+  if (standing === undefined) {
+    if (requested !== 'edv') {
+      return undefined
+    }
+    return (
+      'exists without an encryption descriptor, so it cannot be declared ' +
+      'encrypted. The descriptor is declared only when a Collection is ' +
+      'created. The Collection is either plaintext, or governed with its ' +
+      'history log not created yet. If it is governed, provision it with ' +
+      "encryption: 'governed'. If it is plaintext, create a new Collection " +
+      'and copy its Resources into it.'
+    )
+  }
+  if (isGovernedDescriptor(standing)) {
+    if (requested === 'governed') {
+      return undefined
+    }
+    return (
+      'is governed by a history log, so it cannot be provisioned as ' +
+      `'${requested}'. Provision it with encryption: 'governed'.`
+    )
+  }
+  if (requested === 'edv') {
+    return undefined
+  }
+  if (requested === 'governed') {
+    return (
+      'carries a client-written encryption descriptor, so it cannot be ' +
+      'governed by a history log. The server keeps a declared descriptor ' +
+      'immutable.'
+    )
+  }
+  return (
+    'carries a client-written encryption descriptor, so it is not ' +
+    "plaintext. Provision it with encryption: 'edv'."
+  )
+}
 
 /**
  * Rethrows a failed provisioning step. A typed client error propagates
@@ -72,9 +142,10 @@ function rethrowProvisioningFailure(err: unknown, context: string): never {
  * The read-then-guarded-create both ensures share: the value is read and, when
  * present, kept as-is; when absent, `create` runs the `If-None-Match: *` write,
  * and when that fails for ANY reason the value is re-read, and a value now
- * present is adopted as the winner of a create race instead of failing. The race is detected by the re-read rather than by the
- * failure's status because the server answers a lost race with whatever check
- * the rival's description trips first: a 412 from the precondition, but also
+ * present is adopted as the winner of a create race instead of failing. The
+ * race is detected by the re-read rather than by the failure's status because
+ * the server answers a lost race with whatever check the rival's description
+ * trips first: a 412 from the precondition, but also
  * a 400 or 409 from the encryption-descriptor transition rules when the rival
  * already installed key epochs. When nothing can be read back, the create's
  * own failure is rethrown, so a genuine failure keeps its type.
@@ -158,18 +229,28 @@ async function readOrCreate<T>({
  * can overwrite the winner's display name; the server merges the rest of the
  * winner's description forward.
  *
- * An existing collection that lacks the descriptor an `'edv'` spec calls for
- * gets the late in-place declaration (set-once on the server); one that
- * already carries a descriptor -- possibly with appended key epochs -- is
- * left untouched, epochs and display name included. An existing `'governed'`
- * collection is never written to: the server refuses to govern a Description
- * that carries a client-written descriptor (`encryption-immutable`), and a
- * governed Collection's served `encryption` is the derived member, which a
- * Description PUT may not carry (`encryption-history-log-governed`). So an
- * existing collection whose descriptor is client-written (no `history`
- * member) cannot become governed, and a `'governed'` spec over it throws
- * `ValidationError` here rather than letting the caller's log create fail
- * with the server's 409. A public collection gets the collection-level
+ * A collection that already stands is never written to, epochs and display
+ * name included. The server accepts `encryption` only on the write that
+ * creates a Collection, so a standing collection keeps its mode, and a spec
+ * that asks for another one throws `ValidationError`:
+ *
+ * - `'edv'` needs a client-written descriptor (no `history` member). It is
+ *   refused over a governed collection and over a descriptor-less one. The
+ *   latter is either plaintext, where the way forward is a new collection with
+ *   the resources copied into it, or a governed collection whose history log
+ *   is not created yet, which a `'governed'` spec provisions.
+ * - `'governed'` accepts a descriptor-less collection or one already governed.
+ *   It is refused over a client-written descriptor, which the server keeps
+ *   immutable (`encryption-immutable`), rather than letting the caller's log
+ *   create fail with the server's 409.
+ * - `'plaintext'` accepts only a descriptor-less collection.
+ *
+ * The check runs on the description this call read, so over a collection that
+ * stood at the first read nothing is sent. When the collection appeared
+ * between that read and the guarded create, the create has already gone out
+ * by the time the rival's description is compared. A server that honours
+ * `If-None-Match` refused it; one that ignores the precondition applied it as
+ * the upsert described above. A public collection gets the collection-level
  * world-read grant (`setPublic`, what makes a resource URL in it resolve for
  * anyone) only when its policy does not already say so. Every request invokes
  * the root capability, or `capability` when the caller holds a delegated one.
@@ -287,59 +368,19 @@ export async function ensureSpaceAndCollection({
         'created but cannot be read back.'
     })
     const current = read.description
-    if (
-      encryption === 'governed' &&
-      current.encryption !== undefined &&
-      !isGovernedDescriptor(current.encryption)
-    ) {
+    // A standing collection keeps the mode it was created in, so a spec
+    // that asks for another one is refused, before the world-read grant. On
+    // the lost-race path the guarded create has already been sent.
+    const mismatch = created
+      ? undefined
+      : standingModeMismatch({
+          requested: encryption,
+          standing: current.encryption
+        })
+    if (mismatch !== undefined) {
       throw new ValidationError(
-        `Collection "${collectionId}" in space "${spaceUrl}" carries a ` +
-          'client-written encryption descriptor, so it cannot be governed by ' +
-          'a history log: the server keeps a declared descriptor immutable.'
+        `Collection "${collectionId}" in space "${spaceUrl}" ${mismatch}`
       )
-    }
-    if (!created && encryption === 'edv' && current.encryption === undefined) {
-      // The late in-place declaration: adding a descriptor to a collection
-      // that lacks one is allowed (set-once), while re-sending one over an
-      // existing descriptor would drop its appended key epochs -- which is
-      // exactly why an existing descriptor is never touched. The write is
-      // compare-and-swapped against the description just read, so a rival
-      // declaration landing in between is re-read and adopted as-is rather
-      // than tripping `encryption-immutable` or being overwritten.
-      let reusable: typeof read | null = read
-      await compareAndSwap<CollectionMetadata>({
-        store: {
-          read: async () => {
-            const latest =
-              reusable !== null ? reusable : await collection.describeWithEtag()
-            reusable = null
-            if (latest === null) {
-              throw new ValidationError(
-                `Collection "${collectionId}" in space "${spaceUrl}" vanished ` +
-                  'while its encryption was being declared.'
-              )
-            }
-            return { value: latest.description, etag: latest.etag }
-          },
-          // Replace semantics: every writable field is carried forward,
-          // the app attribution included. The description just
-          // read is handed over whole, and `replaceDescription` picks the
-          // writable fields out of it, so this site cannot drift as fields
-          // are added.
-          replace: async (next, { ifMatch }) => {
-            await collection.replaceDescription(next, { ifMatch })
-          }
-        },
-        operation: 'Encryption declaration',
-        mutate: latest =>
-          latest.encryption === undefined
-            ? {
-                ...latest,
-                name: latest.name ?? collectionName,
-                encryption: EDV_DESCRIPTOR
-              }
-            : null
-      })
     }
     // A collection this call just created has no policy document yet, so the
     // read that would find it non-public is skipped.

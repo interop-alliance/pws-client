@@ -7,7 +7,8 @@
  * hand-written description. This suite pins what no fake can assert: a served
  * Space description carries `id`, so the description `ensureSpace` returns can
  * be handed straight to `ensureSpaceAndCollection`, on the first pass and on
- * the already-provisioned second pass alike.
+ * the already-provisioned second pass alike. It also pins that an `'edv'` spec
+ * over a standing plaintext collection is refused with nothing written.
  *
  * Requires a running server: `TEST_SERVER_URL`, which the global setup sets
  * when it boots one in-process.
@@ -15,7 +16,7 @@
 import { describe, it, beforeAll, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient } from '../../src/index.js'
+import { PwsClient, ValidationError } from '../../src/index.js'
 import { ensureSpace, ensureSpaceAndCollection } from '../../src/sync/index.js'
 import { EDV_SCHEME_VERSION } from '../../src/edv/constants.js'
 
@@ -118,5 +119,37 @@ describeLive('sync provisioning (live server)', () => {
       encryption: 'plaintext'
     })
     expect(second).toEqual({ created: false })
+  })
+
+  it('ensureSpaceAndCollection refuses an edv spec over a standing plaintext collection', async () => {
+    // The client refuses before writing, so this holds whether or not the
+    // server would refuse the declaration itself.
+    await ensureSpaceAndCollection({
+      pws,
+      spaceUrl,
+      controllerDid: pws.controllerDid,
+      collectionId: 'legacy',
+      encryption: 'plaintext'
+    })
+    const collection = pws.spaceAt(spaceUrl).collection('legacy')
+    const before = await collection.describeWithEtag()
+    // Without a served validator the comparison below would pass vacuously.
+    expect(before).not.toBeNull()
+    expect(before!.etag).toBeDefined()
+
+    await expect(
+      ensureSpaceAndCollection({
+        pws,
+        spaceUrl,
+        controllerDid: pws.controllerDid,
+        collectionId: 'legacy',
+        encryption: 'edv'
+      })
+    ).rejects.toBeInstanceOf(ValidationError)
+
+    const after = await collection.describeWithEtag()
+    expect(after).not.toBeNull()
+    expect(after!.description.encryption).toBeUndefined()
+    expect(after!.etag).toBe(before!.etag)
   })
 })

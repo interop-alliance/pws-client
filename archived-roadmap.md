@@ -5137,3 +5137,103 @@ peers under one base server URL, the client is built from it, and a server that
 is a single fixed Space with no id is opened from its own URL through a separate
 entry point. discovered-from: the dcw /simplify pass of 2026-10-27, the spec
 reading that followed, and the wallet-core port of 2026-10-29.
+
+### WCL-76: [M] The late encryption-declaration CAS rebases only on 412, though the server answers that race with 400 or 409
+
+- status: retired as obsolete 2026-11-12 (was todo)
+- priority: medium
+- labels: provisioning, cas, errors, idempotence
+- acceptance:
+  - [ ] A rival that declares the encryption descriptor and appends its first
+        epoch between this client's read and write is adopted rather than
+        rethrown
+  - [ ] The adoption keys on a re-read finding a descriptor present, matching
+        `readOrCreate`'s re-read-decides rule
+  - [ ] `src/sync/provisioning.ts` stays idempotent under that race, with a test
+        driving the 409 ordering
+
+`readOrCreate`'s own header says the server answers a lost race with whatever
+check the rival's description trips first, naming a 412 from the precondition
+but also a 400 or 409 from the encryption-descriptor transition rules. The late
+declaration path uses `compareAndSwap`, whose only rebase branch is
+`isPreconditionFailed`; everything else rethrows. Corroborated against the
+reference server: `assertEncryptionDescriptorTransition` runs before
+`parseWritePreconditions` and before the atomic transition check, so once the
+rival has appended its epoch roster the epoch-less descriptor trips the
+append-only rule and returns 409 `encryption-immutable` with no 412 ever
+evaluated. The window is narrow, since identical descriptors pass the transition
+check and rebase normally, but it is realistic on a concurrent wallet boot.
+Archived WCL-33 installed this CAS; its scope was the missing precondition, not
+the error taxonomy the loop rebases on, so this residue is open. Keeping the
+re-read local to `provisioning.ts` touches nothing outside this repo; giving
+`compareAndSwap` a `rebaseOn` option instead would also reach
+`src/edv/recipients.ts` and wallet-core's descriptor store. discovered-from:
+whole-codebase review, 2026-09-11.
+
+Retirement note: the late encryption-declaration compare-and-swap this item
+describes is gone. `encryption` is creation-only on the server, so provisioning
+now throws `ValidationError` over a standing descriptor-less Collection and
+sends no write (WCL-142). The create race that remains is `readOrCreate`'s
+guarded create, which already decides by re-read.
+
+### WCL-142: [M] [after WSS-194] Remove the late in-place `encryption` declaration from provisioning
+
+- status: done
+- done: 2026-11-12
+- priority: medium
+- labels: provisioning, encryption, spec, breaking
+- discovered-from: WASS-49 (portable-web-spaces-spec, 2026-10-29); spec decision
+  0012
+- blocked-by: WSS-194 (done 2026-11-12 in web-spaces-server, uncommitted and
+  unpublished)
+- touches:
+  - pws-client: `src/sync/provisioning.ts` -- the `'edv'` branch that runs when
+    the Collection exists without a descriptor (the compare-and-swap write of
+    `EDV_DESCRIPTOR` onto the read-back description), the module header's "late
+    in-place declaration" paragraph, and `EDV_DESCRIPTOR`'s comment ("or not yet
+    encrypted"); `test/integration/provisioning.test.ts`. Shipped 2026-11-12 for
+    0.107.0 (TBD): the branch is replaced by a `ValidationError` thrown before
+    any write; the README and the `configure` JSDoc no longer describe a late
+    declaration
+  - was-react: `src/dev/provisionDevGrants.ts` calls `ensureSpaceAndCollection`;
+    unaffected: was-react (its calls pass `ID_COLLECTION_SPEC.encryption`, which
+    is `'plaintext'` in wallet-core, and `'governed'` or `'plaintext'`)
+  - dcw: `app/lib/sync/smokeTest.ts` relies on the `'edv'` default, which
+    creates the Collection with the descriptor; unaffected: dcw (re-checked
+    2026-11-12; a fresh Collection is created encrypted, and a standing
+    descriptor-less one now throws `ValidationError` instead of being declared)
+  - freewallet and wallet-core: unaffected (freewallet's
+    `pwsRemoteStore.ensureCollection` admits only `'plaintext'` and
+    `'governed'`; wallet-core maps `'edv'` to `'governed'`)
+  - web-spaces-server: WSS-194 is the server half and ships the refusal (done
+    2026-11-12, uncommitted and unpublished)
+- acceptance:
+  - [x] `ensureSpaceAndCollection` with `encryption: 'edv'` over an existing
+        Collection that lacks a descriptor leaves it untouched and reports the
+        Collection as not encrypted, or throws a typed error naming the
+        new-Collection-and-copy path; the maintainer picks which. The maintainer
+        picked the existing `ValidationError` on 2026-11-12 (no new class, no
+        new return member); its message names the new-Collection-and-copy path
+  - [x] The branch, its comment, and the header paragraph are gone, and a test
+        pins the chosen behavior against a server that refuses the late write
+        with `encryption-immutable` (409). The client refuses before any write,
+        so the tests (a fake, and the installed server, which still accepts the
+        late write) pin that nothing is sent rather than the server's 409. The
+        409 itself is not verified in this repo; that half is WCL-159
+  - [x] ARCHITECTURE.md and CHANGELOG.md updated
+
+The core spec makes `encryption` creation-only (WASS-49, decision 0012): it is
+declared by the write that creates the Collection, and a write that adds it to
+an existing Collection is refused with `encryption-immutable`. The reason is
+replication. A late first declaration on one server and a concurrent full
+replacement without it on another both pass their own transition check, and
+last-writer-wins converges on a Collection whose descriptor is silently gone.
+This module's `'edv'` mode still carries the late write as a fallback for a
+Collection provisioned before the descriptor existed. No wallet caller reaches
+it: the App Connect flow creates its Collections encrypted from birth, and
+was-react dropped `markCollectionEncrypted` in 0.28.0. Once WSS-194 lands the
+server answers the write with a 409 that `rethrow` surfaces as a
+`ConflictError`, so the branch becomes a guaranteed failure rather than a
+fallback. A Collection that exists without a descriptor never becomes encrypted
+in place; the path is a new Collection and a copy, which the migration code
+already takes for a key rotation it cannot express as an epoch.

@@ -100,7 +100,8 @@ export interface CodecSnapshot {
  * callers share one round-trip, but drops it on rejection so a transient
  * failure (e.g. a 500/network error during descriptor discovery) does not
  * permanently poison the handle, and exposes `reset()` for when a handle's
- * encryption state changes (e.g. `Collection.configure()` adds the descriptor).
+ * encryption state changes (e.g. `Collection.configure()` creates the
+ * Collection with its descriptor).
  *
  * It also carries the metadata snapshot a resolution read, so the caller that
  * paid for that read can reuse it instead of GETting `/meta` a second time.

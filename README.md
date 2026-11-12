@@ -1190,15 +1190,11 @@ const vault = pws.spaceAt(spaceUrl).collection('vault', {
 ```
 
 **Migrating a pre-descriptor vault** (created before the descriptor existed,
-keys-only): re-declare it once with
-`collection.configure({ encryption: { scheme: 'edv' } })` (the descriptor is
-set-once: declaring it on a collection that lacks one is allowed, changing or
-clearing an existing one is rejected). The same write re-seals the stored
-`custom` under the newly declared descriptor, since the server validates the
-envelope against the incoming one; a client that cannot build that codec (no
-keystore, or no keys for the descriptor) sends no `custom` at all rather than
-plaintext beside the descriptor, which loses the stored name and tags. Until the
-collection is re-declared, a per-handle override reads it correctly.
+keys-only): the descriptor is creation-only. A conforming server refuses a write
+that adds it to an existing collection, and one that changes or clears it
+(`ConflictError`, `encryption-immutable`). Create a new collection with the
+descriptor and copy the resources into it. Until then, a per-handle override
+reads the old collection correctly.
 
 Encrypted collections are a **stricter contract**, not a drop-in (documents-only
 scope for now):
@@ -1455,13 +1451,19 @@ plugs into:
   the same id on every replica, with no coordination or mapping table.
 - **`ensureSpaceAndCollection(...)`** is idempotent provisioning: upsert the
   Space, configure the collection (`edv`, `plaintext`, or `governed`, optionally
-  world-readable). Safe to re-run on every connect. A `governed` collection is
-  created with no `encryption` member, the caller declaring governance
-  afterwards through the history log's guarded create. An optional `capability`
-  is the invocation capability every request rides, for a client holding a
-  delegated zcap rather than the Space's root authority. It resolves
-  `{ created }`: `true` when its own guarded create made the collection, and
-  `false` when the collection already stood or a rival won the create race.
+  world-readable). Safe to re-run on every connect with the same mode. A
+  `governed` collection is created with no `encryption` member, the caller
+  declaring governance afterwards through the history log's guarded create. A
+  standing collection keeps the mode it was created in, because `encryption` is
+  creation-only. A call that asks for a different mode throws `ValidationError`
+  and leaves the collection as it is. That includes the `edv` default over a
+  collection with no descriptor, which is either plaintext (create a new
+  collection and copy the resources into it) or governed with its log not
+  created yet (provision it as `governed`). An optional `capability` is the
+  invocation capability every request rides, for a client holding a delegated
+  zcap rather than the Space's root authority. It resolves `{ created }`: `true`
+  when its own guarded create made the collection, and `false` when the
+  collection already stood or a rival won the create race.
 
 ```ts
 import {

@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 158
+nextAvailableId: 160
 
 <!-- roadmap-order:index:start -->
 
@@ -42,8 +42,6 @@ Ready:
   as `not-found`
 - WCL-67 [M] `Space.createCollection` pins a declared encryption descriptor the
   server may never have stored
-- WCL-76 [M] The late encryption-declaration CAS rebases only on 412, though the
-  server answers that race with 400 or 409
 - WCL-78 [M] An undecryptable Collection `/meta` envelope fails the whole codec
   resolution
 - WCL-99 [M] A Collection Metadata write re-sends the encryption descriptor with
@@ -89,8 +87,6 @@ Ready:
 
 Waiting on another repo:
 
-- WCL-142 [M] Remove the late in-place `encryption` declaration from
-  provisioning (after WSS-194)
 - WCL-144 [M] Follow the replication companion: the server DID on the core
   entry, and unrecognized stall reasons (after WSS-238)
 - WCL-152 [L] Document and test the `replica-refused` delete refusals (after
@@ -114,6 +110,8 @@ Ready:
 
 Ready:
 
+- WCL-158 [L] `configure`'s scheme-change re-seal serves a write the server now
+  refuses
 - WCL-80 [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by
   the seam but never invoked
 - WCL-88 [L] Record the upstream-owned `NotFoundError` / `DuplicateError` names
@@ -125,6 +123,8 @@ Waiting on another repo:
 
 - WCL-143 [M] Live tests for replica pause, resume, capability replacement, and
   the delegated route (after WSS-228, WSS-226)
+- WCL-159 [L] Live test of the server's creation-only `encryption` refusal
+  (after WSS-194)
 
 **Someday / Maybe**
 
@@ -653,38 +653,6 @@ read of the same response: against the reference server a supplied `id` is
 always honoured, so it costs one extra assertion inside this change.
 
 discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-76: [M] The late encryption-declaration CAS rebases only on 412, though the server answers that race with 400 or 409
-
-- status: todo
-- priority: medium
-- labels: provisioning, cas, errors, idempotence
-- acceptance:
-  - [ ] A rival that declares the encryption descriptor and appends its first
-        epoch between this client's read and write is adopted rather than
-        rethrown
-  - [ ] The adoption keys on a re-read finding a descriptor present, matching
-        `readOrCreate`'s re-read-decides rule
-  - [ ] `src/sync/provisioning.ts` stays idempotent under that race, with a test
-        driving the 409 ordering
-
-`readOrCreate`'s own header says the server answers a lost race with whatever
-check the rival's description trips first, naming a 412 from the precondition
-but also a 400 or 409 from the encryption-descriptor transition rules. The late
-declaration path uses `compareAndSwap`, whose only rebase branch is
-`isPreconditionFailed`; everything else rethrows. Corroborated against the
-reference server: `assertEncryptionDescriptorTransition` runs before
-`parseWritePreconditions` and before the atomic transition check, so once the
-rival has appended its epoch roster the epoch-less descriptor trips the
-append-only rule and returns 409 `encryption-immutable` with no 412 ever
-evaluated. The window is narrow, since identical descriptors pass the transition
-check and rebase normally, but it is realistic on a concurrent wallet boot.
-Archived WCL-33 installed this CAS; its scope was the missing precondition, not
-the error taxonomy the loop rebases on, so this residue is open. Keeping the
-re-read local to `provisioning.ts` touches nothing outside this repo; giving
-`compareAndSwap` a `rebaseOn` option instead would also reach
-`src/edv/recipients.ts` and wallet-core's descriptor store. discovered-from:
-whole-codebase review, 2026-09-11.
 
 ### WCL-78: [M] An undecryptable Collection `/meta` envelope fails the whole codec resolution
 
@@ -1325,52 +1293,6 @@ profile describes (an Ed25519 `did:key` capability invocation with the `Digest`
 header); this item only makes it check that the server says it accepts that, in
 the place the spec now says to look.
 
-### WCL-142: [M] [after WSS-194] Remove the late in-place `encryption` declaration from provisioning
-
-- status: todo
-- priority: medium
-- labels: provisioning, encryption, spec, breaking
-- discovered-from: WASS-49 (portable-web-spaces-spec, 2026-10-29); spec decision
-  0012
-- blocked-by: WSS-194
-- touches:
-  - pws-client: `src/sync/provisioning.ts` -- the `'edv'` branch that runs when
-    the Collection exists without a descriptor (the compare-and-swap write of
-    `EDV_DESCRIPTOR` onto the read-back description), the module header's "late
-    in-place declaration" paragraph, and `EDV_DESCRIPTOR`'s comment ("or not yet
-    encrypted"); `test/integration/provisioning.test.ts`
-  - was-react: `src/dev/provisionDevGrants.ts` calls `ensureSpaceAndCollection`;
-    unaffected unless a dev Space holds a pre-descriptor Collection
-  - dcw: `app/lib/sync/smokeTest.ts` relies on the `'edv'` default, which
-    creates the Collection with the descriptor; re-checked once the branch is
-    gone
-  - web-spaces-server: WSS-194 is the server half and ships the refusal
-- acceptance:
-  - [ ] `ensureSpaceAndCollection` with `encryption: 'edv'` over an existing
-        Collection that lacks a descriptor leaves it untouched and reports the
-        Collection as not encrypted, or throws a typed error naming the
-        new-Collection-and-copy path; the maintainer picks which
-  - [ ] The branch, its comment, and the header paragraph are gone, and a test
-        pins the chosen behavior against a server that refuses the late write
-        with `encryption-immutable` (409)
-  - [ ] ARCHITECTURE.md and CHANGELOG.md updated
-
-The core spec makes `encryption` creation-only (WASS-49, decision 0012): it is
-declared by the write that creates the Collection, and a write that adds it to
-an existing Collection is refused with `encryption-immutable`. The reason is
-replication. A late first declaration on one server and a concurrent full
-replacement without it on another both pass their own transition check, and
-last-writer-wins converges on a Collection whose descriptor is silently gone.
-This module's `'edv'` mode still carries the late write as a fallback for a
-Collection provisioned before the descriptor existed. No wallet caller reaches
-it: the App Connect flow creates its Collections encrypted from birth, and
-was-react dropped `markCollectionEncrypted` in 0.28.0. Once WSS-194 lands the
-server answers the write with a 409 that `rethrow` surfaces as a
-`ConflictError`, so the branch becomes a guaranteed failure rather than a
-fallback. A Collection that exists without a descriptor never becomes encrypted
-in place; the path is a new Collection and a copy, which the migration code
-already takes for a key rotation it cannot express as an epoch.
-
 ### WCL-144: [M] [after WSS-238] Follow the replication companion: the server DID on the core entry, and unrecognized stall reasons
 
 - status: todo
@@ -1656,6 +1578,61 @@ only when its `server` Space holds a verifying did:webvh log listing the
 seed-derived key under `capabilityInvocation`. The provisioner for that lives in
 the server's own test helpers until WSS-228 exports it, and the delegated route
 is not served until WSS-226.
+
+### WCL-159: [L] [after WSS-194] Live test of the server's creation-only `encryption` refusal
+
+- status: todo
+- priority: low
+- labels: tests, encryption, provisioning
+- discovered-from: WCL-142 (code review of 2026-11-12)
+- blocked-by: WSS-194
+- acceptance:
+  - [ ] The `@interop/web-spaces-server` devDependency is a published release
+        that carries the creation-only refusal
+  - [ ] An integration test writes `encryption` onto a standing descriptor-less
+        Collection through `Collection.configure` and asserts `ConflictError`
+        (`encryption-immutable`, 409), with the Collection unchanged
+  - [ ] The `configure` JSDoc and the README no longer qualify the refusal as a
+        conforming server's
+
+WCL-142 archived with its tests pinning only the client half: provisioning sends
+nothing over a standing descriptor-less Collection. The server half is not
+exercised in this repo. The installed `@interop/web-spaces-server` (`^0.45.0`)
+still accepts the late write, and the refusal (WSS-194) is done there but
+unpublished. Until this lands, the `encryption-immutable` answer that the README
+and the `configure` JSDoc describe is unverified here.
+
+### WCL-158: [L] `configure`'s scheme-change re-seal serves a write the server now refuses
+
+- status: todo
+- priority: low
+- labels: encryption, cleanup, collection-metadata
+- discovered-from: WCL-142 (2026-11-12)
+- acceptance:
+  - [ ] `Collection.#resealedCustom` and its callers are removed, or kept only
+        for a case a conforming server still accepts, with the reason recorded
+  - [ ] ARCHITECTURE.md's re-seal paragraph and the `collection-metadata-write`
+        tests match what remains
+  - [ ] `Collection.configure` refuses an `encryption` write that adds, changes
+        or clears the member on a standing Collection before sending it, or the
+        choice to leave that refusal to the server is recorded here
+
+`Collection.configure` re-seals the stored `custom` envelope when a write
+changes the encryption scheme over a stored Collection Metadata object. The spec
+now makes `encryption` creation-only: a write that adds, changes or clears it on
+an existing Collection is refused with `encryption-immutable`. A create has no
+stored `custom` to re-seal, so the path only runs for a write the server
+refuses. Removing it is a behavior change of `configure`, kept out of WCL-142,
+which was scoped to provisioning.
+
+Added 2026-11-12, from the cleanup review of the WCL-142 change. Provisioning
+now refuses a mode change over a standing collection itself, with
+`ValidationError`, while `configure` still sends the same write and relies on
+the server's 409. `configure` already reads the stored description before it
+merges, so it could refuse without an extra request. The open question is
+whether it should. A local refusal names the problem before a round trip, but
+it is a second copy of a server rule, and it fails a caller on a server that
+predates the rule.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked
 

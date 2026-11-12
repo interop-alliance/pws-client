@@ -939,17 +939,26 @@ encryption descriptor or none for plaintext, then optionally grant world read. A
 lost race is detected by the re-read, not by the failure's status: a rival that
 already installed key epochs makes the server answer the loser with the
 descriptor rules' 400 or 409 rather than the precondition's 412. Re-running it
-against an existing account is a no-op upgrade. Its third mode,
+against an existing account in the same mode is a no-op. Its third mode,
 `encryption: 'governed'`, creates the collection with no `encryption` member and
 writes nothing to an existing one: that member is the server's to derive from
 the collection's history log, and the caller declares the governance afterwards
-through the log's guarded create. An existing collection whose descriptor is
-client-written (no `history` member) can never become governed, so that mode
-refuses it with `ValidationError` instead of leaving the caller's log create to
-fail at the server. It resolves `{ created }`, taken from the guarded create
-itself: `true` only when this call's create made the collection. A lost race
-that adopts the rival's collection resolves `false`, so a caller deciding
-whether the collection is its own reads this rather than an earlier describe.
+through the log's guarded create. The `encryption` member is creation-only on
+the server, so a standing collection keeps the mode it was created in. One
+comparison of the requested mode with the served member refuses every other
+request with `ValidationError`. `'edv'` needs a client-written descriptor (no
+`history` member), `'governed'` accepts a governed or a descriptor-less
+collection, and `'plaintext'` accepts only a descriptor-less one. A
+descriptor-less collection is either plaintext or a governed one whose log is
+not created yet, and the two read the same, so the `'edv'` refusal names both
+ways forward: a `'governed'` call, or a new collection with the resources copied
+into it. Over a collection that stood at the first read the refusal sends
+nothing. Over a rival that won the create race, the guarded create has already
+been sent by the time the rival is compared. It resolves `{ created }`, taken
+from the guarded create itself: `true` only when this call's create made the
+collection. A lost race that adopts the rival's collection resolves `false`, so
+a caller deciding whether the collection is its own reads this rather than an
+earlier describe.
 
 ## Concurrency
 
@@ -981,10 +990,10 @@ No locks; safety is optimistic (ETag/CAS) throughout
   on the generic `compareAndSwap` retry loop. A backend that serves no validator
   gets an unconditional write. That is the loop's `allowUnconditional` opt-out,
   which the handles' `setName` / `setTags` also take. Every other
-  `compareAndSwap` caller (the recipient primitives, `declareIndex`,
-  provisioning's late encryption declaration, the replica registration changes
-  `pauseReplica` / `resumeReplica` / `replaceReplicaCapability`) is refused with
-  `NotSupportedError` when its read returns no validator.
+  `compareAndSwap` caller (the recipient primitives, `declareIndex`, the replica
+  registration changes `pauseReplica` / `resumeReplica` /
+  `replaceReplicaCapability`) is refused with `NotSupportedError` when its read
+  returns no validator.
 - Both `configure` methods answer with `{ description, etag }`: the description
   the last attempt wrote, and that write's validator. A caller that configures a
   container and then writes it again under a compare-and-swap therefore has its

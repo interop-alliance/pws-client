@@ -91,8 +91,8 @@ export class Resource {
    * A handle obtained via `collection.resource(id)` delegates to the parent's
    * shared resolver on every call rather than memoizing locally: the parent
    * already memoizes (so this adds no round-trip), and delegating lets a parent
-   * reset (e.g. after `configure()` adds the encryption descriptor) propagate
-   * here.
+   * reset (e.g. after `configure()` creates the Collection with its
+   * encryption descriptor) propagate here.
    */
   readonly #codec: () => Promise<ResourceCodec>
 

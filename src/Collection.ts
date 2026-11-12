@@ -674,10 +674,12 @@ export class Collection {
    * use `space.createCollection()`, which does not merge).
    *
    * @param desc {CollectionWritableFields}   the fields to merge; `encryption`
-   *   declares the client-side encryption descriptor, which is set-once on the
-   *   server (it may be added to a Collection that lacks one, but
-   *   changing/clearing an existing descriptor is rejected -- `ConflictError`,
-   *   `encryption-immutable`). `plaintext` declares a plaintext Collection's
+   *   declares the client-side encryption descriptor, which the spec makes
+   *   creation-only. A conforming server rejects a write that adds it to an
+   *   existing Collection that lacks one, or that changes or clears an
+   *   existing one (`ConflictError`, `encryption-immutable`). The scheme-change
+   *   re-seal described above is still sent, and takes effect only on a
+   *   server that predates that rule. `plaintext` declares a plaintext Collection's
    *   server-side indexes and replaces the stored declaration whole (no
    *   per-entry merge); it cannot share the object with `encryption`, which
    *   the server rejects (`invalid-request-body`)
