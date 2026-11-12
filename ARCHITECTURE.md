@@ -376,9 +376,10 @@ Taking `resource.put(data)` as the canonical path:
 5. **Transport** (`internal/request.ts`): the memoized service discovery is
    awaited (see Service discovery), then `zcapClient.request(...)` (ezcap) signs
    the zcap invocation. The zcap `action` is the **HTTP method**
-   (`GET`/`PUT`/...), never ezcap's `read`/`write` -- PWS scopes capabilities by
-   verb. With no bound capability, ezcap synthesizes the root capability for the
-   target URL.
+   (`GET`/`PUT`/...), not ezcap's `read`/`write` -- PWS scopes capabilities by
+   verb. The vocabulary is `GET`, `POST`, `PUT` and `DELETE`. A `HEAD` request
+   is authorized as a `GET` and signs `GET` (`actionForMethod`). With no bound
+   capability, ezcap synthesizes the root capability for the target URL.
 6. **Error mapping** (`src/internal/mapError.ts`): `mapError` dispatches on the
    `application/problem+json` type URI (from `@interop/storage-core`'s
    `ProblemTypes`), falling back to HTTP status, onto the class hierarchy in
@@ -798,9 +799,9 @@ what reconciles plaintext, single-recipient, and multi-recipient (key-epoch)
 collections behind one interface. The pull path rides `Collection.changes()`
 (the signed `POST .../query`, profile `changes`), which likewise never resolves
 the codec. The read-only `GET .../query?profile=changes` form carries the same
-parameters in the query string. It exists for a capability without `POST` (a GET
-and HEAD grant, the share grant a subscription agent holds), which the `POST`
-form refuses, so `changes()` derives the form from the bound capability's
+parameters in the query string. It exists for a capability without `POST` (a
+read-only `GET` grant, the share grant a subscription agent holds), which the
+`POST` form refuses, so `changes()` derives the form from the bound capability's
 `allowedAction` (`GET` when it is stated and excludes `POST`); `method`
 overrides it, and `resourceChanges()` forwards it. The port binds no such
 capability and sends `POST`.
@@ -1071,8 +1072,9 @@ create.
 3. **Reserved path segments are guarded in three places** (handle constructors,
    path builders, path parsing) so e.g. `collection('policy')` can never alias
    the space policy endpoint.
-4. **zcap action equals HTTP method.** Never switch to ezcap's default
-   `read`/`write` actions.
+4. **zcap action equals HTTP method, with `HEAD` signed as `GET`.** Never switch
+   to ezcap's default `read`/`write` actions. `HEAD` is not an action of its
+   own.
 5. **Grants from a handle are rooted at the Space** so they are revocable at
    `{spaceUrl}zcaps/revocations/:capId`. A bare `pws.grant` with no `capability`
    and no `spaceUrl` roots at the target's own root capability and is not
@@ -1214,8 +1216,9 @@ it, and otherwise cover the client-side concepts this file names.
 - **Bound capability** -- the delegated zcap carried on a handle and inherited
   by its children as the default for their requests. See The handle model.
 - **zcap action** -- the action named in a zcap invocation, which in PWS is the
-  HTTP method (`GET`, `PUT`, ...), because PWS scopes capabilities by verb.
-  Avoid: ezcap's `read` / `write` actions.
+  HTTP method (`GET`, `POST`, `PUT`, `DELETE`), because PWS scopes capabilities
+  by verb. A `HEAD` request names `GET`. Avoid: ezcap's `read` / `write`
+  actions; `HEAD` as an action.
 - **Codec seam** -- the interface-only boundary between core and any encryption
   implementation: `ResourceCodec` and `EncryptionProvider` in `src/codec.ts`.
   See The codec seam.

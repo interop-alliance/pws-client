@@ -66,19 +66,6 @@ describe('pws.grant (delegation)', () => {
     expect(lastDelegate()?.allowedActions).toEqual(['GET'])
   })
 
-  it('grants HEAD, the action a HEAD request is verified under', async () => {
-    // Typed, not cast: `ActionInput` names HEAD, so a read grant that covers
-    // a metadata probe needs no escape hatch. The server checks a HEAD
-    // request against the `HEAD` action, not `GET`.
-    const { client, lastDelegate } = clientWithDelegateSpy()
-    await client.grant({
-      to: 'did:example:bob',
-      actions: ['GET', 'head'],
-      target: 'https://pws.example/space/s/c/'
-    })
-    expect(lastDelegate()?.allowedActions).toEqual(['GET', 'HEAD'])
-  })
-
   it('passes through controller, invocationTarget, expires and capability', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     const expires = '2026-01-01T00:00:00Z'
@@ -343,13 +330,11 @@ describe('allowsAction', () => {
     }) as never
 
   it('matches a listed action case-insensitively', () => {
-    expect(allowsAction({ zcap: zcap(['get', 'HEAD']), action: 'GET' })).toBe(
+    expect(allowsAction({ zcap: zcap(['get', 'PUT']), action: 'GET' })).toBe(
       true
     )
     expect(allowsAction({ zcap: zcap('post'), action: 'POST' })).toBe(true)
-    expect(allowsAction({ zcap: zcap(['GET', 'HEAD']), action: 'POST' })).toBe(
-      false
-    )
+    expect(allowsAction({ zcap: zcap(['GET']), action: 'POST' })).toBe(false)
   })
 
   it('reads an absent or empty allowedAction, or no zcap, as unrestricted', () => {
@@ -414,10 +399,51 @@ describe('pws.request action normalization', () => {
     const { client, lastRequest } = clientWithRequestSpy()
     await client.request({
       url: 'https://pws.example/space/s/c/r',
-      method: 'GET',
-      action: 'head'
+      method: 'POST',
+      action: 'get'
     })
-    expect(lastRequest()?.method).toBe('GET')
+    expect(lastRequest()?.method).toBe('POST')
+    expect(lastRequest()?.action).toBe('GET')
+  })
+
+  it('signs a HEAD request with the GET action', async () => {
+    // HEAD is not an action of its own: a HEAD request is authorized as a
+    // GET, so a GET grant covers it.
+    const { client, lastRequest } = clientWithRequestSpy()
+    await client.request({
+      url: 'https://pws.example/space/s/c/r',
+      method: 'head'
+    })
+    expect(lastRequest()?.method).toBe('HEAD')
+    expect(lastRequest()?.action).toBe('GET')
+  })
+
+  it('signs a HEAD request under a GET grant with the GET action', async () => {
+    const { client, lastRequest } = clientWithRequestSpy()
+    const capability = {
+      id: 'urn:zcap:delegated:abc',
+      invocationTarget: 'https://pws.example/space/s/c/',
+      allowedAction: ['GET']
+    } as never
+    await client.request({
+      url: 'https://pws.example/space/s/c/r',
+      method: 'HEAD',
+      capability
+    })
+    expect(lastRequest()?.method).toBe('HEAD')
+    expect(lastRequest()?.action).toBe('GET')
+    expect(lastRequest()?.capability).toBe(capability)
+  })
+
+  it('signs an explicit action as given, on a HEAD request too', async () => {
+    // The escape hatch does not rewrite a caller's action, so a conformance
+    // test can still send the `HEAD` action a server refuses.
+    const { client, lastRequest } = clientWithRequestSpy()
+    await client.request({
+      url: 'https://pws.example/space/s/c/r',
+      method: 'HEAD',
+      action: 'HEAD'
+    })
     expect(lastRequest()?.action).toBe('HEAD')
   })
 })

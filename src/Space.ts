@@ -723,10 +723,10 @@ export class Space {
    * Registers a replica of this Space (`POST /space/:id/replicas`): a peer
    * Space this one pulls from, as a directed edge. The body carries the pull
    * capability the controller delegated to the server's DID (its chain roots
-   * in the peer Space and its `allowedAction` lies within `GET` and `HEAD`),
-   * the peer's `fromSpace` URL, this Space's `toSpace` URL, the `role`
-   * (`source`), and an optional `collections` list naming what to pull (absent
-   * means every Collection).
+   * in the peer Space and its `allowedAction` is `GET`), the peer's
+   * `fromSpace` URL, this Space's `toSpace` URL, the `role` (`source`), and an
+   * optional `collections` list naming what to pull (absent means every
+   * Collection).
    *
    * Authority on the replicas route: every method on it (`GET`, `POST`,
    * `PUT`, `DELETE`) takes the controller's own capability, or a delegated
@@ -931,8 +931,7 @@ export class Space {
    *
    * @param replicaId {string}
    * @param capability {IDelegatedZcap}   the new pull capability: delegated
-   *   to the server's DID, rooted in the peer Space, `allowedAction` within
-   *   `GET` and `HEAD`
+   *   to the server's DID, rooted in the peer Space, `allowedAction` of `GET`
    * @returns {Promise<void>}
    */
   async replaceReplicaCapability(

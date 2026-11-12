@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 160
+nextAvailableId: 166
 
 <!-- roadmap-order:index:start -->
 
@@ -16,6 +16,7 @@ Ready:
 
 - WCL-44 [H] Chunked reads never verify a chunk against its parent document
   (cross-document chunk splice)
+- WCL-161 [H] A reader rotated off the current epoch refuses to write
 - WCL-52 [M] The envelope `sequence` is unauthenticated and never validated on
   read
 - WCL-55 [M] Stale and foreign `indexed` entries are carried forward into the
@@ -56,6 +57,11 @@ Ready:
   head's controller version
 - WCL-155 [M] The state-type rule sits above the log verifier, so a refused head
   advances the pin
+- WCL-163 [M] The encrypt-only cipher refuses a Collection that declares a
+  blinding key
+- WCL-164 [M] A governed descriptor whose log state carries `revisions` is
+  refused as tampering
+- WCL-165 [M] A 404 on a `DELETE` is reported as success
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -82,8 +88,11 @@ Ready:
   unstated in the spec
 - WCL-107 [M] Require an authorization profile entry in the service description
   and read the signature members from it
+- WCL-160 [M] A root invocation of a URL with a query names the root of the URL
+  without it
 - WCL-32 [L] Provisioning creates cannot be made race-safe (no create-if-absent
   precondition)
+- WCL-162 [L] Remove the `application/jose+json` option for stored envelopes
 
 Waiting on another repo:
 
@@ -244,6 +253,43 @@ decision only if a new header member is added instead of reading the existing
 one; that choice needs the maintainer's byte-level sign-off before it is coded.
 
 discovered-from: whole-codebase review, 2026-09-11.
+
+### WCL-161: [H] A reader rotated off the current epoch refuses to write
+
+- status: todo
+- priority: high
+- labels: encryption, key-epochs, security
+- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
+  (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/edv/epochKeys.ts` (`resolveEpochKeys`),
+    `src/edv/EdvCodec.ts` (the write paths), `src/edv/docCipher.ts`, and the
+    rotation text in ARCHITECTURE.md and README.md
+  - portable-web-spaces-spec: WASS-130 (the profile text for the refusal)
+  - wallet-core, freewallet, was-react, dcw: a codec or cipher held across a
+    removal now throws on write where it used to seal a document its holder
+    could not read back
+  - web-spaces-server: unaffected (the refusal is client-side)
+- acceptance:
+  - [ ] `resolveEpochKeys` no longer gives a reader that is not named in
+        `currentEpoch` the public-only write key
+  - [ ] A write through a codec or cipher built for such a reader throws a typed
+        error before any request is sent
+  - [ ] The error's name is chosen by the maintainer before it is coded, since
+        it is a new error-name contract
+  - [ ] Reads of the epochs that still name the reader are unchanged
+  - [ ] The explicit encrypt-only build (`createEdvEncryptOnlyDocCipher`,
+        `encryptOnlyEdvCodec`) is unchanged and still seals to `currentEpoch`
+  - [ ] A test covers a reader removed by `removeRecipient`: its reads pass and
+        its write throws
+
+A reader that holds old epoch secrets and none for `currentEpoch` is built as a
+write-only codec today, through the public-only stand-in the encrypt-only build
+uses. Its caller asked for a reader and is not told. It then writes documents it
+cannot read back, and an update that opens the prior envelope fails later with a
+decrypt error. The decision of 2026-11-12 is to refuse the write. A writer that
+holds no key-agreement key at all is a different, deliberate role and stays.
+Related: WCL-56 covers a write epoch that goes stale inside a long-lived handle.
 
 ### WCL-52: [M] The envelope `sequence` is unauthenticated and never validated on read
 
@@ -903,6 +949,108 @@ controller for the same reason. An option threaded beside `expectedMethod` is
 the cleaner home but brings back an obligation at each call site. The choice
 between the two is open.
 
+### WCL-163: [M] The encrypt-only cipher refuses a Collection that declares a blinding key
+
+- status: todo
+- priority: medium
+- labels: encryption, search, integrity
+- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
+  (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/edv/docCipher.ts`
+    (`createEdvEncryptOnlyDocCipher`), `src/edv/EdvCodec.ts`
+    (`encryptOnlyEdvCodec`), README.md and ARCHITECTURE.md where the write-only
+    cipher is described
+  - portable-web-spaces-spec: WASS-130 (an encrypt-only writer MUST NOT write to
+    an indexable Collection)
+  - wallet-core: unaffected (`recordSealCipher` seals into a Collection with no
+    blinding key); to be confirmed when this lands
+- acceptance:
+  - [ ] Building an encrypt-only cipher or codec from a descriptor that carries
+        an `hmac` member throws `EncryptionError`
+  - [ ] The doc comment that says such a cipher "emits no `indexed` entries" is
+        replaced with the refusal
+  - [ ] A test covers the refusal, and one covers a descriptor with no `hmac`
+
+An encrypt-only writer holds no key-agreement key, so it cannot unwrap the
+blinding key. Pointed at an indexable Collection it writes envelopes with no
+tokens, which no `find()` returns and nothing marks. The profile forbids that
+downgrade. WCL-65 is the same outcome reached through an unreadable `/meta`.
+
+### WCL-164: [M] A governed descriptor whose log state carries `revisions` is refused as tampering
+
+- status: todo
+- priority: medium
+- labels: encryption, governing-log, spec
+- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
+  (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/edv/logGovernedDescriptorStore.ts`
+    (`readGoverned` and the create path), ARCHITECTURE.md's descriptor-store
+    section
+  - portable-web-spaces-spec: WASS-71 (the bullet that restates "strips nothing
+    but `history`")
+  - web-spaces-server: unaffected (it already serves `encryption` as the head
+    `state` without the slot, and `revisions` from the slot)
+  - wallet-core, freewallet: no caller declares `revisions` on a log-governed
+    Collection today; a new option reaches them only if they adopt it
+- acceptance:
+  - [ ] The projection check sets the `revisions` slot of the verified head
+        `state` aside before it compares, so a head that carries the slot reads
+        successfully
+  - [ ] The served `revisions` member is checked against the slot, or against
+        the defaults when the slot is absent, and a difference is an integrity
+        refusal
+  - [ ] The stale-projection search over earlier entries applies the same rule
+  - [ ] The store can declare `revisions` in the genesis state, so an encrypted,
+        log-governed, write-once Collection can be created
+  - [ ] A test reads a Collection whose head state carries the slot
+
+Core reserves one slot beside the descriptor in a governed `state`. The server
+serves `encryption` as the state with the slot taken out. `readGoverned`
+compares the served descriptor to the whole state, so a valid head that carries
+the slot never matches and throws `ResourceLogIntegrityError`. Nothing in
+`src/edv` reads or writes the slot. Decided 2026-11-12: the client changes.
+
+### WCL-165: [M] A 404 on a `DELETE` is reported as success
+
+- status: todo
+- priority: medium
+- labels: authorization, errors, sync
+- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
+  (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/internal/request.ts` (the `idempotent` option),
+    `src/Resource.ts`, `src/Collection.ts`, `src/Space.ts` (`deregisterReplica`
+    and any other delete), `src/sync/port.ts` (`deleteContent`),
+    `src/sync/types.ts`, README.md
+  - portable-web-spaces-spec: unaffected (Delete Resource and Remove
+    registration already say an absent target answers 204 and a 404 is a
+    refusal)
+  - web-spaces-server: unaffected (it answers 204 for an absent target)
+  - was-react, freewallet, dcw, wallet-core: a refused delete now throws, and a
+    sync push no longer drops a refused tombstone as delivered
+- acceptance:
+  - [ ] `Resource.delete()` and `Collection.delete()` throw `NotFoundError` on a
+        404, with or without `ifMatch`
+  - [ ] Every other `DELETE` the client sends is reviewed against the same rule,
+        and the `idempotent` option of `send` is removed if nothing needs it
+  - [ ] The sync port's `deleteContent` reports a 404 as it reports one on a
+        write, under both settings of `mapAuthErrors`, and the "already gone"
+        wording is removed from `src/sync/types.ts`
+  - [ ] `deregisterReplica` returns nothing and throws on a 404, and its doc no
+        longer says an absent registration answers 404
+  - [ ] Tests cover a delete of an absent target (204) and a refused delete
+        (404) for a Resource and for the sync port
+
+The spec uses the delete to separate two cases a 404 otherwise merges. An
+authorized delete of an absent target answers 204, so a 404 means the caller was
+refused or a parent is missing. The client was written as if absence
+answers 404. An unconditional delete swallows the 404 and returns normally, so a
+caller whose capability was revoked sees its delete succeed. The sync port does
+the same and the engine drops the tombstone from its queue. Decided 2026-11-12:
+the client changes.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1339,6 +1487,43 @@ registered `fromSpace`. The client's own replica calls already match the wire
 (WCL-137); this item is the surface that names the DID's placement and the
 reading rules. Related: WCL-143 (the live tests).
 
+### WCL-160: [M] A root invocation of a URL with a query names the root of the URL without it
+
+- status: todo
+- priority: medium
+- labels: spec, zcap, authorization, pagination
+- discovered-from: the spec-vs-server audit of web-spaces-server (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/internal/request.ts` and the list, `changes`,
+    quota and policy reads that add a query; README's authorization notes
+  - web-spaces-server: WSS-255 drops the query-bearing root once this ships
+  - portable-web-spaces-spec: WASS-121 (the compatibility note)
+  - ezcap: unaffected (the default stays; this client stops relying on it)
+- acceptance:
+  - [ ] A request with no capability attached, whose URL carries a query,
+        invokes `urn:zcap:root:<encoded URL without the query>`
+  - [ ] Following a listing's `next` link as the controller sends that id, on
+        every page
+  - [ ] A request with a delegated capability attached is unchanged
+  - [ ] A test asserts the `Capability-Invocation` header for a paginated read,
+        for `?include=collections` on the quota report, and for the `changes`
+        feed `GET`
+  - [ ] The integration suite passes against a server that still accepts both
+        forms
+
+`request()` hands ezcap the URL and no capability for a controller's own
+request. ezcap then derives the root id from that URL as given, query included
+(`generateZcapUri`). The PWS authorization profile says the target is the URL's
+scheme, host, port and path, and that query parameters do not change it. So the
+id this client sends for page two of a listing is one the profile does not
+describe. The reference server accepts it as a second form, which is why it
+works today. A server built from the profile text alone would answer 404 to
+every paginated read made as the controller.
+
+The fix is on this side: pass ezcap the root id of the URL with its query
+removed. ezcap accepts that, since the request URL extends the target only by a
+query.
+
 ### WCL-32: [L] Provisioning creates cannot be made race-safe (no create-if-absent precondition)
 
 - status: in-progress
@@ -1432,6 +1617,40 @@ and `Collection.delete()` resets its codec only after the call succeeds. What is
 missing is the documentation and a test to hold it. `delete()` reads as
 "Idempotent", so a caller has no hint that it can throw over replication state.
 The item waits on WASS-86 because the spec may register a new kind.
+
+### WCL-162: [L] Remove the `application/jose+json` option for stored envelopes
+
+- status: todo
+- priority: low
+- labels: encryption, spec, docs
+- discovered-from: the spec-vs-client audit against portable-web-spaces-spec
+  (2026-11-12)
+- touches:
+  - pws-client (this repo): `src/edv/constants.ts` (`JOSE_CONTENT_TYPE`),
+    `src/edv/cipher.ts`, `src/edv/core.ts`, `src/edv/index.ts` (the exports),
+    `src/edv/PwsTransport.ts` and `src/edv/encryption.ts` (the `contentType`
+    option), and the comments in `src/Resource.ts` and `src/codec.ts`
+  - portable-web-spaces-spec: WASS-132 (the profile names `application/json`)
+  - web-spaces-server: unaffected (it refuses the type on an encrypted
+    Collection already)
+  - freewallet, wallet-core, was-react, dcw: unaffected (none passes the
+    constant)
+- acceptance:
+  - [ ] `JOSE_CONTENT_TYPE` and the `contentType` option that selects it are
+        removed, with a CHANGELOG entry for the removed export
+  - [ ] The comment in `src/edv/constants.ts` no longer says the Encryption
+        Scheme Registry maps `edv` to `application/jose+json`
+  - [ ] The comment in `src/Resource.ts` no longer says the stored envelope is
+        `application/jose+json` by default
+  - [ ] The `PwsTransport` header no longer calls the type preferred, or says a
+        server answers it with 415
+
+Core registers `application/json` as the one stored media type of an `edv`
+envelope, and a server refuses any other with `encryption-scheme-mismatch`. The
+client offers `application/jose+json` as the preferred type, which the reference
+server refuses on an encrypted Collection. Three comments state the registry or
+the default wrongly. Decided 2026-11-12: the profile is corrected and this
+option goes.
 
 ## Features
 
@@ -1630,8 +1849,8 @@ now refuses a mode change over a standing collection itself, with
 `ValidationError`, while `configure` still sends the same write and relies on
 the server's 409. `configure` already reads the stored description before it
 merges, so it could refuse without an extra request. The open question is
-whether it should. A local refusal names the problem before a round trip, but
-it is a second copy of a server rule, and it fails a caller on a server that
+whether it should. A local refusal names the problem before a round trip, but it
+is a second copy of a server rule, and it fails a caller on a server that
 predates the rule.
 
 ### WCL-80: [L] `singleKeyResolver` / `ProfileAgents.keyResolver` is required by the seam but never invoked

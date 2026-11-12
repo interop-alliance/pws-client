@@ -3,8 +3,9 @@
  */
 /**
  * The load-bearing transport layer: wraps `zcapClient.request(...)` on an
- * absolute URL, defaulting the capability `action` to the HTTP method (never
- * ezcap's `read`/`write`). `send()` adds the typed-error
+ * absolute URL, defaulting the capability `action` to the one the HTTP method
+ * is authorized under (see `actionForMethod`), not ezcap's `read`/`write`.
+ * `send()` adds the typed-error
  * mapping and the null-on-404 read translation; `rawRequest()` is the
  * unmapped escape hatch used by `pws.request()`. Every signed request first
  * awaits the context's memoized service discovery, so no request reaches a
@@ -62,6 +63,19 @@ export interface SendInput extends RequestInput {
 }
 
 /**
+ * The capability action an HTTP method is authorized under. The PWS action
+ * vocabulary is `GET`, `POST`, `PUT` and `DELETE`. A `HEAD` request is
+ * authorized as a `GET`, so its invocation names `GET`. Every other method
+ * names itself. `method` is expected in uppercase.
+ *
+ * @param method {string}   the uppercase HTTP method
+ * @returns {string}
+ */
+export function actionForMethod(method: string): string {
+  return method === 'HEAD' ? 'GET' : method
+}
+
+/**
  * Signs and sends a request via the wrapped ezcap client, returning the raw
  * `HttpResponse` and throwing the raw ky/ezcap error. Does not apply error
  * mapping or null-on-404 -- this is the escape-hatch primitive. It waits on
@@ -86,8 +100,10 @@ export async function rawRequest(
     url,
     capability: input.capability,
     method,
-    // Default the capability action to the HTTP method (never `read`/`write`).
-    action: (input.action ?? method).toUpperCase(),
+    // Default the capability action to the one the method is authorized
+    // under. ezcap's own default is the method itself, which would sign a
+    // `HEAD` request as `HEAD`. An explicit `action` is signed as given.
+    action: (input.action ?? actionForMethod(method)).toUpperCase(),
     headers: input.headers,
     json: input.json,
     body: input.body

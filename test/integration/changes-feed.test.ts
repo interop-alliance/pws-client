@@ -7,8 +7,8 @@
  * checkpoint resumption, the record kinds beside Resources, and the
  * server-managed `createdBy` provenance that must reach a replica without a
  * per-resource `/meta` fetch -- and the read-only `GET` form, which a holder
- * of a GET and HEAD grant (a subscription agent's share grant) reads through
- * the same method.
+ * of a GET-only grant (a subscription agent's share grant) reads through the
+ * same method. The same grant covers a `HEAD`, which is authorized as a `GET`.
  *
  * Requires a running server: set `TEST_SERVER_URL`. The suite skips when it is
  * unset, so a bare `pnpm test:integration` (no server) is not a failure.
@@ -132,11 +132,11 @@ describeLive('collection.changes() (live server)', () => {
     expect(rest.documents.length).toBeLessThan(limit)
   })
 
-  it('reads the feed under a GET and HEAD grant, with no POST', async () => {
+  it('reads the feed under a GET-only grant, with no POST', async () => {
     const { pws: agent, did: agentDid } = await freshPwsClient()
     const grant = await notes.grant({
       to: agentDid,
-      actions: ['GET', 'HEAD'],
+      actions: ['GET'],
       expires: new Date(Date.now() + 60 * 60 * 1000)
     })
     const granted = agent
@@ -161,5 +161,20 @@ describeLive('collection.changes() (live server)', () => {
     await expect(granted.changes({ method: 'POST' })).rejects.toThrow(
       NotFoundError
     )
+  })
+
+  it('sends a HEAD under a GET-only grant, signed with the GET action', async () => {
+    const { pws: agent, did: agentDid } = await freshPwsClient()
+    const grant = await notes.grant({
+      to: agentDid,
+      actions: ['GET'],
+      expires: new Date(Date.now() + 60 * 60 * 1000)
+    })
+    const response = await agent.request({
+      url: notes.resource('first').url,
+      method: 'HEAD',
+      capability: grant
+    })
+    expect(response.status).toBe(200)
   })
 })

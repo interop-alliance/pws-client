@@ -865,10 +865,12 @@ export class PwsClient {
 
   /**
    * The signed escape hatch, mirroring ezcap's generic `request()`. Takes an
-   * absolute `url`, defaults `action` to `method`, uppercases both (as
-   * {@link grant} does, so `'put'` signs `PUT`), and signs via the wrapped
-   * client. Returns the raw `HttpResponse` and throws raw ky/ezcap
-   * errors -- it does not apply the null-on-404 or typed-error conveniences.
+   * absolute `url`, defaults `action` to the one `method` is authorized under
+   * (the method itself, except that a `HEAD` request signs `GET`), uppercases
+   * both (as {@link grant} does, so `'put'` signs `PUT`), and signs via the
+   * wrapped client. An explicit `action` is signed as given. Returns the raw
+   * `HttpResponse` and throws raw ky/ezcap errors -- it does not apply the
+   * null-on-404 or typed-error conveniences.
    * Like every signed request it waits on {@link service} first, and rejects
    * with its `IncompatibleServerError` before signing anything.
    *

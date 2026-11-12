@@ -580,7 +580,7 @@ address. The server is the authority on whether the root names a Space.
 const added = await collection.add({ secret: 'value' })
 const zcap = await pws.grant({
   to: bobDid,
-  actions: ['GET'], // HTTP verbs: 'GET' | 'HEAD' | 'PUT' | 'POST' | 'DELETE'
+  actions: ['GET'], // HTTP verbs: 'GET' | 'POST' | 'PUT' | 'DELETE'
   target: added.url,
   spaceUrl: space.url
 })
@@ -604,7 +604,9 @@ const handle = bobPws.fromCapability(zcap, { encryption: 'plaintext' })
 Actions are HTTP verbs (`GET` / `PUT` / `POST` / `DELETE`). The PWS server
 authorizes on these case-sensitively (uppercase), but `grant()` also accepts the
 lowercase forms and normalizes them to uppercase in the signed zcap -- so
-`actions: ['get']` still validates server-side.
+`actions: ['get']` still validates server-side. `HEAD` is not an action. A
+`HEAD` request is authorized as a `GET`: the client signs it with action `GET`,
+and a `GET` grant covers it.
 
 ### Revoking a capability
 
@@ -977,8 +979,8 @@ its own server holds a registration pointing back.
 A registration is a directed edge. `fromSpace` is the peer Space's canonical
 trailing-slash URL, and `toSpace` is this Space's. `role` is always `source`.
 `capability` is the pull capability: a zcap the controller delegates to this
-server's DID, rooted in the peer Space, with `allowedAction` within `GET` and
-`HEAD`. `collections` lists the Collections to pull. Leave it out to pull every
+server's DID, rooted in the peer Space, with `allowedAction` of `GET`.
+`collections` lists the Collections to pull. Leave it out to pull every
 Collection.
 
 ```ts

@@ -1849,9 +1849,9 @@ export class Collection {
    * The query is sent as a `POST` whose body carries the parameters, or in
    * the read-only `GET` form with the parameters in the query string, which
    * the server verifies under the `GET` action and answers with the same page.
-   * A capability whose `allowedAction` excludes `POST` (a GET and HEAD grant
-   * on the collection, say, which is what a subscription agent holds) reads
-   * the feed with `GET`, since the `POST` form refuses it with
+   * A capability whose `allowedAction` excludes `POST` (a read-only `GET`
+   * grant on the collection, say, which is what a subscription agent holds)
+   * reads the feed with `GET`, since the `POST` form refuses it with
    * `NotFoundError`; every other handle sends `POST`. `method` overrides the
    * derived form.
    *

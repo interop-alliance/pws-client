@@ -1,5 +1,16 @@
 # @interop/pws-client Changelog
 
+## 0.108.0 - TBD
+
+### Changed
+
+- **BREAKING**: A signed `HEAD` request names the `GET` capability action. The
+  action vocabulary is `GET`, `POST`, `PUT` and `DELETE`, and a `GET` grant
+  covers `HEAD`. A server that expects the `HEAD` action refuses these requests.
+  `pws.request()` still signs an explicit `action` as given.
+- The README, JSDoc and ARCHITECTURE.md no longer list `HEAD` as an action. A
+  replica's pull capability is described as a `GET` grant.
+
 ## 0.107.0 - 2026-11-12
 
 ### Changed
