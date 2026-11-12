@@ -64,8 +64,8 @@ importers:
         specifier: 11.9.0
         version: 11.9.0
       '@interop/web-spaces-server':
-        specifier: ^0.45.0
-        version: 0.45.0(bare-buffer@3.7.1)
+        specifier: ^0.46.0
+        version: 0.46.0(bare-buffer@3.7.1)
       '@playwright/test':
         specifier: ^1.62.1
         version: 1.65.0
@@ -401,13 +401,11 @@ packages:
     resolution: {integrity: sha512-FMWqpj9KYZw29bAl41RBnRXixoJKPvvs3Jup5LEYzSpKfc6bt8ywkAI8F9zmgFmJNlZyzx9LJWm09sM35d8cRA==}
     engines: {node: '>=24.0'}
 
-  '@interop/space-archive@0.11.1':
-    resolution: {integrity: sha512-IXcs24zEgqaOeG7AtvrEBMo/o1bv8JbkaU1PSO6Gp0Br2/MtZ83qW+twuOM+ia8G1iTDmgHrUnhJzTnoM9ZLiw==}
+  '@interop/space-archive@0.12.0':
+    resolution: {integrity: sha512-eada+rEf/WzbgyHPt9ieBq+XwOg4VqoafeVgfsV059WQcDa9HAeay2z45hNXwsgeAPBzUYi5PKYj5/kg4hAqpA==}
     engines: {node: '>=24.0'}
-
-  '@interop/storage-core@0.43.0':
-    resolution: {integrity: sha512-pa9aoh1WgeKqodIvi74iYR1mQm6v3rpQYbyzvQs73XPE4p01EN7Sh8wkOGZ7hyZTdwPRHd5oDeS2G2qwnUCRMA==}
-    engines: {node: '>=22.0'}
+    peerDependencies:
+      '@interop/storage-core': '>=0.41.0 <1.0.0'
 
   '@interop/storage-core@0.45.0':
     resolution: {integrity: sha512-O3NRqJDULGGZBTf9SrZIMrmr5Tnl9AQxCGkoF9OXOD79pYRSu9Mk/qqAGS+v5dodlAupDehJxE7rMazq0zbO6g==}
@@ -419,8 +417,8 @@ packages:
     peerDependencies:
       '@interop/storage-core': '>=0.44.0'
 
-  '@interop/web-spaces-server@0.45.0':
-    resolution: {integrity: sha512-GWlE01Ue/zkeMPHVvWqBouyjhu/HYZiFkpQnysWdIphCVd5LQ4j9ytG3cSxi5aSrz/7aGDlGw6iuuhlf3FZyNg==}
+  '@interop/web-spaces-server@0.46.0':
+    resolution: {integrity: sha512-f5SoaLOnB8/tbb36NOYmCcpm9tVezpXlTe6WuKIOlytc8nV7WHvdrQLipgRudxKKHPj8vfBzIgfGj3YcFJZysQ==}
     engines: {node: '>=24.0'}
 
   '@interop/x25519-key-agreement-key@5.4.3':
@@ -2193,9 +2191,9 @@ snapshots:
     transitivePeerDependencies:
       - react-native-get-random-values
 
-  '@interop/space-archive@0.11.1(bare-buffer@3.7.1)':
+  '@interop/space-archive@0.12.0(@interop/storage-core@0.45.0)(bare-buffer@3.7.1)':
     dependencies:
-      '@interop/storage-core': 0.43.0
+      '@interop/storage-core': 0.45.0
       events: 3.3.0
       mime-types: 3.0.2
       tar-stream: 3.2.2(bare-buffer@3.7.1)
@@ -2204,10 +2202,6 @@ snapshots:
       - bare-abort-controller
       - bare-buffer
       - react-native-b4a
-
-  '@interop/storage-core@0.43.0':
-    dependencies:
-      '@interop/data-integrity-core': 8.11.0
 
   '@interop/storage-core@0.45.0':
     dependencies:
@@ -2220,7 +2214,7 @@ snapshots:
     transitivePeerDependencies:
       - '@interop/data-integrity-core'
 
-  '@interop/web-spaces-server@0.45.0(bare-buffer@3.7.1)':
+  '@interop/web-spaces-server@0.46.0(bare-buffer@3.7.1)':
     dependencies:
       '@fastify/cors': 11.4.1
       '@fastify/multipart': 10.1.8
@@ -2242,8 +2236,8 @@ snapshots:
       '@interop/lru-memoize': 4.0.3
       '@interop/minimal-cipher': 7.11.1
       '@interop/security-document-loader': 10.1.6
-      '@interop/space-archive': 0.11.1(bare-buffer@3.7.1)
-      '@interop/storage-core': 0.43.0
+      '@interop/space-archive': 0.12.0(@interop/storage-core@0.45.0)(bare-buffer@3.7.1)
+      '@interop/storage-core': 0.45.0
       '@interop/x25519-key-agreement-key': 5.4.3
       '@interop/zcap': 11.4.0
       '@scure/base': 2.4.0
