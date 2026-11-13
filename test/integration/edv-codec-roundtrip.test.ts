@@ -395,11 +395,10 @@ describeLive('metadata slot bindings against a tampering server (live)', () => {
     // envelopes is caught by the `pws.collection` binding rather than by a key
     // miss -- keys alone cannot separate two collections a client can read.
     const description = await collection.describe()
-    const twinDeclared = await space.createCollection({
+    // Declared at creation: the server refuses adding `encryption` to an
+    // existing Collection.
+    await space.createCollection({
       id: 'vault-twin',
-      name: 'Vault Twin'
-    })
-    await twinDeclared.replaceDescription({
       name: 'Vault Twin',
       encryption: description!.encryption
     })
