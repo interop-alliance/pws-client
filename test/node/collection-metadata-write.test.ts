@@ -551,7 +551,7 @@ describe('members this client does not model', () => {
               linkset: 'https://pws.example/space/s/c/linkset',
               createdAt: '2026-01-01T00:00:00Z',
               updatedAt: '2026-01-02T00:00:00Z',
-              createdBy: 'did:example:alice',
+              createdBy: ['did:example:alice'],
               name: 'Docs',
               plaintext: { indexes: ['title'] },
               somethingNewer: { kept: true }

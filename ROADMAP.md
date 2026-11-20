@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 169
+nextAvailableId: 171
 
 <!-- roadmap-order:index:start -->
 
@@ -130,6 +130,7 @@ Ready:
   in decisions/0001
 - WCL-97 [L] Docstring corrections in the EDV transport and the refresh policy
 - WCL-139 [L] Move chunk reaping on a replacing write into the EDV core
+- WCL-170 [L] Share the sync port construction in `sync-port.test.ts`
 
 Waiting on another repo:
 
@@ -2035,6 +2036,26 @@ codec, and gives every transport the same behavior.
 
 discovered-from: simplify review of the chunked `put()` replace work,
 2026-10-26.
+
+### WCL-170: [L] Share the sync port construction in `sync-port.test.ts`
+
+- status: todo
+- priority: low
+- labels: sync, tests
+- discovered-from: simplify review of the `createdBy` list work, 2026-11-20
+- acceptance:
+  - [ ] `test/node/sync-port.test.ts` builds its default port through one local
+        helper that takes the `pws` double
+  - [ ] The cases that pass `capability` or `mapAuthErrors` use the same helper
+        with those options, or keep the explicit call where that reads clearer
+  - [ ] No assertion changes, and `pnpm run test:node` passes
+
+`test/node/sync-port.test.ts` calls `createPwsSyncPort` 56 times. In 52 of them
+the arguments are the same three: the test's `pws` double, `spaceUrlFor(SPACE)`
+and `COLL`. Each call is a five-line literal, so about 260 lines of the file are
+the same setup. A local helper such as `portFor(pws)` reduces each to one line.
+The other four calls add `capability` or `mapAuthErrors`. The helper can take
+those as optional overrides.
 
 ## Someday / Maybe
 

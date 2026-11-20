@@ -14,28 +14,15 @@
  * unset, so a bare `pnpm test:integration` (no server) is not a failure.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { isResourceChange } from '@interop/storage-core'
 
-import { NotFoundError, PwsClient } from '../../src/index.js'
+import { NotFoundError } from '../../src/index.js'
+import type { PwsClient } from '../../src/index.js'
 import type { Collection, Space } from '../../src/index.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
-
-/**
- * Builds a fresh did:key Ed25519 signer, a PWS client over it, and its DID.
- *
- * @returns {Promise<{ pws: PwsClient, did: string }>}
- */
-async function freshPwsClient(): Promise<{ pws: PwsClient; did: string }> {
-  const keyPair = await Ed25519VerificationKey.generate()
-  const pws = PwsClient.fromSigner({
-    baseServerUrl: baseServerUrl!,
-    signer: keyPair.didKeySigner()
-  })
-  return { pws, did: pws.controllerDid }
-}
 
 describeLive('collection.changes() (live server)', () => {
   let pws: PwsClient
@@ -44,7 +31,8 @@ describeLive('collection.changes() (live server)', () => {
   let notes: Collection
 
   beforeAll(async () => {
-    ;({ pws, did } = await freshPwsClient())
+    pws = await freshPwsClient()
+    did = pws.controllerDid
     space = await pws.createSpace({ name: 'Changes Integration' })
     notes = await space.createCollection({ id: 'notes', name: 'Notes' })
     await notes.put('first', { message: 'one' })
@@ -112,9 +100,9 @@ describeLive('collection.changes() (live server)', () => {
     const byId = new Map(
       page.documents.filter(isResourceChange).map(doc => [doc.id, doc])
     )
-    expect(byId.get('first')!.createdBy).toBe(did)
+    expect(byId.get('first')!.createdBy).toEqual([did])
     // Provenance survives the delete, so it replicates with the tombstone.
-    expect(byId.get('doomed')!.createdBy).toBe(did)
+    expect(byId.get('doomed')!.createdBy).toEqual([did])
   })
 
   it('honors limit, and a short page signals catch-up', async () => {
@@ -133,7 +121,8 @@ describeLive('collection.changes() (live server)', () => {
   })
 
   it('reads the feed under a GET-only grant, with no POST', async () => {
-    const { pws: agent, did: agentDid } = await freshPwsClient()
+    const agent = await freshPwsClient()
+    const agentDid = agent.controllerDid
     const grant = await notes.grant({
       to: agentDid,
       actions: ['GET'],
@@ -164,7 +153,8 @@ describeLive('collection.changes() (live server)', () => {
   })
 
   it('sends a HEAD under a GET-only grant, signed with the GET action', async () => {
-    const { pws: agent, did: agentDid } = await freshPwsClient()
+    const agent = await freshPwsClient()
+    const agentDid = agent.controllerDid
     const grant = await notes.grant({
       to: agentDid,
       actions: ['GET'],

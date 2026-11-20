@@ -898,7 +898,7 @@ describe('codec seam: Collection-level metadata routes through the codec', () =>
     const { client } = clientWithRouter({
       encryption,
       readData: {
-        createdBy: 'did:example:alice',
+        createdBy: ['did:example:alice'],
         custom: { jwe: { name: 'decoded' } }
       }
     })

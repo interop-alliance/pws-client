@@ -19,27 +19,14 @@
  * bare `pnpm test:integration` (no server) is not a failure.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient, NotFoundError, ValidationError } from '../../src/index.js'
+import { NotFoundError, ValidationError } from '../../src/index.js'
+import type { PwsClient } from '../../src/index.js'
 import type { IDelegatedZcap, Space } from '../../src/index.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
-
-/**
- * Builds a fresh did:key Ed25519 signer, a PWS client over it, and its DID.
- *
- * @returns {Promise<{ pws: PwsClient, did: string }>}
- */
-async function freshPwsClient(): Promise<{ pws: PwsClient; did: string }> {
-  const keyPair = await Ed25519VerificationKey.generate()
-  const pws = PwsClient.fromSigner({
-    baseServerUrl: baseServerUrl!,
-    signer: keyPair.didKeySigner()
-  })
-  return { pws, did: pws.controllerDid }
-}
 
 describeLive('space.revoke() (live server)', () => {
   let alice: PwsClient
@@ -50,9 +37,10 @@ describeLive('space.revoke() (live server)', () => {
   let spaceUrl: string
 
   beforeAll(async () => {
-    ;({ pws: alice } = await freshPwsClient())
-    ;({ pws: app, did: appDid } = await freshPwsClient())
-    ;({ pws: stranger } = await freshPwsClient())
+    alice = await freshPwsClient()
+    app = await freshPwsClient()
+    appDid = app.controllerDid
+    stranger = await freshPwsClient()
 
     space = await alice.createSpace({ name: 'Revocation Integration' })
     spaceUrl = space.url

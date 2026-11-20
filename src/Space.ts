@@ -40,6 +40,7 @@ import {
 import { delegateGrantAt } from './internal/grant.js'
 import { submitRevocation } from './internal/revoke.js'
 import type { ClientContext } from './internal/request.js'
+import { withCheckedCreatedBy } from './internal/createdBy.js'
 import {
   send,
   readData,
@@ -187,10 +188,8 @@ export class Space {
    * @returns {Promise<SpaceMetadata | null>}
    */
   async describe(): Promise<SpaceMetadata | null> {
-    return readData<SpaceMetadata>(this.#context, {
-      url: this.#metaUrl,
-      capability: this.#capability
-    })
+    const read = await this.describeWithEtag()
+    return read === null ? null : read.description
   }
 
   /**
@@ -211,7 +210,11 @@ export class Space {
       url: this.#metaUrl,
       capability: this.#capability
     })
-    return read === null ? null : { description: read.data, etag: read.etag }
+    if (read === null) {
+      return null
+    }
+    // `createdBy` reaches the caller only as a non-empty array of DIDs.
+    return { description: withCheckedCreatedBy(read.data), etag: read.etag }
   }
 
   /**

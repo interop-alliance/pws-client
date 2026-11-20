@@ -47,6 +47,7 @@ import {
 } from '../internal/conditional.js'
 import { resourceMetaUrl, resourceUrl } from '../internal/paths.js'
 import {
+  isCreatedBy,
   isJsonResourceChange,
   isMetaStamp,
   isWriteStamp,
@@ -173,14 +174,19 @@ function isRefusedCheckpoint(mapped: PwsError): boolean {
  * The port's view of one JSON Resource entry (live or tombstone). The feed's
  * `deleted` becomes `_deleted`, the member the port's consumers read. The
  * feed's bodies are parsed JSON, so the shared type's `unknown` bodies narrow
- * to the `Json` the port contract promises.
+ * to the `Json` the port contract promises. `createdBy` is copied only as a
+ * non-empty array of DIDs.
  *
  * @param doc {ResourceChangeDocument}
  * @returns {WireDoc}
  */
 function toWireDoc(doc: ResourceChangeDocument): WireDoc {
-  const { deleted, ...rest } = doc
-  return { ...rest, _deleted: deleted } as WireDoc
+  const { deleted, createdBy, ...rest } = doc
+  const wireDoc = { ...rest, _deleted: deleted } as WireDoc
+  if (isCreatedBy(createdBy)) {
+    wireDoc.createdBy = createdBy
+  }
+  return wireDoc
 }
 
 /**
@@ -345,8 +351,8 @@ export function createPwsSyncPort({
    * The stamp members come from a `2xx` body in the Resource Metadata shape
    * (an object whose `contentType` is a string and whose `size` is a number,
    * which tells it from an echoed representation). Each stamp is copied whole
-   * or not at all, and `createdBy` only as a string. A `204` has no body and
-   * acks the validator alone.
+   * or not at all, and `createdBy` only as a non-empty array of DIDs. A `204`
+   * has no body and acks the validator alone.
    */
   const writeAck = (response: HttpResponse): WriteAck => {
     const etag = readEtag(response)
@@ -369,7 +375,7 @@ export function createPwsSyncPort({
     if (isMetaStamp(meta)) {
       ack.meta = meta
     }
-    if (typeof createdBy === 'string') {
+    if (isCreatedBy(createdBy)) {
       ack.createdBy = createdBy
     }
     return ack
@@ -533,10 +539,10 @@ export function createPwsSyncPort({
 
       // Metadata (best-effort): the `/meta` body carries the server-managed
       // write stamp (`updatedAt`, `updatedAtCounter`, `originId`), the nested
-      // `meta` stamp of the `/meta` record, the creator DID, the key-epoch id,
-      // the writer-attribution label, and the user-writable `custom`, plus its
-      // own `metaEtag` ETag. A resource with no metadata yet 404s
-      // here; only a hard error propagates.
+      // `meta` stamp of the `/meta` record, the `createdBy` list, the key-epoch
+      // id, the writer-attribution label, and the user-writable `custom`, plus
+      // its own `metaEtag` ETag. A resource with no metadata yet 404s here;
+      // only a hard error propagates.
       const meta = await metaRead
       if (!meta.ok) {
         const mapped = mapError(meta.err)
@@ -566,7 +572,7 @@ export function createPwsSyncPort({
       if (isMetaStamp(metaBody?.meta)) {
         master.meta = metaBody.meta
       }
-      if (metaBody?.createdBy !== undefined) {
+      if (isCreatedBy(metaBody?.createdBy)) {
         master.createdBy = metaBody.createdBy
       }
       if (metaBody?.epoch !== undefined) {

@@ -756,6 +756,15 @@ at all, so on an encrypted collection it reports `custom` as the opaque
 envelope. A server without the endpoint surfaces its 501 as
 `NotImplementedError`.
 
+`createdBy` is a list of DIDs on a Space, a Collection and a Resource alike. A
+create under a delegated capability lists the controller of each delegated
+capability in the chain, root end first and the invoker last. The controller of
+the root capability is left out. For a Collection or a Resource that is the
+Space controller. A root invocation lists the invoker alone. The last entry is
+the party that signed the creating write. Test membership to learn whether a
+given user or app was part of the chain. A read leaves `createdBy` off when the
+server serves anything other than a non-empty list of DIDs.
+
 ```ts
 const meta = await collection.meta() // CollectionMetadata | null (null on a miss)
 

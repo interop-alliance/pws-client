@@ -25,22 +25,10 @@ import {
   spacesRepositoryUrl,
   spaceUrlById
 } from '../../src/paths/index.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
-
-/**
- * Builds a PWS client over a fresh did:key Ed25519 signer.
- *
- * @returns {Promise<PwsClient>}
- */
-async function freshPwsClient(): Promise<PwsClient> {
-  const keyPair = await Ed25519VerificationKey.generate()
-  return PwsClient.fromSigner({
-    baseServerUrl: baseServerUrl!,
-    signer: keyPair.didKeySigner()
-  })
-}
 
 describeLive('service discovery (live server)', () => {
   it('discovers the service description and selects v0.5', async () => {

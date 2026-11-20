@@ -337,7 +337,7 @@ describe('collection.meta()', () => {
     const meta = {
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-02T00:00:00Z',
-      createdBy: 'did:example:alice',
+      createdBy: ['did:example:alice'],
       custom: { name: 'Notes' }
     }
     const { client, calls } = storageClient({ data: meta })
@@ -352,7 +352,7 @@ describe('collection.meta()', () => {
     // The server omits `custom` entirely while it is empty, so the decode side
     // must normalize the absent member rather than surfacing `undefined`.
     const { client } = storageClient({
-      data: { createdBy: 'did:example:alice' }
+      data: { createdBy: ['did:example:alice'] }
     })
     const result = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     expect(result?.custom).toEqual({})

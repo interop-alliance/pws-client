@@ -5279,3 +5279,49 @@ cannot read back, and an update that opens the prior envelope fails later with a
 decrypt error. The decision of 2026-11-12 is to refuse the write. A writer that
 holds no key-agreement key at all is a different, deliberate role and stays.
 Related: WCL-56 covers a write epoch that goes stale inside a long-lived handle.
+
+### WCL-169: [M] [after WSS-264] Read `createdBy` as a list of DIDs
+
+- status: done
+- done: 2026-11-20
+- priority: medium
+- labels: provenance, sync, wire-contract, types
+- discovered-from: web-spaces-server WSS-264 and its decision 0007 (2026-11-17)
+- blocked-by: WSS-264
+- touches:
+  - storage-core: `createdBy?: IDID[]` on the Space, Collection and Resource
+    shapes, shipped in 0.46.0
+  - web-spaces-server: WSS-264 (serves the list), shipped in 0.46.1, the release
+    the integration tests here boot
+  - freewallet: FW-706 (the inbox pass and the storage browser read the member)
+  - wallet-core: WC-316 (range bump; no reader of the member there)
+- acceptance:
+  - [x] `@interop/storage-core` is at `^0.46.1`, so `describe()` on a Space, a
+        Collection and a Resource types `createdBy` as an array of DIDs
+  - [x] The feed document and write ack types in `src/sync/types.ts` carry
+        `createdBy` as an array of DIDs
+  - [x] `writeAck` in `src/sync/port.ts` copies `createdBy` when it is a
+        non-empty array of DID strings, and leaves it off the ack otherwise
+  - [x] The pull path copies a feed document's and a `/meta` body's `createdBy`
+        under the same check
+  - [x] No string `createdBy` is accepted anywhere
+  - [x] Tests cover a root create, a one-link delegated create and a two-link
+        chain, each read back through `describe()`, the write ack and the feed
+  - [x] The docs and JSDoc that call `createdBy` the invoker's DID describe the
+        list
+
+The server records `createdBy` as an array in every case. A delegated create
+lists the controller of each delegated capability in the verified chain, root
+end first and the invoker last, with the Space controller left out. A root
+create lists the invoker alone. A create the provisioning policy granted records
+none.
+
+Landed in the working tree on 2026-11-17. The integration tier boots
+`@interop/web-spaces-server` 0.46.1, the release that serves the list, since
+2026-11-20. The check is `isCreatedBy` from `@interop/storage-core` 0.46.1. The
+sync port applies it, and so do `describe()`, `meta()`, `changes()` and
+`documents()`, through `withCheckedCreatedBy` in `src/internal/createdBy.ts`.
+
+A caller that wants the party that signed the creating write reads the last
+entry. A caller that wants to know whether a user or an app the user delegated
+to created a record tests membership.

@@ -14,11 +14,10 @@
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
 import { bytesOf } from '../helpers/bytes.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
@@ -50,11 +49,7 @@ describeLive(
     let expectedDigest: string
 
     beforeAll(async () => {
-      const keyPair = await Ed25519VerificationKey.generate()
-      const pws = PwsClient.fromSigner({
-        baseServerUrl: baseServerUrl!,
-        signer: keyPair.didKeySigner()
-      })
+      const pws = await freshPwsClient()
       space = await pws.createSpace({ name: 'Large Binary Upload Integration' })
       collection = await space.createCollection({ id: 'files', name: 'Files' })
       body = new Blob([bytesOf(LARGE_BODY_BYTES)], {
