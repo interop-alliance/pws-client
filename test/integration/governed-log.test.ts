@@ -19,7 +19,6 @@
  * The suite skips when it is unset.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import type { ResourceLogEntry } from '@interop/storage-core'
 import {
   ResourceLogConflictError,
@@ -27,14 +26,16 @@ import {
 } from '@interop/vh-resource-log'
 import type { ResourceLogStore } from '@interop/vh-resource-log'
 
-import { PwsClient, ConflictError } from '../../src/index.js'
+import { ConflictError } from '../../src/index.js'
 import type {
   Collection,
   CollectionEncryption,
+  PwsClient,
   Space
 } from '../../src/index.js'
 import { collectionLogUrl } from '../../src/paths/index.js'
 import { resourceLogStore } from '../../src/log/index.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
@@ -105,11 +106,7 @@ describeLive('governing history log (live server)', () => {
   const collectionId = 'vault'
 
   beforeAll(async () => {
-    const keyPair = await Ed25519VerificationKey.generate()
-    owner = PwsClient.fromSigner({
-      baseServerUrl: baseServerUrl!,
-      signer: keyPair.didKeySigner()
-    })
+    owner = await freshPwsClient()
     space = await owner.createSpace({ name: 'Governed Log Integration' })
     // A Collection with no client-written `encryption` descriptor: the only
     // kind a history log may come to govern.

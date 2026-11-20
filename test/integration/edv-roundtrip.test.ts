@@ -18,27 +18,14 @@ import { EdvClientCore } from '@interop/edv-client'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { SHA256HMACKey } from '@interop/data-integrity-core'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient } from '../../src/index.js'
+import type { PwsClient } from '../../src/index.js'
 import type { Space, Collection } from '../../src/index.js'
 import { PwsTransport, JOSE_CONTENT_TYPE } from '../../src/edv/index.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
-
-/**
- * Builds a fresh did:key Ed25519 signer and a PWS client over it.
- *
- * @returns {Promise<PwsClient>}
- */
-async function freshPwsClient(): Promise<PwsClient> {
-  const keyPair = await Ed25519VerificationKey.generate()
-  return PwsClient.fromSigner({
-    baseServerUrl: baseServerUrl!,
-    signer: keyPair.didKeySigner()
-  })
-}
 
 describeLive('EDV-over-PWS round trip (live server)', () => {
   let pws: PwsClient

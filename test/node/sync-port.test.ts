@@ -132,6 +132,18 @@ function metaEntry(checkpoint: string) {
   })
 }
 
+/**
+ * `createdBy` values the port does not copy: anything other than a non-empty
+ * array of DID strings.
+ */
+const REFUSED_CREATED_BY: [string, unknown][] = [
+  ['a single DID string', 'did:key:zCreator'],
+  ['an empty array', []],
+  ['an array with a non-DID entry', ['did:key:zUser', 'not-a-did']],
+  ['an array with a non-string entry', ['did:key:zUser', 42]],
+  ['a number', 42]
+]
+
 describe('createPwsSyncPort.query', () => {
   it('rides the changes() feed and returns documents + checkpoint', async () => {
     const entry = feedEntry({ id: 'a', checkpoint: 'c1', data: { n: 1 } })
@@ -158,6 +170,53 @@ describe('createPwsSyncPort.query', () => {
       checkpoint: 'c1'
     })
   })
+
+  it('carries a createdBy list, on a live document and on a tombstone', async () => {
+    const createdBy = ['did:key:zUser', 'did:key:zApp']
+    const { pws } = makePws({
+      changesResult: {
+        documents: [
+          { ...feedEntry({ id: 'a', checkpoint: 'c1', data: {} }), createdBy },
+          {
+            ...feedEntry({ id: 'gone', checkpoint: 'c2', deleted: true }),
+            createdBy
+          }
+        ],
+        checkpoint: 'c2'
+      }
+    })
+    const port = createPwsSyncPort({
+      pws,
+      spaceUrl: spaceUrlFor(SPACE),
+      collectionId: COLL
+    })
+
+    const { documents } = await port.query({ limit: 50 })
+    expect(documents.map(doc => doc.createdBy)).toEqual([createdBy, createdBy])
+  })
+
+  it.each(REFUSED_CREATED_BY)(
+    'leaves createdBy off a feed document when it is %s',
+    async (_label, createdBy) => {
+      const { pws } = makePws({
+        changesResult: {
+          documents: [
+            { ...feedEntry({ id: 'a', checkpoint: 'c1', data: {} }), createdBy }
+          ],
+          checkpoint: 'c1'
+        }
+      })
+      const port = createPwsSyncPort({
+        pws,
+        spaceUrl: spaceUrlFor(SPACE),
+        collectionId: COLL
+      })
+
+      const { documents } = await port.query({ limit: 50 })
+      expect(documents).toHaveLength(1)
+      expect(documents[0]).not.toHaveProperty('createdBy')
+    }
+  )
 
   it('maps a tombstone to _deleted: true', async () => {
     const { pws } = makePws({
@@ -802,7 +861,7 @@ describe('createPwsSyncPort.get', () => {
                 originId: 'origin-a',
                 generation: 'gMeta'
               },
-              createdBy: 'did:key:zCreator',
+              createdBy: ['did:key:zUser', 'did:key:zCreator'],
               epoch: 'epoch-3',
               writerId: 'writer-a',
               custom: { name: 'Alice' }
@@ -835,7 +894,7 @@ describe('createPwsSyncPort.get', () => {
         generation: 'gMeta'
       },
       data: { a: 1 },
-      createdBy: 'did:key:zCreator',
+      createdBy: ['did:key:zUser', 'did:key:zCreator'],
       epoch: 'epoch-3',
       writerId: 'writer-a',
       custom: { name: 'Alice' },
@@ -885,7 +944,7 @@ describe('createPwsSyncPort.get', () => {
       onRequest: opts => {
         if (opts.url?.endsWith('/meta')) {
           return response(
-            { updatedAt: '2026-01-01T00:00:00.000Z', createdBy: 'did:key:z' },
+            { updatedAt: '2026-01-01T00:00:00.000Z', createdBy: ['did:key:z'] },
             { etag: '"m"' }
           )
         }
@@ -903,10 +962,32 @@ describe('createPwsSyncPort.get', () => {
       etag: '"c"',
       updatedAt: '1970-01-01T00:00:00.000Z',
       data: { a: 1 },
-      createdBy: 'did:key:z',
+      createdBy: ['did:key:z'],
       metaEtag: '"m"'
     })
   })
+
+  it.each(REFUSED_CREATED_BY)(
+    'leaves createdBy off the master state when /meta serves %s',
+    async (_label, createdBy) => {
+      const { pws } = makePws({
+        onRequest: opts => {
+          if (opts.url?.endsWith('/meta')) {
+            return response({ createdBy }, { etag: '"m"' })
+          }
+          return response({ a: 1 }, { etag: '"c"' })
+        }
+      })
+      const port = createPwsSyncPort({
+        pws,
+        spaceUrl: spaceUrlFor(SPACE),
+        collectionId: COLL
+      })
+
+      const master = await port.get({ id: 'res-1' })
+      expect(master).not.toHaveProperty('createdBy')
+    }
+  )
 
   it('returns a placeholder updatedAt when the resource has no /meta yet', async () => {
     const { pws } = makePws({
@@ -1153,7 +1234,7 @@ describe('createPwsSyncPort write ack body', () => {
     contentType: 'application/json',
     size: 7,
     createdAt: '2026-10-04T12:00:00.000Z',
-    createdBy: 'did:key:z6MkCreator',
+    createdBy: ['did:key:z6MkUser', 'did:key:z6MkCreator'],
     ...stamp
   }
 
@@ -1175,7 +1256,7 @@ describe('createPwsSyncPort write ack body', () => {
     expect(ack).toStrictEqual({
       etag: '"g.1"',
       ...stamp,
-      createdBy: 'did:key:z6MkCreator'
+      createdBy: ['did:key:z6MkUser', 'did:key:z6MkCreator']
     })
   })
 
@@ -1270,20 +1351,22 @@ describe('createPwsSyncPort write ack body', () => {
     expect(ack).toStrictEqual({ etag: '"g.4"' })
   })
 
-  it('ignores a non-string createdBy', async () => {
-    const { pws } = makePws({
-      onRequest: () =>
-        response({ ...created, createdBy: 42 }, { etag: '"g.5"' })
-    })
-    const port = createPwsSyncPort({
-      pws,
-      spaceUrl: spaceUrlFor(SPACE),
-      collectionId: COLL
-    })
+  it.each(REFUSED_CREATED_BY)(
+    'leaves createdBy off the ack when it is %s',
+    async (_label, createdBy) => {
+      const { pws } = makePws({
+        onRequest: () => response({ ...created, createdBy }, { etag: '"g.5"' })
+      })
+      const port = createPwsSyncPort({
+        pws,
+        spaceUrl: spaceUrlFor(SPACE),
+        collectionId: COLL
+      })
 
-    const ack = await port.putContent({ id: 'res-1', data: { a: 1 } })
-    expect(ack).toStrictEqual({ etag: '"g.5"', ...stamp })
-  })
+      const ack = await port.putContent({ id: 'res-1', data: { a: 1 } })
+      expect(ack).toStrictEqual({ etag: '"g.5"', ...stamp })
+    }
+  )
 })
 
 describe('createPwsSyncPort mapAuthErrors', () => {

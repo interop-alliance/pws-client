@@ -119,3 +119,5 @@ export type {
 // directly.
 export type { ResourceMetaStamp, WriteStamp } from '@interop/storage-core'
 export { isMetaStamp, isWriteStamp } from '@interop/storage-core'
+// The guard the port copies `createdBy` under, re-exported on the same terms.
+export { isCreatedBy } from '@interop/storage-core'

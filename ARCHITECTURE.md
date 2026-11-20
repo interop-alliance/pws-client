@@ -869,31 +869,36 @@ write's stamp, the `/meta` record's stamp under `meta` on a metadata write, and
 without waiting for the echo. The body is read only in the Resource Metadata
 shape (`contentType` a string, `size` a number), each stamp is copied whole or
 not at all, and a `204` acks the validator alone. Revisions are compared by the
-write stamp instead: `updatedAt`, `updatedAtCounter` and `originId`, ordered as
+write stamp: `updatedAt`, `updatedAtCounter` and `originId`, ordered as
 `(ms, updatedAtCounter, originId)` with `ms` the epoch millisecond value of
 `updatedAt`. `WireDoc` carries the stamp, with the `/meta` record's own stamp
 nested as `meta`, and `MasterState` carries both when the server's `/meta`
-object serves them. Every feed document carries its current `etag` and
-`metaEtag`, so a push loop pins its writes from feed state alone. Two typed
-signals in `src/errors.ts` let a push loop catch exactly what it can handle:
-`PwsSyncConflictError` (412, a subtype of `PreconditionFailedError`) triggers
-re-read-and-reconcile, and `PwsSyncNotFoundError` (404 on delete or on a `/meta`
-write, a subtype of `NotFoundError`) marks an already-gone target: a settled
-outcome for a delete, a delete race for a metadata write. A third,
-`PwsSyncCheckpointError` (400 at `#/checkpoint`, a subtype of
-`ValidationError`), is raised by `query` when the server did not issue the
-presented checkpoint, and tells a pull loop to restart from the beginning. A
-fourth, `PwsSyncAuthError` (401, 403, or the masked 404), is opt-in under
-`mapAuthErrors` and reports revoked access. The port's `putContent` and
-`deleteContent` also stamp the `Key-Epoch` and `Writer-Id` headers, so the
-server records which key epoch a body was encrypted under and which writing
-agent produced the revision. Both headers are declare-or-clear: an omitted value
-clears whatever was stored, so a caller that wants to keep a prior `writerId`
-must resend it on every content write. `putMeta` carries no `writerId`: the
-label is a property of the content record alone, and a metadata write leaves it
-untouched. `writerId` is advisory attribution only -- a replica uses it to
-recognize its own writes echoed back. It is not part of the stamp order, and it
-is never an input to an authorization decision.
+object serves them. `createdBy` is the list of DIDs of the delegation chain the
+Resource was created under, root end first and the invoker last, with the Space
+controller left out. A root invocation lists the invoker alone. The port copies
+it onto an ack, a feed document and a `MasterState` only as a non-empty array of
+DIDs, and drops any other value. The handle reads (`describe()`, `meta()`,
+`changes()`, `documents()`) apply the same check. Every feed document carries
+its current `etag` and `metaEtag`, so a push loop pins its writes from feed
+state alone. Two typed signals in `src/errors.ts` let a push loop catch exactly
+what it can handle: `PwsSyncConflictError` (412, a subtype of
+`PreconditionFailedError`) triggers re-read-and-reconcile, and
+`PwsSyncNotFoundError` (404 on delete or on a `/meta` write, a subtype of
+`NotFoundError`) marks an already-gone target: a settled outcome for a delete, a
+delete race for a metadata write. A third, `PwsSyncCheckpointError` (400 at
+`#/checkpoint`, a subtype of `ValidationError`), is raised by `query` when the
+server did not issue the presented checkpoint, and tells a pull loop to restart
+from the beginning. A fourth, `PwsSyncAuthError` (401, 403, or the masked 404),
+is opt-in under `mapAuthErrors` and reports revoked access. The port's
+`putContent` and `deleteContent` also stamp the `Key-Epoch` and `Writer-Id`
+headers, so the server records which key epoch a body was encrypted under and
+which writing agent produced the revision. Both headers are declare-or-clear: an
+omitted value clears whatever was stored, so a caller that wants to keep a prior
+`writerId` must resend it on every content write. `putMeta` carries no
+`writerId`: the label is a property of the content record alone, and a metadata
+write leaves it untouched. `writerId` is advisory attribution only -- a replica
+uses it to recognize its own writes echoed back. It is not part of the stamp
+order, and it is never an input to an authorization decision.
 
 Bypassing the codec is not bypassing the error mapper. Every failure the port
 catches goes through `mapError` first, so its signals carry the server's

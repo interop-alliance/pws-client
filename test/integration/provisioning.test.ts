@@ -14,11 +14,12 @@
  * when it boots one in-process.
  */
 import { describe, it, beforeAll, expect } from 'vitest'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient, ValidationError } from '../../src/index.js'
+import { ValidationError } from '../../src/index.js'
+import type { PwsClient } from '../../src/index.js'
 import { ensureSpace, ensureSpaceAndCollection } from '../../src/sync/index.js'
 import { EDV_SCHEME_VERSION } from '../../src/edv/constants.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
 const describeLive = baseServerUrl ? describe : describe.skip
@@ -29,11 +30,7 @@ describeLive('sync provisioning (live server)', () => {
   let spaceUrl: string
 
   beforeAll(async () => {
-    const keyPair = await Ed25519VerificationKey.generate()
-    pws = PwsClient.fromSigner({
-      baseServerUrl: baseServerUrl!,
-      signer: keyPair.didKeySigner()
-    })
+    pws = await freshPwsClient()
     spaceId = crypto.randomUUID()
     spaceUrl = pws.space(spaceId).url
   })

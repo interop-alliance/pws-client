@@ -28,6 +28,7 @@ import type {
   CollectionMetadata,
   CollectionWritableFields
 } from '../types.js'
+import { withCheckedCreatedBy } from './createdBy.js'
 
 /**
  * A Collection Metadata object exactly as the server served it. Typed as an
@@ -48,8 +49,9 @@ export type StoredCollectionMetadata = Record<string, unknown>
  * `custom` is normalized on the way out: a stored `null` or an empty plain
  * object both mean "cleared" on the wire, so the returned object carries no
  * `custom` member at all and a reader has one answer to check for rather than
- * three. Every other member is returned as served, and the stored object itself
- * is not modified (a write composes from it verbatim).
+ * three. `createdBy` is kept only as a non-empty array of DIDs. Every other
+ * member is returned as served, and the stored object itself is not modified (a
+ * write composes from it verbatim).
  *
  * @param stored {StoredCollectionMetadata}
  * @returns {CollectionMetadata}
@@ -57,10 +59,11 @@ export type StoredCollectionMetadata = Record<string, unknown>
 export function asCollectionMetadata(
   stored: StoredCollectionMetadata
 ): CollectionMetadata {
-  if (!isClearedCustom(stored.custom)) {
-    return stored as unknown as CollectionMetadata
+  const checked = withCheckedCreatedBy(stored)
+  if (!isClearedCustom(checked.custom)) {
+    return checked as unknown as CollectionMetadata
   }
-  const { custom: _cleared, ...rest } = stored
+  const { custom: _cleared, ...rest } = checked
   return rest as unknown as CollectionMetadata
 }
 

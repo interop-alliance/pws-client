@@ -19,7 +19,7 @@ import type {
   ResourceMetaStamp
 } from '@interop/storage-core'
 import type { CodecRequestContext } from '../codec.js'
-import type { Json } from '../types.js'
+import type { IDID, Json } from '../types.js'
 
 export type { Json }
 
@@ -83,7 +83,9 @@ export interface SyncPage extends Omit<ChangesPage, 'documents'> {
  * `get` resolving `null`, never as a `MasterState`. `updatedAt`,
  * `updatedAtCounter`, `originId`, `meta`, `metaEtag`, `custom`, `createdBy`,
  * `epoch`, and `writerId` are populated from the resource's `/meta` document
- * when it exists.
+ * when it exists. `createdBy` is the list of DIDs of the delegation chain the
+ * resource was created under, the invoker last. It is copied only as a
+ * non-empty array of DIDs.
  *
  * `updatedAt`, `updatedAtCounter` and `originId` are the content record's
  * write stamp, and `meta` is the `/meta` record's own stamp with its
@@ -109,7 +111,7 @@ export interface MasterState {
   metaEtag?: string
   data?: Json
   custom?: Json
-  createdBy?: string
+  createdBy?: IDID[]
   epoch?: string
   writerId?: string
 }
@@ -129,7 +131,9 @@ export interface MasterState {
  * `updatedAtCounter`, `originId`) is copied whole or not at all, as is the
  * `/meta` record's stamp under `meta`, which only a `/meta` write carries.
  * `createdBy` is present only when this write recorded it: a `201`, a
- * re-creation over a tombstone included. A server that answers `204`, or a
+ * re-creation over a tombstone included. It is the list of DIDs of the
+ * delegation chain the Resource was created under, the invoker last. A root
+ * invocation lists the invoker alone. A server that answers `204`, or a
  * body that is not the Resource Metadata shape, acks the `etag` alone.
  */
 export interface WriteAck {
@@ -138,7 +142,7 @@ export interface WriteAck {
   updatedAtCounter?: number
   originId?: string
   meta?: ResourceMetaStamp
-  createdBy?: string
+  createdBy?: IDID[]
 }
 
 /**

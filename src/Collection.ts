@@ -37,6 +37,7 @@ import {
 import { allowsAction, delegateGrantAt } from './internal/grant.js'
 import type { ClientContext } from './internal/request.js'
 import { send, readData } from './internal/request.js'
+import { withCheckedCreatedBy } from './internal/createdBy.js'
 import {
   codecForDescriptor,
   collectionCodecHolder,
@@ -2003,7 +2004,8 @@ export class Collection {
         )
       }
     }
-    return page
+    // `createdBy` reaches the caller only as a non-empty array of DIDs.
+    return { ...page, documents: page.documents.map(withCheckedCreatedBy) }
   }
 
   /**

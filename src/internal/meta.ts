@@ -24,6 +24,7 @@
 import { NotFoundError, PwsServerError } from '../errors.js'
 import { compareAndSwap } from './cas.js'
 import type { StoredCollectionMetadata } from './describe.js'
+import { withCheckedCreatedBy } from './createdBy.js'
 import { collectionMetaUrl } from './paths.js'
 import type { MetaReadSlot, MetaWriteSlot, ResourceCodec } from '../codec.js'
 import type { ClientContext } from './request.js'
@@ -123,7 +124,8 @@ export async function readMeta<
     ...(etagBeforeDecode !== undefined && { etag: etagBeforeDecode }),
     opened: custom
   })
-  const decoded = { ...metadata, custom }
+  // `createdBy` reaches the caller only as a non-empty array of DIDs.
+  const decoded = { ...withCheckedCreatedBy(metadata), custom }
   return etagBeforeDecode !== undefined
     ? { ...decoded, etag: etagBeforeDecode }
     : decoded

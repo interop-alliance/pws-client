@@ -18,10 +18,14 @@
  * The suite skips when it is unset.
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient, KeyUnwrapError } from '../../src/index.js'
-import type { CollectionEncryption, Resource, Space } from '../../src/index.js'
+import { KeyUnwrapError } from '../../src/index.js'
+import type {
+  CollectionEncryption,
+  PwsClient,
+  Resource,
+  Space
+} from '../../src/index.js'
 import {
   initRecipients,
   addRecipient,
@@ -31,6 +35,7 @@ import {
 } from '../../src/edv/index.js'
 import type { EncryptionDescriptorStore } from '../../src/edv/index.js'
 import { resolveEpochKeys } from '../../src/edv/epochKeys.js'
+import { freshPwsClient } from '../helpers/liveClient.js'
 import { makeDidKeyKak as makeReader } from '../helpers/party.js'
 
 const baseServerUrl = process.env.TEST_SERVER_URL
@@ -49,11 +54,7 @@ describeLive('resource-hosted descriptor store (live server)', () => {
   const rosterId = 'user-key.json'
 
   beforeAll(async () => {
-    const keyPair = await Ed25519VerificationKey.generate()
-    owner = PwsClient.fromSigner({
-      baseServerUrl: baseServerUrl!,
-      signer: keyPair.didKeySigner()
-    })
+    owner = await freshPwsClient()
 
     alice = await makeReader()
     bob = await makeReader()

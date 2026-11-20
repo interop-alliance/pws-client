@@ -1,5 +1,30 @@
 # @interop/pws-client Changelog
 
+## 0.110.0 - TBD
+
+### Changed
+
+- **BREAKING**: `createdBy` is a list of DIDs, following
+  `@interop/storage-core@0.46.0`. `describe()` on a Space and a Collection and
+  `meta()` on a Collection and a Resource type it as `IDID[]`, as do the
+  `changes` feed documents and the sync `WireDoc`, `MasterState` and `WriteAck`.
+  A delegated create lists the controller of each delegated capability in the
+  chain, root end first and the invoker last. A root create lists the invoker
+  alone.
+- The sync port copies `createdBy` onto a write ack, a feed document and a
+  `MasterState` only when it is a non-empty array of DIDs. A single DID string
+  is dropped. The check is `isCreatedBy` from `@interop/storage-core@0.46.1`,
+  re-exported from the `sync` entry.
+- `describe()`, `meta()`, `changes()` and `documents()` apply the same check.
+  They leave `createdBy` off the result when the server serves anything else.
+- A server that still serves `createdBy` as a single DID string reads as having
+  recorded none. `@interop/web-spaces-server` serves the list from 0.46.1.
+- **BREAKING**: Bump `@interop/zcap` to `^12.0.0`. A capability with an
+  unsupported or malformed `caveat`, or with a property name that contains `:`
+  or starts with `@`, is refused.
+- Bump `@interop/ezcap` to `^7.6.0` and `@interop/data-integrity-core` to
+  `^8.12.0`.
+
 ## 0.109.0 - 2026-11-12
 
 ### Changed
