@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 171
+nextAvailableId: 172
 
 <!-- roadmap-order:index:start -->
 
@@ -34,8 +34,8 @@ Ready:
 
 - WCL-49 [H] `declareIndex`'s first write is unconditional, so a concurrent
   first declaration is lost
-- WCL-166 [H] A Collection-scoped grant no longer writes the Collection Metadata
-  object
+- WCL-171 [M] A governing log write under a Collection-scoped grant fails with a
+  bare `NotFoundError`
 - WCL-53 [M] `#buildQuery` silently drops query terms a caller named
 - WCL-54 [M] A content-addressed collection accepts an in-place `put()` update
 - WCL-65 [M] A codec resolved without read access to the Collection `/meta`
@@ -510,41 +510,24 @@ client stays exposed until v0.5 lands. Client-only, using preconditions the spec
 and the reference server already define. discovered-from: whole-codebase review,
 2026-09-11.
 
-### WCL-166: [H] A Collection-scoped grant no longer writes the Collection Metadata object
+### WCL-171: [M] A governing log write under a Collection-scoped grant fails with a bare `NotFoundError`
 
 - status: todo
-- priority: high
-- labels: zcap, delegation, collection-metadata, indexes, wire-contract
-- discovered-from: web-spaces-server WSS-260 (2026-11-12)
-- touches:
-  - web-spaces-server: WSS-260. SHIPPED (2026-11-12, unreleased):
-    `PUT /space/:spaceId/:collectionId/meta` admits a root invocation, or a
-    delegated one whose invoked capability targets exactly the Space's canonical
-    URL. A capability targeting the Collection URL, the Metadata URL or a
-    Resource URL answers the masked `not-found` (404)
-  - freewallet: FW-705 (the grants a wallet issues, and who declares an app's
-    indexes)
-  - pws-react: check for a hook that calls one of the writers below under an
-    app's Collection-scoped grant
+- priority: medium
+- labels: zcap, delegation, history-log
+- discovered-from: WCL-166 (2026-11-20)
 - acceptance:
-  - [ ] Every method that sends `PUT .../meta` is listed with the capability it
-        can be invoked under: `configure`, `replaceDescription`, `setMeta`,
-        `setName`, `setTags`, `declareIndex` and `declareIndexes` on a
-        Collection handle, and the create-by-`PUT` path
-  - [ ] A handle built on a capability that does not target the Space URL fails
-        such a write with a typed error that names the cause, before or after
-        the request, in place of a bare `NotFoundError`
-  - [ ] The README and ARCHITECTURE.md say which grant each of those writes
-        needs, and that an app holding one Collection's grant does not declare
-        its own indexes or `encryption`
-  - [ ] The tests that write Collection Metadata under a Collection-scoped
-        delegation are updated, against a server that carries the rule
+  - [ ] `Collection.putHistoryLog` under a delegated capability that does not
+        target the Space URL throws `SpaceGrantRequiredError` before the request
+  - [ ] The check is shared with the Collection Metadata write, not copied
+  - [ ] A node test and a live-server case cover the log write
+  - [ ] The README says which grant the log write needs
 
-The server once admitted any attenuating target on this route, so an app holding
-a grant on one Collection could declare its own blinded indexes and rename the
-Collection. It now applies the container rule the governing log write carries.
-Such an app reads a masked 404 from those writes, which this library maps to
-`NotFoundError`, the same error an absent Collection gives.
+The server applies the same container rule to `PUT .../meta/log` as to
+`PUT .../meta`. WCL-166 added the typed refusal to the Metadata write alone, as
+`#assertSpaceGrant` in `src/Collection.ts`. The log write still goes out and
+comes back as the masked 404. The `./log` store and the recipient flows reach
+the server through `putHistoryLog`, so they inherit the fix.
 
 ### WCL-53: [M] `#buildQuery` silently drops query terms a caller named
 

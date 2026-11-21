@@ -14,6 +14,7 @@ import {
   NotFoundError,
   CapabilityRevokedError,
   CapabilityExpiredError,
+  SpaceGrantRequiredError,
   AlreadyRevokedError,
   ValidationError,
   AuthRequiredError,
@@ -444,6 +445,8 @@ describe('isDenialError', () => {
     expect(isDenialError(new NotFoundError('m'))).toBe(true)
     expect(isDenialError(new CapabilityRevokedError('m'))).toBe(true)
     expect(isDenialError(new CapabilityExpiredError('m'))).toBe(true)
+    expect(isDenialError(new SpaceGrantRequiredError('m'))).toBe(true)
+    expect(isDenialError({ name: 'SpaceGrantRequiredError' })).toBe(true)
     expect(isDenialError(new PwsSyncAuthError(403))).toBe(true)
   })
 

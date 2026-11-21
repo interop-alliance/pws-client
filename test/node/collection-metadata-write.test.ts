@@ -18,15 +18,18 @@ import {
   PwsClient,
   NotFoundError,
   PreconditionFailedError,
+  SpaceGrantRequiredError,
   ValidationError
 } from '../../src/index.js'
 import type {
+  Collection,
   CollectionMetadata,
   EncryptionProvider,
   ResourceCodec
 } from '../../src/index.js'
 import type { RequestArgs } from '../helpers/stubClient.js'
 import {
+  delegatedZcap,
   jsonResponse,
   serviceDescriptionFor,
   baseServerUrlFor,
@@ -829,4 +832,78 @@ describe("Collection.configure() answers with the write's etag", () => {
       .configure({ name: 'Renamed', force: true })
     expect(result).not.toHaveProperty('etag')
   })
+})
+
+describe('a Collection Metadata write needs a grant on the Space URL', () => {
+  const spaceUrl = spaceUrlFor('s')
+
+  /**
+   * A stub client serving one stored Collection, and a handle on it bound to
+   * `capability`.
+   *
+   * @param invocationTarget {string}   what the delegated capability targets
+   * @returns {object} { collection, calls }
+   */
+  function handleUnder(invocationTarget: string): {
+    collection: Collection
+    calls: RequestArgs[]
+  } {
+    const { client, calls } = clientWith(args =>
+      args.method === 'GET'
+        ? served({ id: 'c', type: ['Collection'], name: 'Docs' }, '"1"')
+        : jsonResponse({ status: 204, headers: { etag: '"2"' } })
+    )
+    const collection = client.spaceAt(spaceUrl).collection('c', {
+      capability: delegatedZcap({ spaceUrl, invocationTarget }),
+      encryption: 'plaintext'
+    })
+    return { collection, calls }
+  }
+
+  const writers: Array<[string, (collection: Collection) => Promise<unknown>]> =
+    [
+      ['configure', collection => collection.configure({ name: 'Renamed' })],
+      [
+        'replaceDescription',
+        collection => collection.replaceDescription({ name: 'Renamed' })
+      ],
+      [
+        'the guarded create',
+        collection =>
+          collection.replaceDescription(
+            { name: 'Renamed' },
+            { ifNoneMatch: true }
+          )
+      ],
+      [
+        'setMeta',
+        collection => collection.setMeta({ custom: { name: 'Renamed' } })
+      ],
+      ['setName', collection => collection.setName('Renamed')],
+      ['setTags', collection => collection.setTags({ project: 'demo' })]
+    ]
+
+  // The Collection container URL is the target `collection.grant()` issues.
+  for (const target of [`${spaceUrl}c/`, `${spaceUrl}c`, `${spaceUrl}c/meta`]) {
+    it.each(writers)(
+      `%s is refused before the PUT under a grant on ${target}`,
+      async (_name, write) => {
+        const { collection, calls } = handleUnder(target)
+        const refusal = await write(collection).catch((err: unknown) => err)
+        expect(refusal).toBeInstanceOf(SpaceGrantRequiredError)
+        expect((refusal as SpaceGrantRequiredError).status).toBe(404)
+        expect((refusal as Error).message).toContain(target)
+        expect(calls.filter(call => call.method === 'PUT')).toEqual([])
+      }
+    )
+  }
+
+  it.each(writers)(
+    '%s is sent under a delegated grant on the Space URL',
+    async (_name, write) => {
+      const { collection, calls } = handleUnder(spaceUrl)
+      await write(collection)
+      expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+    }
+  )
 })

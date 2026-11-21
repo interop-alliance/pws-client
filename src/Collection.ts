@@ -30,6 +30,7 @@ import { canonicalSpaceUrl } from './internal/layout.js'
 import { assertNotReserved } from './internal/reserved.js'
 import {
   NotFoundError,
+  SpaceGrantRequiredError,
   ValidationError,
   PwsServerError,
   httpStatus
@@ -507,6 +508,39 @@ export class Collection {
   }
 
   /**
+   * Refuses a Collection Metadata write this handle's capability cannot make.
+   * The server admits `PUT .../meta` under a root invocation, or under a
+   * delegated capability whose target is exactly the Space's canonical URL. A
+   * delegated capability on the Collection, its Metadata or a Resource is
+   * answered the masked 404, which reads the same as an absent Collection.
+   * Checking here names the cause and saves the `PUT`. The error keeps that
+   * answer's 404 `status`.
+   *
+   * @param operation {string}   what the caller is doing, for the message
+   * @throws {SpaceGrantRequiredError}   when the bound capability is delegated
+   *   and does not target the Space URL
+   */
+  #assertSpaceGrant(operation: string): void {
+    const capability = this.#capability
+    if (
+      capability === undefined ||
+      !('parentCapability' in capability) ||
+      capability.invocationTarget === this.spaceUrl
+    ) {
+      return
+    }
+    throw new SpaceGrantRequiredError(
+      `${operation} refused on collection "${this.id}": a Collection ` +
+        'Metadata write needs a capability that targets the Space URL ' +
+        `"${this.spaceUrl}", and this handle's capability targets ` +
+        `"${capability.invocationTarget}". The Space controller, or a holder ` +
+        'of a Space-wide grant, makes this write.',
+      // The status of the answer this refusal stands in for.
+      { status: 404, requestUrl: this.#metaUrl }
+    )
+  }
+
+  /**
    * Writes the Collection Metadata object: one `PUT` at `meta`, a full
    * replacement under the one `ETag` validator. Because it replaces the
    * whole object, `compose` is handed the stored object and returns the write
@@ -576,6 +610,7 @@ export class Collection {
   }): Promise<{ metadata?: CollectionMetadata; etag?: string }> {
     // The create branch below would otherwise drop `ifMatch` silently.
     assertSinglePrecondition({ ifMatch, ifNoneMatch })
+    this.#assertSpaceGrant(operation)
     const put = async (
       body: StoredCollectionMetadata,
       precondition: WritePrecondition
@@ -1125,6 +1160,8 @@ export class Collection {
     meta: { custom?: ResourceMetadataCustomInput } = {},
     options: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
+    // Ahead of the codec, whose resolution reads the object and its keys.
+    this.#assertSpaceGrant('Collection metadata update')
     const codec = await this.#codecForWrite(options.ifNoneMatch === true)
     const slot = { kind: 'collection' } as const
     // The `custom` the winning attempt sent, schema member included: the
@@ -1209,6 +1246,8 @@ export class Collection {
    * @returns {Promise<void>}
    */
   async setName(name: string): Promise<void> {
+    // Ahead of the read `patchCustom` composes against.
+    this.#assertSpaceGrant('Collection name update')
     return patchCustom(
       this.#patchTarget(),
       { name },
@@ -1225,6 +1264,8 @@ export class Collection {
    * @returns {Promise<void>}
    */
   async setTags(tags: Record<string, string>): Promise<void> {
+    // Ahead of the read `patchCustom` composes against.
+    this.#assertSpaceGrant('Collection tags update')
     return patchCustom(
       this.#patchTarget(),
       { tags },

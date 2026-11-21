@@ -34,6 +34,7 @@ export {
   NotFoundError,
   CapabilityRevokedError,
   CapabilityExpiredError,
+  SpaceGrantRequiredError,
   ValidationError,
   AlreadyRevokedError,
   AuthRequiredError,

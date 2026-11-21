@@ -286,7 +286,9 @@ async function readOrCreate<T>({
  * @param [options.capability] {IZcap}   an invocation capability every
  *   request rides (a delegated Space-subtree zcap, say); the root capability
  *   is invoked otherwise. A capability scoped below the bare Space URL cannot
- *   reach the Space half, so a caller holding one supplies `spaceDescription`
+ *   reach the Space half, so a caller holding one supplies `spaceDescription`.
+ *   Such a capability adopts a standing collection. It cannot create an
+ *   absent one, where the guarded create throws `SpaceGrantRequiredError`
  * @param [options.generator] {CollectionGenerator}   the application the
  *   collection is provisioned for (its DID, and optionally the Web origin that
  *   DID was bound to and its canonical URL) -- controller-asserted attribution

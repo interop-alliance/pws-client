@@ -25,6 +25,7 @@ import type { HttpResponse } from '@interop/http-client'
 
 import {
   PwsClient,
+  SpaceGrantRequiredError,
   ValidationError,
   PreconditionFailedError
 } from '../../src/index.js'
@@ -39,6 +40,7 @@ import { createEdvEncryption } from '../../src/edv/index.js'
 import { mintEpoch, wrapEpochSecret } from '../../src/edv/epochCrypto.js'
 import { mintHmacKey } from '../../src/edv/hmacKey.js'
 import {
+  delegatedZcap,
   serviceDescriptionFor,
   baseServerUrlFor,
   spaceUrlFor
@@ -403,6 +405,22 @@ describe('Collection.declareIndex', () => {
     const meta = await client.spaceAt(spaceUrlFor('s')).collection('c').meta()
     const custom = meta?.custom as CustomWithIndexSchema
     expect(custom.indexSchema).toEqual(schema)
+  })
+
+  it('is refused before the PUT under a Collection-scoped grant', async () => {
+    const fixture = await makeIndexableCollection()
+    const { client, calls } = serverFor(fixture)
+    const spaceUrl = spaceUrlFor('s')
+    const collection = client.spaceAt(spaceUrl).collection('c', {
+      capability: delegatedZcap({ spaceUrl, invocationTarget: `${spaceUrl}c` })
+    })
+    await expect(
+      collection.declareIndex({ attribute: 'content.type' })
+    ).rejects.toBeInstanceOf(SpaceGrantRequiredError)
+    await expect(
+      collection.declareIndexes({ indexes: [{ attribute: 'content.type' }] })
+    ).rejects.toBeInstanceOf(SpaceGrantRequiredError)
+    expect(metaCalls(calls, 'PUT')).toBe(0)
   })
 
   it('is idempotent: re-declaring the same index writes nothing', async () => {
