@@ -8,8 +8,9 @@
  * throws the error the test wants `mapError` to see.
  */
 import type { HttpResponse } from '@interop/http-client'
-import type { ServiceDescription } from '../../src/index.js'
+import type { IZcap, ServiceDescription } from '../../src/index.js'
 import { PwsClient } from '../../src/index.js'
+import { rootCapabilityId } from '../../src/paths/index.js'
 
 /**
  * The stub server's origin. The stub lays its URLs out the way the spec does
@@ -200,4 +201,28 @@ export function clientWithRequestSpy({
     })
   })
   return { client, calls, lastRequest: () => calls.at(-1) }
+}
+
+/**
+ * A capability delegated straight from a Space's root capability, unsigned:
+ * enough for a handle to read its chain root and its target off.
+ *
+ * @param options {object}
+ * @param options.spaceUrl {string}   the Space the chain is rooted in
+ * @param options.invocationTarget {string}   the URL the capability targets
+ * @returns {IZcap}
+ */
+export function delegatedZcap({
+  spaceUrl,
+  invocationTarget
+}: {
+  spaceUrl: string
+  invocationTarget: string
+}): IZcap {
+  return {
+    '@context': 'https://w3id.org/zcap/v1',
+    id: 'urn:zcap:delegated',
+    parentCapability: rootCapabilityId(spaceUrl),
+    invocationTarget
+  } as unknown as IZcap
 }

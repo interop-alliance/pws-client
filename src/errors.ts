@@ -92,6 +92,19 @@ export class CapabilityExpiredError extends NotFoundError {
 }
 
 /**
+ * A Collection Metadata write was refused before it was sent, because the
+ * handle's delegated capability does not target the Space URL. The server
+ * admits that write under a root invocation, or under a delegated capability
+ * whose target is exactly the Space's canonical URL. It answers any narrower
+ * grant with the masked 404. That makes this a `NotFoundError`, told apart by
+ * `name`, so a caller can separate a grant that is too narrow from a
+ * Collection that is absent.
+ */
+export class SpaceGrantRequiredError extends NotFoundError {
+  override name = 'SpaceGrantRequiredError'
+}
+
+/**
  * The request was malformed or rejected as invalid (HTTP 400), or well-formed
  * but unprocessable (HTTP 422, e.g. `encryption-scheme-mismatch`).
  */
@@ -479,11 +492,12 @@ export function httpStatus(err: unknown): number | undefined {
 /**
  * Whether an error is a denied invocation: a 401 or 403
  * ({@link AuthRequiredError}), or the 404 PWS answers an unauthorized caller
- * with ({@link NotFoundError}, including its named `CapabilityRevokedError`
- * and `CapabilityExpiredError` forms). A missing target and a denied one are
- * indistinguishable on the wire, so a caller for whom the difference matters
- * settles it with a request whose target is known to exist. Matches by class
- * and by `name`, so an error from another copy of this package classifies too.
+ * with ({@link NotFoundError}, including its named `CapabilityRevokedError`,
+ * `CapabilityExpiredError` and `SpaceGrantRequiredError` forms). A missing
+ * target and a denied one are indistinguishable on the wire, so a caller for
+ * whom the difference matters settles it with a request whose target is known
+ * to exist. Matches by class and by `name`, so an error from another copy of
+ * this package classifies too.
  *
  * @param err {unknown}   the caught error
  * @returns {boolean}
@@ -503,6 +517,7 @@ const DENIAL_ERROR_NAMES = new Set([
   'NotFoundError',
   'CapabilityRevokedError',
   'CapabilityExpiredError',
+  'SpaceGrantRequiredError',
   'PwsSyncAuthError',
   'PwsSyncNotFoundError'
 ])

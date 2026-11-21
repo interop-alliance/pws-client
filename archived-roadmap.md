@@ -5325,3 +5325,49 @@ sync port applies it, and so do `describe()`, `meta()`, `changes()` and
 A caller that wants the party that signed the creating write reads the last
 entry. A caller that wants to know whether a user or an app the user delegated
 to created a record tests membership.
+
+### WCL-166: [H] A Collection-scoped grant no longer writes the Collection Metadata object
+
+- status: done
+- priority: high
+- labels: zcap, delegation, collection-metadata, indexes, wire-contract
+- discovered-from: web-spaces-server WSS-260 (2026-11-12)
+- touches:
+  - web-spaces-server: WSS-260. SHIPPED (2026-11-12, unreleased):
+    `PUT /space/:spaceId/:collectionId/meta` admits a root invocation, or a
+    delegated one whose invoked capability targets exactly the Space's canonical
+    URL. A capability targeting the Collection URL, the Metadata URL or a
+    Resource URL answers the masked `not-found` (404)
+  - freewallet: FW-705, filed (the grants a wallet issues, and who declares an
+    app's indexes)
+  - pws-react: WR-105, filed. `PwsRemoteStore` calls `configure` and
+    `declareIndexes` under the per-collection delegated capability
+- acceptance:
+  - [x] Every method that sends `PUT .../meta` is listed with the capability it
+        can be invoked under: `configure`, `replaceDescription`, `setMeta`,
+        `setName`, `setTags`, `declareIndex` and `declareIndexes` on a
+        Collection handle, and the create-by-`PUT` path
+  - [x] A handle built on a capability that does not target the Space URL fails
+        such a write with a typed error that names the cause, before or after
+        the request, in place of a bare `NotFoundError`
+  - [x] The README and ARCHITECTURE.md say which grant each of those writes
+        needs, and that an app holding one Collection's grant does not declare
+        its own indexes or `encryption`
+  - [x] The tests that write Collection Metadata under a Collection-scoped
+        delegation are updated, against a server that carries the rule
+
+The server once admitted any attenuating target on this route, so an app holding
+a grant on one Collection could declare its own blinded indexes and rename the
+Collection. It now applies the container rule the governing log write carries.
+Such an app reads a masked 404 from those writes, which this library maps to
+`NotFoundError`, the same error an absent Collection gives.
+
+Landed in the working tree on 2026-11-20. Every writer goes through
+`#writeStored` in `src/Collection.ts`, the one sender of `PUT .../meta`, so the
+check sits there as `#assertSpaceGrant`. It runs before the request. A handle
+whose capability is delegated and does not target the Space URL throws
+`SpaceGrantRequiredError`, a `NotFoundError` by class told apart by `name`.
+Create Collection is a `POST` at the Space URL and carries no such rule. No
+existing test wrote Collection Metadata under a Collection-scoped delegation.
+`test/integration/collection-metadata-grant.test.ts` pins the rule against the
+server, and `test/node/collection-metadata-write.test.ts` covers each writer.

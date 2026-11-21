@@ -1163,6 +1163,15 @@ create.
     the first page's origin and base path, never with a username or password in
     it, and only up to a page-count bound (`internal/pagination.ts`). Do not add
     a listing walk that bypasses it.
+12. **Every Collection Metadata `PUT` goes through `#writeStored`.** The path
+    calls `#assertSpaceGrant` first. A delegated capability whose
+    `invocationTarget` is not the handle's canonical Space URL is refused with
+    `SpaceGrantRequiredError` before the `PUT` is sent. The server admits the
+    write only under a root invocation or a Space-targeted delegation, and
+    answers anything narrower with the masked 404, which reads the same as an
+    absent Collection. The pre-flight check names the cause. A handle with no
+    capability, or a root capability, is not checked. Do not add a Collection
+    Metadata writer that sends its own `PUT`.
 
 ## Glossary
 

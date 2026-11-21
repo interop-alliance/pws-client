@@ -1,5 +1,23 @@
 # @interop/pws-client Changelog
 
+## 0.111.0 - TBD
+
+### Added
+
+- `SpaceGrantRequiredError`, a `NotFoundError` told apart by `name`. It is
+  thrown when a Collection Metadata write is refused because the handle's
+  delegated capability does not target the Space URL. `isDenialError` matches
+  it.
+
+### Changed
+
+- A Collection Metadata write (`configure`, `replaceDescription`, `setMeta`,
+  `setName`, `setTags`, `declareIndex`, `declareIndexes`) under a delegated
+  capability that does not target the Space URL now throws
+  `SpaceGrantRequiredError` before the request is sent. The write used to go out
+  and return a bare `NotFoundError` from the server's masked 404. A handle with
+  no capability or a root capability is not checked.
+
 ## 0.110.0 - 2026-11-20
 
 ### Changed

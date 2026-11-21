@@ -601,6 +601,10 @@ descriptor (shared out of band with the grant) for an encrypted one.
 const handle = bobPws.fromCapability(zcap, { encryption: 'plaintext' })
 ```
 
+A Collection-scoped grant (`collection.grant(...)`) does not cover Collection
+Metadata writes either. Those need a grant on the Space itself. See
+[Collection metadata](#collection-metadata).
+
 Actions are HTTP verbs (`GET` / `PUT` / `POST` / `DELETE`). The PWS server
 authorizes on these case-sensitively (uppercase), but `grant()` also accepts the
 lowercase forms and normalizes them to uppercase in the signed zcap -- so
@@ -808,6 +812,44 @@ sent, so `name` / `tags` are never stored as server-visible plaintext, and
 `meta()` decrypts them back for a keyed reader. This is the encrypted
 collection's name/tags surface: by convention the plaintext top-level `name` is
 left unpopulated there.
+
+#### Who may write Collection metadata
+
+The reference server admits a write to the Collection Metadata object only under
+a root invocation (the Space controller), or under a delegated capability whose
+`invocationTarget` is exactly the Space's canonical URL. A delegated capability
+that targets the Collection, its Metadata object or a Resource is answered with
+the masked 404. That reads the same as an absent Collection.
+
+The client checks this before it sends the `PUT`. If the handle's bound
+capability is delegated and does not target the Space URL, the write throws
+`SpaceGrantRequiredError` and no `PUT` is made. A handle with no capability (the
+client's own signer, a root invocation) or a root capability is not checked.
+`SpaceGrantRequiredError` extends `NotFoundError`, is told apart by `name`, and
+carries the 404 `status` of the answer it stands in for.
+
+`declareIndex()` and `declareIndexes()` read the stored schema first, so their
+refusal follows that read. A call that finds every index already declared writes
+nothing and is not refused.
+
+| Writer                                                 | Grant it needs                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `configure()`                                          | Root invocation, or a delegated capability targeting the Space URL |
+| `replaceDescription()` (including `ifNoneMatch: true`) | Same                                                               |
+| `setMeta()`, `setName()`, `setTags()`                  | Same                                                               |
+| `declareIndex()`, `declareIndexes()`                   | Same                                                               |
+
+An app that holds a grant on one Collection therefore reads its metadata and
+reads and writes its Resources. It does not rename the Collection, tag it,
+declare its blinded indexes or declare its `encryption`. The Space controller,
+or a holder of a Space-wide grant, makes those writes. A wallet can declare an
+app's indexes on the app's behalf, for example.
+
+Some calls are not affected. `space.createCollection()` is a `POST` to the Space
+URL, and the server applies no such rule to it. Reads (`describe()`, `meta()`,
+`indexes()`) are not checked. A Resource's own `setMeta()`, `setName()` and
+`setTags()` write that Resource's metadata, and a Collection-scoped or
+Resource-scoped grant still covers them.
 
 #### The governing history log
 
@@ -1346,6 +1388,12 @@ const { count } = await vault.find({
 })
 ```
 
+`declareIndex()` and `declareIndexes()` write the Collection Metadata object, so
+they need Space-level authority (see
+[Who may write Collection metadata](#who-may-write-collection-metadata)). An app
+holding only its Collection's grant does not declare its own indexes. It
+searches with `find()` once the Space controller has declared them.
+
 Attribute names are dotted paths rooted at `content` or `meta` (the document's
 own `meta`, which carries the content type and encoding -- not the PWS `/meta`
 name/tags, which live in a separate envelope and are deliberately not indexed).
@@ -1654,6 +1702,12 @@ encrypts. It is thrown before any request is sent. Writes that seal nothing are
 not refused. After a current recipient re-adds the reader, the same handle
 writes again. A `createEdvDocCipher` cipher must be rebuilt, and a
 `createRefreshingEdvDocCipher` cipher retries once on its own.
+
+A `SpaceGrantRequiredError` (a `NotFoundError`, told apart by `name`) is a
+refused Collection Metadata write: the handle's delegated capability does not
+target the Space URL, which the server would answer with the masked 404. It
+carries that 404 as its `status` and is thrown before the `PUT` is sent. See
+[Who may write Collection metadata](#who-may-write-collection-metadata).
 
 `IncompatibleServerError` comes from service discovery, not from a response
 status. Any signed method, read methods included, throws it when the server
