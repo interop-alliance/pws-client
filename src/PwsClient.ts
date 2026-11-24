@@ -38,7 +38,12 @@ import {
   splitCollectionUrl
 } from './internal/layout.js'
 import type { ClientContext } from './internal/request.js'
-import { send, rawRequest, unsignedRequest } from './internal/request.js'
+import {
+  dereferencedTarget,
+  send,
+  rawRequest,
+  unsignedRequest
+} from './internal/request.js'
 import { parseResource, readJsonData } from './internal/content.js'
 import {
   buildPageWalk,
@@ -51,7 +56,11 @@ import {
 import type { PageWalk } from './internal/pagination.js'
 import { delegateGrant } from './internal/grant.js'
 import { submitRevocation } from './internal/revoke.js'
-import { spaceUrlOf } from './internal/rootCapability.js'
+import {
+  chainRootTarget,
+  spaceUrlAtRoot,
+  spaceUrlOf
+} from './internal/rootCapability.js'
 import { Memo } from './internal/memo.js'
 import {
   discoverService,
@@ -773,6 +782,19 @@ export class PwsClient {
    * the Space, and the server refuses the handle's requests. See `spaceUrlOf`
    * on the `./paths` entry.
    *
+   * A grant may name DID URLs instead, such as
+   * `did:webvh:<scid>:alice.example/photos/`, so that it keeps working when
+   * the Space moves to another provider. The client then dereferences the
+   * root's DID URL to find the Space URL, and the capability's own DID URL to
+   * find what the handle addresses. Both go through the `dereferenceTarget`
+   * hook, which fetches the DID's history log unless it holds a cached copy.
+   * That is why this method is async. An https grant resolves with no
+   * request.
+   *
+   * A chain that mixes the two forms still yields a handle. The server
+   * refuses its requests with the masked 404, which the handle reports as it
+   * reports any other.
+   *
    * A resource-scoped capability cannot read the Collection Metadata object, so
    * an encryption-capable client cannot discover whether the collection is
    * encrypted and fails closed on the first read or write. The `encryption`
@@ -787,19 +809,36 @@ export class PwsClient {
    * @param options {object}
    * @param [options.encryption] {EncryptionOverride}   per-handle encryption
    *   override for the returned handle (see `EncryptionOverride`)
-   * @returns {Space | Collection | Resource}
+   * @returns {Promise<Space | Collection | Resource>}
    * @throws {ValidationError}   when the capability's chain starts at no root
    *   capability or at one whose target cannot be a Space URL, or its
    *   `invocationTarget` is not at or beneath that Space, addresses a
    *   reserved sub-resource with no navigational handle, or is not in
    *   canonical form (so the handle's requests would fall outside it)
+   * @throws {TargetDereferenceError}   when a DID URL the grant names cannot
+   *   be dereferenced
    */
-  fromCapability(
+  async fromCapability(
     zcap: IZcap,
     { encryption }: { encryption?: EncryptionOverride } = {}
-  ): Space | Collection | Resource {
-    const target = zcap.invocationTarget
-    const spaceUrl = spaceUrlOf(zcap)
+  ): Promise<Space | Collection | Resource> {
+    const context = this.#context
+    // Each of the two targets is dereferenced on its own, so a chain that
+    // mixes the https and DID URL forms still locates a handle.
+    const root = chainRootTarget(zcap)
+    const [target, rootTarget] = await Promise.all([
+      dereferencedTarget(context, zcap.invocationTarget),
+      // A grant on the Space itself names the same target twice.
+      root === zcap.invocationTarget
+        ? undefined
+        : dereferencedTarget(context, root)
+    ])
+    const spaceUrl = spaceUrlAtRoot({ zcap, target: rootTarget ?? target })
+    // The target as the capability names it, for the error messages.
+    const named =
+      target === zcap.invocationTarget
+        ? `"${target}"`
+        : `"${zcap.invocationTarget}" (dereferenced to "${target}")`
     // `parseSpaceTarget` owns the grammar beneath a Space: it percent-decodes
     // each segment (the builders re-encode every id) and classifies the full
     // segment list, so a sub-resource target (`{s}policy`, `{s}{c}/{r}/meta`,
@@ -809,20 +848,19 @@ export class PwsClient {
     const parsed = parseSpaceTarget({ spaceUrl, target })
     if (parsed === null) {
       throw new ValidationError(
-        `Cannot derive a handle from invocationTarget "${target}": it does ` +
+        `Cannot derive a handle from invocationTarget ${named}: it does ` +
           `not address anything at or beneath the Space "${spaceUrl}" the ` +
           'capability is rooted in.'
       )
     }
     if (parsed.kind === 'sub-resource') {
       throw new ValidationError(
-        `invocationTarget "${target}" addresses a reserved ` +
+        `invocationTarget ${named} addresses a reserved ` +
           'sub-resource, which has no navigational handle. Invoke it via the ' +
           'owning handle instead (e.g. `space.getPolicy()` / ' +
           '`resource.meta()`), or use the `pws.request()` escape hatch.'
       )
     }
-    const context = this.#context
     let handle: Space | Collection | Resource
     if (parsed.kind === 'resource') {
       handle = new Resource({
@@ -856,7 +894,7 @@ export class PwsClient {
       })
     ) {
       throw new ValidationError(
-        `invocationTarget "${target}" is not in canonical form: the handle ` +
+        `invocationTarget ${named} is not in canonical form: the handle ` +
           `would address "${handle.url}", which the capability does not cover.`
       )
     }

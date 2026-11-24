@@ -515,7 +515,7 @@ describe('fromCapability forwards a per-handle encryption override', () => {
     // cannot tell a plaintext collection from an encrypted one. The resource
     // GET, which overlaps the codec resolution, is covered and goes out.
     const { client, calls } = clientWithRouter({ encryption })
-    const handle = client.fromCapability(scoped) as Resource
+    const handle = (await client.fromCapability(scoped)) as Resource
     await expect(handle.get()).rejects.toThrow(EncryptionError)
     expect(calls.map(call => call.url)).toEqual([
       'https://pws.example/space/s/c/r'
@@ -543,9 +543,9 @@ describe('fromCapability forwards a per-handle encryption override', () => {
 
   it("reads and writes a plaintext collection with a 'plaintext' override", async () => {
     const { client, calls } = clientWithRouter({ encryption })
-    const handle = client.fromCapability(scoped, {
+    const handle = (await client.fromCapability(scoped, {
       encryption: 'plaintext'
-    }) as Resource
+    })) as Resource
     await handle.put({ hello: 'world' })
     expect(calls.find(call => call.method === 'PUT')?.json).toEqual({
       hello: 'world'
@@ -561,9 +561,9 @@ describe('fromCapability forwards a per-handle encryption override', () => {
       }
     }
     const { client, calls } = clientWithRouter({ encryption: logging })
-    const handle = client.fromCapability(scoped, {
+    const handle = (await client.fromCapability(scoped, {
       encryption: { scheme: 'edv' }
-    }) as Resource
+    })) as Resource
     await handle.put({ secret: 1 })
     expect(log).toContain('codecFor')
     expect(log).toContain('encode:r')

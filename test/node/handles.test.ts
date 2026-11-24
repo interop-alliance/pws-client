@@ -105,18 +105,18 @@ describe('lazy handles', () => {
     }
   })
 
-  it('rejects a Space URL whose id is a malformed percent escape at construction', () => {
+  it('rejects a Space URL whose id is a malformed percent escape at construction', async () => {
     const client = stubClient()
     expect(() => client.spaceAt('https://pws.example/space/%ff/')).toThrow(
       ValidationError
     )
-    expect(() =>
+    await expect(
       client.fromCapability({
         id: 'urn:uuid:child',
         parentCapability: rootCapabilityId('https://pws.example/space/%ff/'),
         invocationTarget: 'https://pws.example/space/%ff/c/'
       } as unknown as IZcap)
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
     // Every handle beneath such a Space refuses it too, not only the Space
     // handle that decodes the id.
     expect(() =>
@@ -175,8 +175,8 @@ describe('fromCapability', () => {
     } as unknown as IZcap
   }
 
-  it('rebuilds a Space handle from a space-scoped invocationTarget', () => {
-    const handle = client.fromCapability(
+  it('rebuilds a Space handle from a space-scoped invocationTarget', async () => {
+    const handle = await client.fromCapability(
       zcapFor('https://pws.example/space/s/')
     )
     expect(handle).toBeInstanceOf(Space)
@@ -184,14 +184,16 @@ describe('fromCapability', () => {
     expect((handle as Space).url).toBe(spaceUrl)
   })
 
-  it('reads the bare Space form as the Space', () => {
-    const handle = client.fromCapability(zcapFor('https://pws.example/space/s'))
+  it('reads the bare Space form as the Space', async () => {
+    const handle = await client.fromCapability(
+      zcapFor('https://pws.example/space/s')
+    )
     expect(handle).toBeInstanceOf(Space)
     expect((handle as Space).url).toBe(spaceUrl)
   })
 
-  it('rebuilds a Collection handle from a collection-scoped target', () => {
-    const handle = client.fromCapability(
+  it('rebuilds a Collection handle from a collection-scoped target', async () => {
+    const handle = await client.fromCapability(
       zcapFor('https://pws.example/space/s/c')
     )
     expect(handle).toBeInstanceOf(Collection)
@@ -200,8 +202,8 @@ describe('fromCapability', () => {
     expect((handle as Collection).url).toBe('https://pws.example/space/s/c/')
   })
 
-  it('rebuilds a Resource handle from a resource-scoped target', () => {
-    const handle = client.fromCapability(
+  it('rebuilds a Resource handle from a resource-scoped target', async () => {
+    const handle = await client.fromCapability(
       zcapFor('https://pws.example/space/s/c/r')
     )
     expect(handle).toBeInstanceOf(Resource)
@@ -211,20 +213,20 @@ describe('fromCapability', () => {
     expect((handle as Resource).url).toBe('https://pws.example/space/s/c/r')
   })
 
-  it('throws for an invocationTarget outside the Space the chain roots at', () => {
+  it('throws for an invocationTarget outside the Space the chain roots at', async () => {
     for (const target of [
       'https://pws.example/other/x',
       'https://pws.example/space/s2/c/',
       'https://elsewhere.example/space/s/c/'
     ]) {
-      expect(() => client.fromCapability(zcapFor(target))).toThrow(
+      await expect(client.fromCapability(zcapFor(target))).rejects.toThrow(
         /not address anything at or beneath the Space/
       )
     }
   })
 
-  it('reads the Space off proof.capabilityChain in a multi-level chain', () => {
-    const handle = client.fromCapability({
+  it('reads the Space off proof.capabilityChain in a multi-level chain', async () => {
+    const handle = await client.fromCapability({
       id: 'urn:uuid:grandchild',
       parentCapability: 'urn:uuid:child',
       invocationTarget: 'https://pws.example/space/s/c/r',
@@ -234,8 +236,8 @@ describe('fromCapability', () => {
     expect((handle as Resource).url).toBe('https://pws.example/space/s/c/r')
   })
 
-  it('rebuilds a Space handle from the Space root capability itself', () => {
-    const handle = client.fromCapability({
+  it('rebuilds a Space handle from the Space root capability itself', async () => {
+    const handle = await client.fromCapability({
       '@context': 'https://w3id.org/zcap/v1',
       id: rootCapabilityId(spaceUrl),
       invocationTarget: spaceUrl,
@@ -245,24 +247,24 @@ describe('fromCapability', () => {
     expect((handle as Space).url).toBe(spaceUrl)
   })
 
-  it('throws when the chain is not rooted in a Space', () => {
-    expect(() =>
+  it('throws when the chain is not rooted in a Space', async () => {
+    await expect(
       client.fromCapability({
         id: 'urn:uuid:child',
         parentCapability: 'urn:uuid:parent',
         invocationTarget: 'https://pws.example/space/s/c/'
       } as unknown as IZcap)
-    ).toThrow(/not rooted in a Space/)
-    expect(() =>
+    ).rejects.toThrow(/not rooted in a Space/)
+    await expect(
       client.fromCapability(
         zcapFor('https://pws.example/space/s/c/', 'https://pws.example/')
       )
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
   })
 
-  it('opens a Space on another server, as the chain names it', () => {
+  it('opens a Space on another server, as the chain names it', async () => {
     const elsewhere = 'https://elsewhere.example/pws/space/s/'
-    const handle = client.fromCapability(
+    const handle = await client.fromCapability(
       zcapFor('https://elsewhere.example/pws/space/s/c/', elsewhere)
     )
     expect(handle).toBeInstanceOf(Collection)
@@ -270,26 +272,26 @@ describe('fromCapability', () => {
     expect((handle as Collection).url).toBe(`${elsewhere}c/`)
   })
 
-  it('refuses a target not in canonical form, which no handle request could invoke', () => {
+  it('refuses a target not in canonical form, which no handle request could invoke', async () => {
     for (const target of [
       'https://PWS.example/space/s/c/r',
       'https://pws.example:443/space/s/c/r',
       'https://pws.example/space/s/c//'
     ]) {
-      expect(() => client.fromCapability(zcapFor(target))).toThrow(
+      await expect(client.fromCapability(zcapFor(target))).rejects.toThrow(
         ValidationError
       )
     }
   })
 
-  it('throws a ValidationError (not a raw TypeError) on a malformed target', () => {
-    expect(() => client.fromCapability(zcapFor('not a url'))).toThrow(
+  it('throws a ValidationError (not a raw TypeError) on a malformed target', async () => {
+    await expect(client.fromCapability(zcapFor('not a url'))).rejects.toThrow(
       ValidationError
     )
   })
 
-  it('decodes percent-encoded id segments so they are not double-encoded', () => {
-    const handle = client.fromCapability(
+  it('decodes percent-encoded id segments so they are not double-encoded', async () => {
+    const handle = await client.fromCapability(
       zcapFor(
         'https://pws.example/space/a%20b/c%2Fd',
         'https://pws.example/space/a%20b/'
@@ -302,28 +304,28 @@ describe('fromCapability', () => {
     )
   })
 
-  it('throws for a 5-segment sub-resource target instead of dropping the tail', () => {
+  it('throws for a 5-segment sub-resource target instead of dropping the tail', async () => {
     // A capability delegated against `{spaceUrl}c/r/meta` must not come back
     // as a Resource handle for `{spaceUrl}c/r` -- the handle would sign invocations
     // against the content URL with a capability targeting the meta URL.
-    expect(() =>
+    await expect(
       client.fromCapability(zcapFor('https://pws.example/space/s/c/r/meta'))
-    ).toThrow(ValidationError)
-    expect(() =>
+    ).rejects.toThrow(ValidationError)
+    await expect(
       client.fromCapability(zcapFor('https://pws.example/space/s/c/r/meta'))
-    ).toThrow(/sub-resource/)
+    ).rejects.toThrow(/sub-resource/)
   })
 
-  it('throws for a collection-policy target instead of a reserved-id error', () => {
-    expect(() =>
+  it('throws for a collection-policy target instead of a reserved-id error', async () => {
+    await expect(
       client.fromCapability(zcapFor('https://pws.example/space/s/c/policy'))
-    ).toThrow(/sub-resource/)
+    ).rejects.toThrow(/sub-resource/)
   })
 
-  it('throws for a space-policy target instead of a Collection("policy")', () => {
-    expect(() =>
+  it('throws for a space-policy target instead of a Collection("policy")', async () => {
+    await expect(
       client.fromCapability(zcapFor('https://pws.example/space/s/policy'))
-    ).toThrow(/sub-resource/)
+    ).rejects.toThrow(/sub-resource/)
   })
 })
 
@@ -701,7 +703,7 @@ describe('a client fixed on a Space (forSpace)', () => {
       .grant({ to: 'did:example:bob', actions: ['GET'] })
     expect(zcap.parentCapability).toBe(rootCapabilityId(ALICE))
     expect(zcap.invocationTarget).toBe('https://alice.example/posts/')
-    const handle = client.fromCapability(zcap)
+    const handle = await client.fromCapability(zcap)
     expect(handle).toBeInstanceOf(Collection)
     expect((handle as Collection).url).toBe('https://alice.example/posts/')
     expect((handle as Collection).spaceUrl).toBe(ALICE)

@@ -5570,3 +5570,65 @@ and `hasFeature` reads those entries too. A companion stays optional.
 `SUPPORTED_AUTHZ_PROFILE_VERSIONS` holds `0.1`. Whether discovery also checks
 `signatureAlgorithms` and `zcapCryptosuites` against what the client signs with
 is WCL-175.
+
+### WCL-173: [M] [blocks 1] [after WSS-245] A delegate holds a DID-form grant: async `fromCapability`, `send()` and the Collection grant check
+
+- status: done 2026-11-23
+- priority: medium
+- labels: zcap, webvh, portability, breaking
+- discovered-from: web-spaces-server WSS-245 (2026-11-23)
+- blocked-by: WSS-245
+- blocks: WCL-174
+- touches:
+  - pws-client (this repo): shipped. `src/PwsClient.ts` (`fromCapability`),
+    `src/internal/rootCapability.ts` (`chainRootTarget`, `spaceUrlAtRoot`),
+    `src/internal/request.ts` (`dereferencedTarget`, `send()`),
+    `src/Collection.ts` (`#assertSpaceGrant`), README.md, ARCHITECTURE.md.
+    `src/internal/grant.ts` is unchanged: re-delegation from a handle built on a
+    DID-form grant is WCL-176, and issuing is WCL-174
+  - web-spaces-server: 0.47.0 carries `did-url-targets`, and this repo's
+    devDependency range is `^0.47.0`
+  - `@interop/ezcap`: already shipped (the range is `^7.9.0`)
+  - freewallet: FW-716 filed (callers of `fromCapability` in the agent and
+    requester tests)
+  - pws-conformance-suite: PWSCS-40 filed
+  - pws-react: WR-107 filed (`AudienceReader.open` and `replaceCapability`
+    become async)
+  - did-cli-typescript: CLI-32 filed
+- acceptance:
+  - [x] `PwsClient.fromCapability` is async for every grant. This is a breaking
+        change with no compatibility shim, and every caller moves in the same
+        pass
+  - [x] An https grant resolves with no fetch
+  - [x] A DID-form grant dereferences its root target to find the Space URL, and
+        the client addresses requests there
+  - [x] `send()` compares the request URL with the dereferenced target of the
+        invoked capability, not with the DID URL string
+  - [x] `#assertSpaceGrant` compares the dereferenced target of the grant with
+        the Space URL, so a delegate holding a DID-form Space grant can use the
+        Collection handle
+  - [x] A chain that mixes the two forms is refused by the server as the masked
+        `not-found`, and the client reports it as it reports any refusal
+  - [x] Tests against web-spaces-server: a delegate reads and writes under a
+        DID-form grant, a grant for another Space is refused, and a mixed-form
+        chain is refused
+
+Context: a delegate receives a grant whose root and links name a DID URL such as
+`did:webvh:<scid>:alice.example/photos/`. Today the client assumes the grant's
+`invocationTarget` is the https URL it sends to. Everything that reads the
+target (finding the Space, comparing the request URL, the Collection handle's
+guard) therefore breaks for a DID-form grant. The client has to dereference the
+target first, through the `dereferenceTarget` option or the default of the item
+before this one. Dereferencing is a fetch for a DID not hosted by the server, so
+`fromCapability` must become async. An https grant stays offline.
+
+Settled by the maintainer on 2026-11-23: `fromCapability` is async for every
+grant, as one breaking change.
+
+Landed in the working tree on 2026-11-23. The root's target and the grant's own
+target are dereferenced independently, so the client does not detect a
+mixed-form chain and the server's masked `not-found` is what the caller sees.
+`send()` hands ezcap the URL it already dereferenced, so the hook runs once per
+handle request. A failure of a caller's hook is wrapped in
+`TargetDereferenceError`. `pws.revoke()` still refuses a DID-form grant, which
+is part of WCL-174.

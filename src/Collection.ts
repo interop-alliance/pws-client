@@ -37,7 +37,7 @@ import {
 } from './errors.js'
 import { allowsAction, delegateGrantAt } from './internal/grant.js'
 import type { ClientContext } from './internal/request.js'
-import { send, readData } from './internal/request.js'
+import { dereferencedTarget, send, readData } from './internal/request.js'
 import { withCheckedCreatedBy } from './internal/createdBy.js'
 import {
   codecForDescriptor,
@@ -516,17 +516,30 @@ export class Collection {
    * Checking here names the cause and saves the `PUT`. The error keeps that
    * answer's 404 `status`.
    *
+   * A DID URL target is dereferenced first, so a grant on the Space in DID
+   * URL form passes as its https form does.
+   *
    * @param operation {string}   what the caller is doing, for the message
+   * @returns {Promise<void>}
    * @throws {SpaceGrantRequiredError}   when the bound capability is delegated
    *   and does not target the Space URL
+   * @throws {TargetDereferenceError}   when the capability's DID URL target
+   *   cannot be dereferenced
    */
-  #assertSpaceGrant(operation: string): void {
+  async #assertSpaceGrant(operation: string): Promise<void> {
     const capability = this.#capability
     if (
       capability === undefined ||
       !('parentCapability' in capability) ||
       capability.invocationTarget === this.spaceUrl
     ) {
+      return
+    }
+    const target = await dereferencedTarget(
+      this.#context,
+      capability.invocationTarget
+    )
+    if (target === this.spaceUrl) {
       return
     }
     throw new SpaceGrantRequiredError(
@@ -610,7 +623,7 @@ export class Collection {
   }): Promise<{ metadata?: CollectionMetadata; etag?: string }> {
     // The create branch below would otherwise drop `ifMatch` silently.
     assertSinglePrecondition({ ifMatch, ifNoneMatch })
-    this.#assertSpaceGrant(operation)
+    await this.#assertSpaceGrant(operation)
     const put = async (
       body: StoredCollectionMetadata,
       precondition: WritePrecondition
@@ -1161,7 +1174,7 @@ export class Collection {
     options: WritePrecondition = {}
   ): Promise<{ etag?: string }> {
     // Ahead of the codec, whose resolution reads the object and its keys.
-    this.#assertSpaceGrant('Collection metadata update')
+    await this.#assertSpaceGrant('Collection metadata update')
     const codec = await this.#codecForWrite(options.ifNoneMatch === true)
     const slot = { kind: 'collection' } as const
     // The `custom` the winning attempt sent, schema member included: the
@@ -1247,7 +1260,7 @@ export class Collection {
    */
   async setName(name: string): Promise<void> {
     // Ahead of the read `patchCustom` composes against.
-    this.#assertSpaceGrant('Collection name update')
+    await this.#assertSpaceGrant('Collection name update')
     return patchCustom(
       this.#patchTarget(),
       { name },
@@ -1265,7 +1278,7 @@ export class Collection {
    */
   async setTags(tags: Record<string, string>): Promise<void> {
     // Ahead of the read `patchCustom` composes against.
-    this.#assertSpaceGrant('Collection tags update')
+    await this.#assertSpaceGrant('Collection tags update')
     return patchCustom(
       this.#patchTarget(),
       { tags },

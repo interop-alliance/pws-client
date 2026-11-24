@@ -115,6 +115,57 @@ function chainRootId(zcap: IZcap): string | undefined {
 }
 
 /**
+ * The invocation target of the root capability a chain starts at, as the
+ * root's id encodes it. It is an https URL, or a DID URL for a chain in DID
+ * URL form.
+ *
+ * @param zcap {IZcap}   the capability to read
+ * @returns {string}
+ * @throws {ValidationError}   when the chain does not start at a root
+ *   capability id
+ */
+export function chainRootTarget(zcap: IZcap): string {
+  const rootId = chainRootId(zcap)
+  const target = rootId === undefined ? null : rootCapabilityTarget(rootId)
+  if (target === null) {
+    throw new ValidationError(
+      `Cannot derive a Space from capability "${zcap.id}": its chain does ` +
+        'not start at a root capability id (`urn:zcap:root:...`), so it is ' +
+        'not rooted in a Space.'
+    )
+  }
+  return target
+}
+
+/**
+ * The canonical Space URL for the URL a chain's root capability names.
+ *
+ * @param options {object}
+ * @param options.zcap {IZcap}   the capability, for the error message
+ * @param options.target {string}   the URL the root names. For a chain in
+ *   DID URL form it is the URL the root's DID URL dereferences to
+ * @returns {string}
+ * @throws {ValidationError}   when `target` cannot be a Space URL
+ */
+export function spaceUrlAtRoot({
+  zcap,
+  target
+}: {
+  zcap: IZcap
+  target: string
+}): string {
+  try {
+    return canonicalSpaceUrl(target)
+  } catch (err) {
+    throw new ValidationError(
+      `Cannot derive a Space from capability "${zcap.id}": its root ` +
+        `capability names "${target}", which is not a Space URL.`,
+      { cause: err }
+    )
+  }
+}
+
+/**
  * The URL of the Space a capability is rooted in, read off its delegation
  * chain: a Space-rooted capability's chain starts at the Space's root
  * capability, whose id encodes the Space URL. The result is in canonical
@@ -132,28 +183,14 @@ function chainRootId(zcap: IZcap): string | undefined {
  * no `spaceUrl`, the mode for a server with no Space hierarchy, roots at
  * its target and is not revocable this way by design.
  *
+ * This function is offline, so it refuses a chain whose root names a DID
+ * URL. `PwsClient.fromCapability` dereferences such a root first.
+ *
  * @param zcap {IZcap}   the capability to locate
  * @returns {string}
  * @throws {ValidationError}   when the chain does not start at a root
  *   capability id, or that id names something that cannot be a Space URL
  */
 export function spaceUrlOf(zcap: IZcap): string {
-  const rootId = chainRootId(zcap)
-  const target = rootId === undefined ? null : rootCapabilityTarget(rootId)
-  if (target === null) {
-    throw new ValidationError(
-      `Cannot derive a Space from capability "${zcap.id}": its chain does ` +
-        'not start at a root capability id (`urn:zcap:root:...`), so it is ' +
-        'not rooted in a Space.'
-    )
-  }
-  try {
-    return canonicalSpaceUrl(target)
-  } catch (err) {
-    throw new ValidationError(
-      `Cannot derive a Space from capability "${zcap.id}": its root ` +
-        `capability names "${target}", which is not a Space URL.`,
-      { cause: err }
-    )
-  }
+  return spaceUrlAtRoot({ zcap, target: chainRootTarget(zcap) })
 }

@@ -251,26 +251,33 @@ client-side controller). Per-handle state on top of that:
   children a resolver thunk so they share the parent's memoized codec (and its
   `reset()`). A standalone `Resource` resolves its own. Codecs stay per-handle:
   a handle may carry an encryption override.
-- `PwsClient.fromCapability(zcap, options)` reads the Space off the capability's
-  delegation chain root with `spaceUrlOf`. The root id is `urn:zcap:root:` plus
-  the encoded Space URL, taken from the first entry of the delegation proof's
-  `capabilityChain` (the proof carrying one, wherever it sits in a proof set),
-  else from `parentCapability`, else from the zcap's own `id` when it is a root
-  zcap. The root's target is taken to be the Space URL: a Space URL has no shape
-  of its own, so the client cannot tell a Space root from a Collection root, and
-  only a root whose target cannot be a Space URL at all throws
-  `ValidationError`. The server, which knows its hierarchy, refuses the rest (a
-  revocation whose chain does not root in the Space, a handle's requests beneath
-  a URL that is no Space). It then parses `invocationTarget` back into a handle
-  at the right depth via `parseSpaceTarget({ spaceUrl, target })`, forwarding
-  `options.encryption` as the handle's override (a resource-scoped capability
-  cannot read the Collection Metadata object, so an encryption-capable client
-  needs the override to resolve a codec at all). A target outside the Space
-  throws `ValidationError`, as does a target not in canonical form: `send`
-  matches request URLs against the target by string prefix, so a handle built on
-  an upper-case host or an explicit default port could invoke nothing. A
-  capability from another party needs no server known in advance, since the
-  Space URL comes from the capability itself.
+- `PwsClient.fromCapability(zcap, options)` is async. It reads the Space off the
+  capability's delegation chain root (`chainRootTarget`, then `spaceUrlAtRoot`,
+  the two halves of `spaceUrlOf`). Both the root's target and the capability's
+  own `invocationTarget` first pass through `dereferencedTarget` in
+  `internal/request.ts`. That function returns an https target as it is, with no
+  call to the hook, and maps a DID URL target through the context's
+  `dereferenceTarget`. So an https grant resolves offline, and a grant in DID
+  URL form costs a dereference. The two are dereferenced independently, so a
+  chain that mixes the forms still yields a handle, and the server refuses its
+  requests. The root id is `urn:zcap:root:` plus the encoded Space URL, taken
+  from the first entry of the delegation proof's `capabilityChain` (the proof
+  carrying one, wherever it sits in a proof set), else from `parentCapability`,
+  else from the zcap's own `id` when it is a root zcap. The root's target is
+  taken to be the Space URL: a Space URL has no shape of its own, so the client
+  cannot tell a Space root from a Collection root, and only a root whose target
+  cannot be a Space URL at all throws `ValidationError`. The server, which knows
+  its hierarchy, refuses the rest (a revocation whose chain does not root in the
+  Space, a handle's requests beneath a URL that is no Space). It then parses
+  `invocationTarget` back into a handle at the right depth via
+  `parseSpaceTarget({ spaceUrl, target })`, forwarding `options.encryption` as
+  the handle's override (a resource-scoped capability cannot read the Collection
+  Metadata object, so an encryption-capable client needs the override to resolve
+  a codec at all). A target outside the Space throws `ValidationError`, as does
+  a target not in canonical form: `send` matches request URLs against the target
+  by string prefix, so a handle built on an upper-case host or an explicit
+  default port could invoke nothing. A capability from another party needs no
+  server known in advance, since the Space URL comes from the capability itself.
 - `PwsClient.spaceAt(spaceUrl, options)` opens a handle on an absolute Space URL
   after canonicalizing it (`canonicalSpaceUrl`: trailing slash added, host
   lower-cased). A received Space URL is never checked against the base.
@@ -341,8 +348,12 @@ locally: `null` for a `read` or `idempotent` request, `NotFoundError` otherwise.
 The check is `isValidTarget` from `@interop/zcap`, the rule the server's
 verifier applies (the target is a RESTful prefix of the URL, or equal to it, as
 a plain string comparison), so the two cannot disagree on host case or a default
-port. This is what makes codec discovery under a resource-scoped capability fail
-closed with `EncryptionError` instead of a generic transport error.
+port. A DID URL target is dereferenced first with `dereferencedTarget`, and the
+request URL is compared with the https URL it names. A target that cannot be
+dereferenced rejects with `TargetDereferenceError` whatever the 404
+translations. This is what makes codec discovery under a resource-scoped
+capability fail closed with `EncryptionError` instead of a generic transport
+error.
 
 Failure classes:
 
@@ -417,11 +428,12 @@ Taking `resource.put(data)` as the canonical path:
    (`GET`/`PUT`/...), not ezcap's `read`/`write` -- PWS scopes capabilities by
    verb. The vocabulary is `GET`, `POST`, `PUT` and `DELETE`. A `HEAD` request
    is authorized as a `GET` and signs `GET` (`actionForMethod`). With no bound
-   capability, ezcap synthesizes the root capability for the target URL. The
-   context's `dereferenceTarget` goes to ezcap on every request. ezcap calls it
-   only when the capability's `invocationTarget` is a DID URL, then checks the
-   request `url` against the result. Only `pws.request()` carries such a request
-   today.
+   capability, ezcap synthesizes the root capability for the target URL. ezcap
+   takes a `dereferenceTarget` hook on every request. It calls the hook only
+   when the capability's `invocationTarget` is a DID URL, then checks the
+   request `url` against the result. `pws.request()` hands ezcap the context's
+   hook. `send()` has already dereferenced the target for its own check, so it
+   hands ezcap a hook that returns that URL and the context's hook runs once.
 6. **Error mapping** (`src/internal/mapError.ts`): `mapError` dispatches on the
    `application/problem+json` type URI (from `@interop/storage-core`'s
    `ProblemTypes`), falling back to HTTP status, onto the class hierarchy in
@@ -1207,13 +1219,14 @@ create.
     a listing walk that bypasses it.
 12. **Every Collection Metadata `PUT` goes through `#writeStored`.** The path
     calls `#assertSpaceGrant` first. A delegated capability whose
-    `invocationTarget` is not the handle's canonical Space URL is refused with
-    `SpaceGrantRequiredError` before the `PUT` is sent. The server admits the
-    write only under a root invocation or a Space-targeted delegation, and
-    answers anything narrower with the masked 404, which reads the same as an
-    absent Collection. The pre-flight check names the cause. A handle with no
-    capability, or a root capability, is not checked. Do not add a Collection
-    Metadata writer that sends its own `PUT`.
+    `invocationTarget` is not the handle's canonical Space URL, and is not a DID
+    URL that dereferences to it, is refused with `SpaceGrantRequiredError`
+    before the `PUT` is sent. The server admits the write only under a root
+    invocation or a Space-targeted delegation, and answers anything narrower
+    with the masked 404, which reads the same as an absent Collection. The
+    pre-flight check names the cause. A handle with no capability, or a root
+    capability, is not checked. Do not add a Collection Metadata writer that
+    sends its own `PUT`.
 
 ## Glossary
 

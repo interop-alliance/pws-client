@@ -111,9 +111,9 @@ describe('a Space whose URL carries a path prefix', () => {
     ])
   })
 
-  it('derives a resource handle beneath the prefix', () => {
+  it('derives a resource handle beneath the prefix', async () => {
     const { client } = recordingClient()
-    const handle = client.fromCapability(
+    const handle = await client.fromCapability(
       zcapFor('https://host/pws/v1/space/s/c/r')
     )
     expect(handle).toBeInstanceOf(Resource)
@@ -124,33 +124,35 @@ describe('a Space whose URL carries a path prefix', () => {
     expect(resource.url).toBe('https://host/pws/v1/space/s/c/r')
   })
 
-  it('derives a collection handle beneath the prefix', () => {
+  it('derives a collection handle beneath the prefix', async () => {
     const { client } = recordingClient()
-    const handle = client.fromCapability(
+    const handle = await client.fromCapability(
       zcapFor('https://host/pws/v1/space/s/c')
     )
     expect(handle).toBeInstanceOf(Collection)
     expect((handle as Collection).url).toBe('https://host/pws/v1/space/s/c/')
   })
 
-  it('derives a space handle beneath the prefix', () => {
+  it('derives a space handle beneath the prefix', async () => {
     const { client } = recordingClient()
-    const handle = client.fromCapability(zcapFor('https://host/pws/v1/space/s'))
+    const handle = await client.fromCapability(
+      zcapFor('https://host/pws/v1/space/s')
+    )
     expect(handle).toBeInstanceOf(Space)
     expect((handle as Space).id).toBe('s')
     expect((handle as Space).url).toBe(spaceUrl)
   })
 
-  it('rejects a target without the prefix or on another origin', () => {
+  it('rejects a target without the prefix or on another origin', async () => {
     const { client } = recordingClient()
     // Right origin, no `/pws/v1/` prefix.
-    expect(() =>
+    await expect(
       client.fromCapability(zcapFor('https://host/space/s/c/'))
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
     // Different origin entirely.
-    expect(() =>
+    await expect(
       client.fromCapability(zcapFor('https://other/pws/v1/space/s/c/'))
-    ).toThrow(ValidationError)
+    ).rejects.toThrow(ValidationError)
   })
 })
 
@@ -633,7 +635,7 @@ describe('Resource conditional writes', () => {
       parentCapability: rootCapabilityId(spaceUrlFor('s')),
       invocationTarget: 'https://pws.example/space/s/c/r'
     } as unknown as IZcap
-    const resource = client.fromCapability(capability) as Resource
+    const resource = (await client.fromCapability(capability)) as Resource
 
     await resource.put({ a: 1 }, { ifMatch: '"g.1"' })
     await resource.delete({ ifMatch: '"g.1"' })

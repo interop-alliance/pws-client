@@ -14,6 +14,10 @@
  * stands in for both the server and the host of the DID log. It covers the
  * built-in dereferencer the client loads on first use, a caller's override,
  * and an https capability, which never calls the hook.
+ *
+ * The third suite covers a delegate holding a grant in DID URL form:
+ * `fromCapability`, the request URL check of the handles, and the Collection
+ * Metadata write guard.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
@@ -26,7 +30,14 @@ import {
 import type { DIDLog, ServiceEndpoint } from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
-import { PwsClient } from '../../src/index.js'
+import {
+  Collection,
+  NotFoundError,
+  PwsClient,
+  Resource,
+  Space,
+  SpaceGrantRequiredError
+} from '../../src/index.js'
 import type { ISigner, IZcap } from '../../src/index.js'
 import {
   TARGET_CACHE_TTL,
@@ -41,28 +52,10 @@ import {
   serviceDescriptionFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
+import { pathHandler } from '../helpers/pathHandler.js'
 
 const SPACE_URL = spaceUrlFor('s1')
 const MOVED_SPACE_URL = 'https://other.example/space/s1/'
-
-/**
- * A `PathHandler` service mounting `path` at `serviceEndpoint`.
- *
- * @param options {object}
- * @param options.path {string}
- * @param options.serviceEndpoint {string}
- * @returns {ServiceEndpoint}
- */
-function pathHandler({
-  path,
-  serviceEndpoint
-}: {
-  path: string
-  serviceEndpoint: string
-}): ServiceEndpoint {
-  const id = path === '/' ? '#root' : `#${path.slice(1).replace(/\//g, '-')}`
-  return { id, type: 'PathHandler', path, serviceEndpoint }
-}
 
 /**
  * Mints a `did:webvh` whose document carries the given services.
@@ -503,5 +496,258 @@ describe('PwsClient dereferenceTarget', () => {
     })
     await pws.request({ url: resourceUrl, capability })
     expect(dereferenceTarget).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a delegate holding a DID-form grant', () => {
+  const resourceUrl = `${SPACE_URL}photos/doc-1`
+  let ownerSigner: ISigner
+  let bobSigner: ISigner
+  let dereferenceTarget: ReturnType<typeof createTargetDereferencer>
+  let logFetches: string[]
+
+  beforeAll(async () => {
+    ownerSigner = (
+      await Ed25519VerificationKey.generate()
+    ).didKeySigner() as ISigner
+    bobSigner = (
+      await Ed25519VerificationKey.generate()
+    ).didKeySigner() as ISigner
+  })
+
+  /**
+   * Stubs the global `fetch` as the server, and gives the delegate a
+   * dereferencer over a separate stub that serves the DID log.
+   *
+   * @returns {Request[]}   the requests the server saw, in order
+   */
+  function stubServer(): Request[] {
+    const host = logHost()
+    logFetches = host.calls
+    dereferenceTarget = createTargetDereferencer({ fetch: host.fetch })
+    const requests: Request[] = []
+    vi.stubGlobal(
+      'fetch',
+      async (input: string | Request, init?: RequestInit) => {
+        requests.push(
+          typeof input === 'string' ? new Request(input, init) : input
+        )
+        return new Response(JSON.stringify({ photo: 1 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+    )
+    return requests
+  }
+
+  /**
+   * The delegate's client.
+   *
+   * @returns {PwsClient}
+   */
+  function bobClient(): PwsClient {
+    return PwsClient.fromSigner({
+      baseServerUrl: baseServerUrlFor(),
+      signer: bobSigner,
+      serviceDescription: serviceDescriptionFor(),
+      dereferenceTarget
+    })
+  }
+
+  /**
+   * A grant to the delegate, signed by the owner.
+   *
+   * @param options {object}
+   * @param options.root {string}   the target of the chain's root capability
+   * @param options.target {string}   the grant's invocation target
+   * @returns {Promise<IZcap>}
+   */
+  async function grant({
+    root,
+    target
+  }: {
+    root: string
+    target: string
+  }): Promise<IZcap> {
+    const owner = PwsClient.fromSigner({
+      baseServerUrl: baseServerUrlFor(),
+      signer: ownerSigner
+    })
+    return owner.zcapClient.delegate({
+      capability: rootCapabilityId(root),
+      invocationTarget: target,
+      controller: (bobSigner.id as string).split('#')[0] as string,
+      allowedActions: ['GET', 'PUT'],
+      expires: new Date(Date.now() + 60 * 60 * 1000)
+    })
+  }
+
+  it('resolves an https grant with no fetch', async () => {
+    const requests = stubServer()
+    const zcap = await grant({ root: SPACE_URL, target: `${SPACE_URL}photos/` })
+    const handle = await bobClient().fromCapability(zcap)
+    expect(handle).toBeInstanceOf(Collection)
+    expect(handle.url).toBe(`${SPACE_URL}photos/`)
+    expect(logFetches).toEqual([])
+    expect(requests).toEqual([])
+  })
+
+  it('finds the Space and the handle of a DID-form grant by dereferencing', async () => {
+    const requests = stubServer()
+    const pws = bobClient()
+    const collection = await pws.fromCapability(
+      await grant({ root: `${did}/`, target: `${did}/photos/` })
+    )
+    expect(collection).toBeInstanceOf(Collection)
+    expect(collection.url).toBe(`${SPACE_URL}photos/`)
+    expect((collection as Collection).spaceUrl).toBe(SPACE_URL)
+
+    const resource = await pws.fromCapability(
+      await grant({ root: `${did}/`, target: `${did}/photos/doc-1` })
+    )
+    expect(resource).toBeInstanceOf(Resource)
+    expect(resource.url).toBe(resourceUrl)
+
+    const space = await pws.fromCapability(
+      await grant({ root: `${did}/`, target: `${did}/` })
+    )
+    expect(space).toBeInstanceOf(Space)
+    expect(space.url).toBe(SPACE_URL)
+    // Only the DID log was fetched, and nothing was sent to the server.
+    expect(new Set(logFetches)).toEqual(new Set([logUrl]))
+    expect(requests).toEqual([])
+  })
+
+  it('sends a handle request to the dereferenced URL under the DID-form grant', async () => {
+    const requests = stubServer()
+    const zcap = await grant({ root: `${did}/`, target: `${did}/photos/` })
+    const collection = (await bobClient().fromCapability(zcap)) as Collection
+    await expect(collection.get('doc-1')).resolves.toEqual({ photo: 1 })
+    expect(requests.map(request => request.url)).toEqual([resourceUrl])
+    expect(requests[0]?.headers.get('capability-invocation')).toContain(
+      'capability="'
+    )
+  })
+
+  it('answers a request outside the dereferenced target without sending', async () => {
+    const requests = stubServer()
+    const zcap = await grant({ root: `${did}/`, target: `${did}/photos/` })
+    const albums = bobClient()
+      .spaceAt(SPACE_URL)
+      .collection('albums', { capability: zcap })
+    await expect(albums.get('a-1')).resolves.toBeNull()
+    await expect(albums.put('a-1', { album: 1 })).rejects.toThrow(
+      /lies outside the capability's invocation target/
+    )
+    expect(requests).toEqual([])
+  })
+
+  it('reports a target that does not dereference, even on a read', async () => {
+    stubServer()
+    const pws = bobClient()
+    const unmapped = await grant({
+      root: `${did}/`,
+      target: 'did:web:alice.example/photos/'
+    })
+    await expect(pws.fromCapability(unmapped)).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+    const photos = pws
+      .spaceAt(SPACE_URL)
+      .collection('photos', { capability: unmapped })
+    await expect(photos.get('doc-1')).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+  })
+
+  it('wraps a failure of a caller-supplied hook', async () => {
+    stubServer()
+    // A `PwsError` of the hook is wrapped too: left as it is, its 404 status
+    // would read as an absent resource.
+    for (const cause of [
+      new Error('resolver offline'),
+      new NotFoundError('no such DID log', { status: 404 })
+    ]) {
+      const pws = PwsClient.fromSigner({
+        baseServerUrl: baseServerUrlFor(),
+        signer: bobSigner,
+        serviceDescription: serviceDescriptionFor(),
+        dereferenceTarget: async () => {
+          throw cause
+        }
+      })
+      const refusal = await pws
+        .fromCapability(
+          await grant({ root: `${did}/`, target: `${did}/photos/` })
+        )
+        .catch((err: unknown) => err)
+      expect(refusal).toBeInstanceOf(TargetDereferenceError)
+      expect((refusal as Error).cause).toBe(cause)
+    }
+  })
+
+  it('refuses a DID-form grant whose target lies outside its root', async () => {
+    stubServer()
+    const pws = PwsClient.fromSigner({
+      baseServerUrl: baseServerUrlFor(),
+      signer: bobSigner,
+      serviceDescription: serviceDescriptionFor(),
+      dereferenceTarget: async ({ invocationTarget }) =>
+        invocationTarget.endsWith('/elsewhere/') ? spaceUrlFor('s2') : SPACE_URL
+    })
+    await expect(
+      pws.fromCapability(
+        await grant({ root: `${did}/`, target: `${did}/elsewhere/` })
+      )
+    ).rejects.toThrow(/not address anything at or beneath the Space/)
+  })
+
+  it('builds a handle for a chain that mixes the two forms, and sends', async () => {
+    const requests = stubServer()
+    const pws = bobClient()
+    for (const mixed of [
+      { root: SPACE_URL, target: `${did}/photos/` },
+      { root: `${did}/`, target: `${SPACE_URL}photos/` }
+    ]) {
+      const collection = (await pws.fromCapability(
+        await grant(mixed)
+      )) as Collection
+      expect(collection.url).toBe(`${SPACE_URL}photos/`)
+      await collection.get('doc-1')
+    }
+    // The server is the one that refuses a mixed chain.
+    expect(requests.map(request => request.url)).toEqual([
+      resourceUrl,
+      resourceUrl
+    ])
+  })
+
+  it('admits a Collection Metadata write under a DID-form Space grant', async () => {
+    const requests = stubServer()
+    const space = (await bobClient().fromCapability(
+      await grant({ root: `${did}/`, target: `${did}/` })
+    )) as Space
+    // The stub serves no validator, so the write fails later. What matters
+    // is that it got past the guard and reached the server.
+    const outcome = await space
+      .collection('photos')
+      .setName('Renamed')
+      .catch((err: unknown) => err)
+    expect(outcome).not.toBeInstanceOf(SpaceGrantRequiredError)
+    expect(requests.map(request => request.url)).toContain(
+      `${SPACE_URL}photos/meta`
+    )
+  })
+
+  it('refuses that write under a DID-form Collection grant', async () => {
+    const requests = stubServer()
+    const collection = (await bobClient().fromCapability(
+      await grant({ root: `${did}/`, target: `${did}/photos/` })
+    )) as Collection
+    await expect(collection.setName('Renamed')).rejects.toBeInstanceOf(
+      SpaceGrantRequiredError
+    )
+    expect(requests).toEqual([])
   })
 })

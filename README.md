@@ -609,6 +609,9 @@ zcap whose chain starts at no root capability, or at one whose target cannot be
 a Space URL, is refused with `ValidationError`, as is one whose
 `invocationTarget` is not the canonical form of the URL the handle would
 address. The server is the authority on whether the root names a Space.
+`fromCapability()` is async. An https grant resolves with no request. A grant in
+DID URL form is dereferenced first (see
+[DID URL capability targets](#did-url-capability-targets-did-url)).
 
 ```ts
 // Alice grants Bob read access to a resource.
@@ -621,7 +624,7 @@ const zcap = await pws.grant({
 })
 
 // Bob, holding the zcap, rebuilds a handle at the right depth.
-const handle = bobPws.fromCapability(zcap) // a Resource here
+const handle = await bobPws.fromCapability(zcap) // a Resource here
 await handle.get() // succeeds; a write would be denied by the GET-only grant
 ```
 
@@ -633,7 +636,7 @@ an explicit override, as you would to `collection.resource(id, options)`:
 descriptor (shared out of band with the grant) for an encrypted one.
 
 ```ts
-const handle = bobPws.fromCapability(zcap, { encryption: 'plaintext' })
+const handle = await bobPws.fromCapability(zcap, { encryption: 'plaintext' })
 ```
 
 A Collection-scoped grant (`collection.grant(...)`) does not cover Collection
@@ -852,9 +855,10 @@ left unpopulated there.
 
 The reference server admits a write to the Collection Metadata object only under
 a root invocation (the Space controller), or under a delegated capability whose
-`invocationTarget` is exactly the Space's canonical URL. A delegated capability
-that targets the Collection, its Metadata object or a Resource is answered with
-the masked 404. That reads the same as an absent Collection.
+`invocationTarget` is exactly the Space's canonical URL, or a DID URL that
+dereferences to it. A delegated capability that targets the Collection, its
+Metadata object or a Resource is answered with the masked 404. That reads the
+same as an absent Collection.
 
 The client checks this before it sends the `PUT`. If the handle's bound
 capability is delegated and does not target the Space URL, the write throws
@@ -1736,9 +1740,42 @@ https URL with no query or fragment, or an http URL on a loopback host. It must
 also be in the form a URL parser leaves unchanged, so a path with a dot segment
 or a backslash is refused.
 
-This is only the dereference hook. Today it takes effect through
-`pws.request()`. The handle methods, `fromCapability()` and the issuing of
-DID-form grants do not yet understand DID URL targets.
+#### Holding a DID-form grant
+
+A delegate may receive a grant whose root and links name DID URLs. The root id
+is `urn:zcap:root:` plus the encoded DID URL of the Space, such as
+`did:webvh:<scid>:alice.example/`, and the grant's `invocationTarget` is a DID
+URL beneath it.
+
+```ts
+const photos = await bobPws.fromCapability(zcap) // a Collection here
+photos.url // the https URL the DID URL names today
+await photos.get('cat.jpg')
+```
+
+`fromCapability()` dereferences the root's DID URL to find the Space URL, and
+the grant's own DID URL to find what the handle addresses. Both go through the
+hook. A DID URL that cannot be dereferenced rejects with
+`TargetDereferenceError`. An error thrown by your own hook is wrapped in one,
+with the original on `cause`.
+
+The handle then works as one built from an https grant does. Each request is
+checked against the URL the grant's target dereferences to, and a request
+outside it is answered locally. A grant on the Space in DID URL form may write
+Collection metadata, as its https form may.
+
+A handle keeps the https URLs it was built with. After the Space moves, call
+`fromCapability()` again to get a handle at the new location.
+
+A chain must use one form throughout. The server refuses a chain that mixes an
+https root with a DID URL link, or the reverse, with the masked 404. The client
+does not check this itself, so such a grant yields a handle whose reads resolve
+to `null` and whose writes throw `NotFoundError`.
+
+The client does not issue DID-form grants yet, and `revoke()` refuses one. Do
+not call `grant()` on a handle built from a DID-form grant. It signs an https
+link under the DID URL parent, which is a mixed chain the server refuses, so the
+grant it returns never works.
 
 ### The manual-request escape hatch
 
