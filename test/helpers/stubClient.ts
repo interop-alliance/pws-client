@@ -9,7 +9,11 @@
  */
 import type { HttpResponse } from '@interop/http-client'
 import type { IZcap, ServiceDescription } from '../../src/index.js'
-import { PwsClient } from '../../src/index.js'
+import {
+  AUTHZ_PROFILE_SPEC_ID,
+  PWS_SPEC_ID,
+  PwsClient
+} from '../../src/index.js'
 import { rootCapabilityId } from '../../src/paths/index.js'
 
 /**
@@ -86,11 +90,18 @@ export function serviceDescriptionFor(
   return {
     url: serviceUrlFor(origin),
     specs: {
-      'https://w3id.org/pws': [
+      [PWS_SPEC_ID]: [
         {
           version: '0.5',
           spaces: spacesUrlFor(origin),
           features: ['listing', 'collection-management', 'space-management']
+        }
+      ],
+      [AUTHZ_PROFILE_SPEC_ID]: [
+        {
+          version: '0.1',
+          signatureAlgorithms: ['EdDSA'],
+          zcapCryptosuites: ['eddsa-jcs-2022']
         }
       ]
     }

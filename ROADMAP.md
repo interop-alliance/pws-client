@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 175
+nextAvailableId: 176
 
 <!-- roadmap-order:index:start -->
 
@@ -89,20 +89,13 @@ Ready:
   description
 - WCL-131 [M] The Resource `/meta` validator's relation to content writes is
   unstated in the spec
-- WCL-107 [M] Require an authorization profile entry in the service description
-  and read the signature members from it (blocks 1)
+- WCL-175 [M] Check the authorization profile entry's signature members against
+  what the client signs with
 - WCL-160 [M] A root invocation of a URL with a query names the root of the URL
   without it
 - WCL-32 [L] Provisioning creates cannot be made race-safe (no create-if-absent
   precondition)
 - WCL-162 [L] Remove the `application/jose+json` option for stored envelopes
-
-Chains:
-
-- WCL-107 [M] Require an authorization profile entry in the service description
-  and read the signature members from it
-  - WCL-174 [M] A controller issues DID-form grants from a Space handle with
-    `didUrl` (in "Features")
 
 Waiting on another repo:
 
@@ -1460,85 +1453,27 @@ the `/meta` validator, and neither validator is ever answered for the other. The
 independence question is a spec decision, so it is filed here rather than
 settled in a test.
 
-### WCL-107: [M] [blocks 1] Require an authorization profile entry in the service description and read the signature members from it
+### WCL-175: [M] Check the authorization profile entry's signature members against what the client signs with
 
 - status: todo
 - priority: medium
-- labels: service-description, authorization, spec-alignment, wire-contract
-- blocks: WCL-174
-- touches:
-  - portable-web-spaces-spec: WASS-44. SHIPPED (2026-09-16): the zCap profile is
-    the companion spec `PWS-AUTHZ`
-    (`https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/`),
-    identifier `https://w3id.org/pws/authz-profile`, version `0.1`. Core's
-    Selecting a Version now says a server that lists no authorization profile
-    the client implements is incompatible, and the profile's entry (not core's)
-    carries `signatureAlgorithms` and `zcapCryptosuites`
-  - storage-core: `PwsVersionEntry` (`src/was.ts:839-843`) loses the two members
-    and a new `AuthzProfileVersionEntry` carries them: SC-7 (filed 2026-09-16,
-    published as 0.17.0). SC-15 (filed 2026-11-23) adds one exported identifier
-    constant per specification (`PWS_SPEC_ID`, `AUTHZ_PROFILE_SPEC_ID`,
-    `ENCRYPTED_COLLECTIONS_SPEC_ID`, `CLIENT_ANNEX_SPEC_ID`,
-    `REPLICATION_SPEC_ID`, `WALLET_PROFILE_SPEC_ID`) and a `features` member on
-    `AuthzProfileVersionEntry`. This item imports them. SC-15 is published as
-    0.47.0, and this repo depends on `^0.47.0`
-  - web-spaces-server: WSS-112 lists the entry and moves the members; this
-    item's tests need a server past that item (the pair rule of LEARNINGS.md
-    applies)
-  - pws-client (this repo): README.md and ARCHITECTURE.md (the Service
-    description and Service discovery glossary entries around lines 790-794, and
-    the `src/internal/service.ts` paragraph around line 148) describe the
-    one-key selection this item widens
+- labels: service-description, authorization, spec-alignment
+- discovered-from: WCL-107 (code review, 2026-11-23)
 - acceptance:
-  - [ ] `selectServiceVersion` (`src/internal/service.ts`) also looks up
-        `https://w3id.org/pws/authz-profile` (storage-core's
-        `AUTHZ_PROFILE_SPEC_ID`, imported, not a local constant) and throws
-        `IncompatibleServerError` when no entry there names a version this
-        client speaks (`0.1`), with a message naming the offered versions as the
-        core check does
-  - [ ] The client drops its own `PWS_SPEC_ID` and re-exports storage-core's
-        spec identifier constants from its main entry
-  - [ ] `ServiceInfo` exposes the chosen profile entry (its version and, when
-        present, `signatureAlgorithms` / `zcapCryptosuites`), typed with
-        storage-core's new entry type; nothing reads the two members off the
-        core entry any more
-  - [ ] `service.hasFeature({ spec, feature })` replaces `hasFeature(token)`. It
-        answers whether the chosen entry of the specification `spec` names lists
-        `feature`, and answers `false` when the server lists no chosen entry for
-        `spec`. This is a breaking change with no compatibility shim, and every
-        caller moves in the same pass. No per-spec property is added as the way
-        to read features
-  - [ ] The existing core-only `features` array of `ServiceInfo` is removed or
-        kept as a documented core-only convenience. The maintainer has not
-        settled which
-  - [ ] A case covers
-        `hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature:     'did-url-targets' })`
-        against a fixture whose profile entry lists the token, one whose entry
-        lacks it, and one with no profile entry
-  - [ ] `test/node/service.test.ts` (around lines 49-50) moves the two members
-        onto a profile entry in its fixtures, and gains a case for a description
-        with a core entry but no profile entry
-  - [ ] README.md and ARCHITECTURE.md describe the two-key selection and cite
-        the profile spec for the credential the client constructs:
-        `https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#performing-authorized-api-calls`,
-        `https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#request-body-integrity-digest-header`
-  - [ ] CHANGELOG entry notes that a server listing no
-        `https://w3id.org/pws/authz-profile` entry is now refused
+  - [ ] The maintainer settles whether discovery refuses a chosen profile entry
+        whose `signatureAlgorithms` omits `EdDSA`, or whose `zcapCryptosuites`
+        omits the suite the client delegates with
+  - [ ] `signatureAlgorithms` and `zcapCryptosuites` are checked as arrays of
+        strings when present, as `features` is, or the decision not to is
+        recorded
+  - [ ] Tests cover a malformed member and, if the refusal is adopted, an entry
+        that excludes the client's algorithm or suite
 
-Filed 2026-09-16 from WASS-44. The client already constructs exactly what the
-profile describes (an Ed25519 `did:key` capability invocation with the `Digest`
-header); this item only makes it check that the server says it accepts that, in
-the place the spec now says to look.
-
-Widened 2026-11-23 for DID URL invocation targets. The server's authorization
-profile entry now carries `features: ['did-url-targets']`, and the client reads
-it before it issues a DID-form grant (the item that adds `Space` `didUrl`
-handles). Features of any specification are read through one call,
-`hasFeature({ spec, feature })`, so a later token on any entry needs no new
-property. The grant path checks
-`{ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'did-url-targets' }`. This item is the
-first step of that work and does not depend on the other pieces. The server side
-is web-spaces-server `decisions/0009-did-url-invocation-targets.md`.
+`selectServiceVersion` chooses the profile entry by version alone. A v0.1 entry
+that lists only another algorithm passes discovery, and each signed request then
+fails at the server. The two members are exposed on
+`info.entries[AUTHZ_PROFILE_SPEC_ID]` typed as `string[]` with no shape check.
+Both checks add a refusal path, so they wait on the maintainer.
 
 ### WCL-144: [M] [after WSS-238] Follow the replication companion: the server DID on the core entry, and unrecognized stall reasons
 
@@ -1811,13 +1746,13 @@ before this one. Dereferencing is a fetch for a DID not hosted by the server, so
 Settled by the maintainer on 2026-11-23: `fromCapability` is async for every
 grant, as one breaking change.
 
-### WCL-174: [M] [after WCL-107, WCL-173, WSS-245] A controller issues DID-form grants from a Space handle with `didUrl`
+### WCL-174: [M] [after WCL-173, WSS-245] A controller issues DID-form grants from a Space handle with `didUrl`
 
 - status: todo
 - priority: medium
 - labels: zcap, webvh, portability, breaking
 - discovered-from: web-spaces-server WSS-245 (2026-11-23)
-- blocked-by: WCL-173, WCL-107, WSS-245
+- blocked-by: WCL-173, WSS-245
 - touches:
   - pws-client (this repo): `src/internal/grant.ts` (`spaceRooted`,
     `delegateGrantAt`), `src/internal/rootCapability.ts`, `src/Space.ts`,

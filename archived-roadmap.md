@@ -5465,3 +5465,108 @@ Added later on 2026-11-23, at the maintainer's request. The dereferencer checks
 its own result. It applies `checkDereferencedTarget`, which `@interop/ezcap`
 exports from 7.9.0, and refuses a URL that a URL parser would rewrite. Both
 refusals are `TargetDereferenceError`.
+
+### WCL-107: [M] [blocks 1] Require an authorization profile entry in the service description and read the signature members from it
+
+- status: done 2026-11-23
+- priority: medium
+- labels: service-description, authorization, spec-alignment, wire-contract
+- blocks: WCL-174
+- touches:
+  - portable-web-spaces-spec: WASS-44. SHIPPED (2026-09-16): the zCap profile is
+    the companion spec `PWS-AUTHZ`
+    (`https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/`),
+    identifier `https://w3id.org/pws/authz-profile`, version `0.1`. Core's
+    Selecting a Version now says a server that lists no authorization profile
+    the client implements is incompatible, and the profile's entry (not core's)
+    carries `signatureAlgorithms` and `zcapCryptosuites`
+  - storage-core: `PwsVersionEntry` (`src/was.ts:839-843`) loses the two members
+    and a new `AuthzProfileVersionEntry` carries them: SC-7 (filed 2026-09-16,
+    published as 0.17.0). SC-15 (filed 2026-11-23) adds one exported identifier
+    constant per specification (`PWS_SPEC_ID`, `AUTHZ_PROFILE_SPEC_ID`,
+    `ENCRYPTED_COLLECTIONS_SPEC_ID`, `CLIENT_ANNEX_SPEC_ID`,
+    `REPLICATION_SPEC_ID`, `WALLET_PROFILE_SPEC_ID`) and a `features` member on
+    `AuthzProfileVersionEntry`. This item imports them. SC-15 is published as
+    0.47.0, and this repo depends on `^0.47.0`. SHIPPED
+  - web-spaces-server: WSS-112 lists the entry and moves the members; this
+    item's tests need a server past that item (the pair rule of LEARNINGS.md
+    applies). SHIPPED: the `^0.46.2` this repo tests against lists the entry,
+    and the integration suite reads it
+  - freewallet: `refuseUnattributedServer`
+    (`src/lib/walletRequest/externalRequest.ts`) calls `hasFeature(token)` and
+    moves to `hasFeature({ spec: PWS_SPEC_ID, feature })` when it takes this
+    release. Found by code review on 2026-11-23. Filed there as FW-715, which
+    also covers the service description fixtures that lack a profile entry
+  - wallet-core: the shared test fixture `serviceDescriptionFor` lists no
+    profile entry. Filed there as WC-318. Its own client annex identifier and
+    version list now duplicate this repo's, filed there as WC-319
+  - pws-react: the fixture of `src/storage/pwsRemoteStore.test.ts` lists no
+    profile entry. Filed there as WR-106
+  - pws-client (this repo): README.md and ARCHITECTURE.md (the Service
+    description and Service discovery glossary entries around lines 790-794, and
+    the `src/internal/service.ts` paragraph around line 148) describe the
+    one-key selection this item widens
+- acceptance:
+  - [x] `selectServiceVersion` (`src/internal/service.ts`) also looks up
+        `https://w3id.org/pws/authz-profile` (storage-core's
+        `AUTHZ_PROFILE_SPEC_ID`, imported, not a local constant) and throws
+        `IncompatibleServerError` when no entry there names a version this
+        client speaks (`0.1`), with a message naming the offered versions as the
+        core check does
+  - [x] The client drops its own `PWS_SPEC_ID` and re-exports storage-core's
+        spec identifier constants from its main entry
+  - [x] `ServiceInfo` exposes the chosen profile entry (its version and, when
+        present, `signatureAlgorithms` / `zcapCryptosuites`), typed with
+        storage-core's new entry type; nothing reads the two members off the
+        core entry any more
+  - [x] `service.hasFeature({ spec, feature })` replaces `hasFeature(token)`. It
+        answers whether the chosen entry of the specification `spec` names lists
+        `feature`, and answers `false` when the server lists no chosen entry for
+        `spec`. This is a breaking change with no compatibility shim, and every
+        caller moves in the same pass. No per-spec property is added as the way
+        to read features
+  - [x] The existing core-only `features` array of `ServiceInfo` is removed or
+        kept as a documented core-only convenience. The maintainer has not
+        settled which
+  - [x] A case covers
+        `hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature:     'did-url-targets' })`
+        against a fixture whose profile entry lists the token, one whose entry
+        lacks it, and one with no profile entry
+  - [x] `test/node/service.test.ts` (around lines 49-50) moves the two members
+        onto a profile entry in its fixtures, and gains a case for a description
+        with a core entry but no profile entry
+  - [x] README.md and ARCHITECTURE.md describe the two-key selection and cite
+        the profile spec for the credential the client constructs:
+        `https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#performing-authorized-api-calls`,
+        `https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#request-body-integrity-digest-header`
+  - [x] CHANGELOG entry notes that a server listing no
+        `https://w3id.org/pws/authz-profile` entry is now refused
+
+Filed 2026-09-16 from WASS-44. The client already constructs exactly what the
+profile describes (an Ed25519 `did:key` capability invocation with the `Digest`
+header); this item only makes it check that the server says it accepts that, in
+the place the spec now says to look.
+
+Widened 2026-11-23 for DID URL invocation targets. The server's authorization
+profile entry now carries `features: ['did-url-targets']`, and the client reads
+it before it issues a DID-form grant (the item that adds `Space` `didUrl`
+handles). Features of any specification are read through one call,
+`hasFeature({ spec, feature })`, so a later token on any entry needs no new
+property. The grant path checks
+`{ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'did-url-targets' }`. This item is the
+first step of that work and does not depend on the other pieces. The server side
+is web-spaces-server `decisions/0009-did-url-invocation-targets.md`.
+
+Landed in the working tree on 2026-11-23. The maintainer settled three points
+that day. The core-only `features` array of `ServiceInfo` is removed. The chosen
+entries sit on `ServiceInfo.entries`, keyed by specification identifier, with
+`entry` kept for the core entry. `hasFeature` answers `false` for a
+specification the client selects no version for. Later that day the maintainer
+asked for a supported-versions list per companion specification, so
+`SUPPORTED_COMPANION_VERSIONS` selects v0.1 of encrypted collections,
+replication, the client annex and the wallet profile when the server lists it,
+and `hasFeature` reads those entries too. A companion stays optional.
+`chooseEntry` in `src/internal/service.ts` does the selection for both keys, and
+`SUPPORTED_AUTHZ_PROFILE_VERSIONS` holds `0.1`. Whether discovery also checks
+`signatureAlgorithms` and `zcapCryptosuites` against what the client signs with
+is WCL-175.

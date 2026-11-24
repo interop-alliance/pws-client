@@ -300,12 +300,32 @@ container, so `selectServiceVersion` supplies its trailing slash when the
 description omits it (`canonicalContainerUrl`): the bare form only
 308-redirects, which a signed request cannot follow.
 
-`selectServiceVersion` applies the spec's client rules. It ignores `specs` keys
-other than `https://w3id.org/pws` (compared as opaque strings) and entries
-without a string `version`. It picks the newest entry in
-`SUPPORTED_PWS_VERSIONS`, which today holds only `"0.5"`. The chosen entry's
-`spaces` must be an absolute URL and its `features` an array of strings, since
-the client acts on both. The `instance` member is not read.
+`selectServiceVersion` applies the spec's client rules. It selects under two
+`specs` keys, compared as opaque strings. Under `https://w3id.org/pws` it picks
+the newest entry in `SUPPORTED_PWS_VERSIONS`, which today holds only `"0.5"`.
+Under the zCap authorization profile, `https://w3id.org/pws/authz-profile`, it
+picks the newest entry in `SUPPORTED_AUTHZ_PROFILE_VERSIONS`, which today holds
+only `"0.1"`. The companion specifications are optional. For each key of
+`SUPPORTED_COMPANION_VERSIONS` (encrypted collections, replication, the client
+annex and the wallet profile, each at `"0.1"`) it picks the newest listed entry,
+and a server that lists none has no chosen entry for that key. It ignores other
+keys and entries without a string `version`. A server must list a version the
+client speaks under both required keys. One that lacks it under one of them is
+refused with `IncompatibleServerError`, whose message names the offered
+versions. The profile describes the credential the client already builds, an
+Ed25519 `did:key` capability invocation with the `Digest` header. The profile
+anchors are
+[Performing Authorized API Calls](https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#performing-authorized-api-calls)
+and
+[Request Body Integrity](https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#request-body-integrity-digest-header).
+Each chosen entry's `features` must be an array of strings. A malformed one
+refuses the server on a required entry, and a companion entry that carries one
+is treated as absent. The PWS entry's `spaces` must also be an absolute URL,
+since the client acts on it. The chosen entries are returned as
+`ServiceInfo.entries`, keyed by specification identifier.
+`hasFeature({ spec, feature })` reads the entry for `spec` and answers `false`
+for a `spec` with no chosen entry, which is an unlisted companion or a
+specification the client does not know. The `instance` member is not read.
 
 `PwsClient` memoizes discovery in a `Memo` and exposes it as `pws.service()`.
 `rawRequest` awaits `context.service()` before it signs, so every signed request
@@ -1076,10 +1096,10 @@ every write. The client therefore sends a precondition as given and lets the
 server answer it, with no capability probe of its own. Server-wide affordances
 (`changes-query`, and the PWS-EC profile's own tokens once that profile
 registers a version entry) live in the service description, read through
-`client.service().features`; `internal/service.ts` parses it. Serving the chunk
-endpoints and the blinded-index query profile is a conformance requirement of
-the profiles that define them, so neither carries a client-side gate -- a server
-that does not implement one answers `501`.
+`client.service().hasFeature({ spec, feature })`; `internal/service.ts` parses
+it. Serving the chunk endpoints and the blinded-index query profile is a
+conformance requirement of the profiles that define them, so neither carries a
+client-side gate -- a server that does not implement one answers `501`.
 
 One refusal survives, in `internal/conditional.ts`:
 `unenforcedPreconditionError` builds the `NotSupportedError` a guarded write
@@ -1280,9 +1300,9 @@ it, and otherwise cover the client-side concepts this file names.
   `HEAD` of the Space URL of a single fixed Space. Owned by the PWS spec. Avoid:
   well-known document, server metadata. See Service discovery.
 - **Service discovery** -- the client's memoized read of the service description
-  and its choice of PWS version (`src/internal/service.ts`, `pws.service()`),
-  awaited before every signed request. Its result is a `ServiceInfo`. See
-  Service discovery.
+  and its choice of PWS version and authorization profile version
+  (`src/internal/service.ts`, `pws.service()`), awaited before every signed
+  request. Its result is a `ServiceInfo`. See Service discovery.
 - **Bound capability** -- the delegated zcap carried on a handle and inherited
   by its children as the default for their requests. See The handle model.
 - **zcap action** -- the action named in a zcap invocation, which in PWS is the
@@ -1399,17 +1419,17 @@ it, and otherwise cover the client-side concepts this file names.
 
 ## Where to add what
 
-| Change                            | Start in                                                                                                              |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| New public API method             | The relevant handle class in `src/*.ts`                                                                               |
-| New server endpoint or path shape | `src/internal/paths.ts`, or `src/internal/layout.ts` above a Space (+ wire types upstream in `@interop/storage-core`) |
-| Request/transport behavior        | `src/internal/request.ts`                                                                                             |
-| Supported spec versions           | `src/internal/service.ts` (`SUPPORTED_PWS_VERSIONS`)                                                                  |
-| Write preconditions, ETags        | `src/internal/conditional.ts`, `src/internal/write.ts`                                                                |
-| Server affordance token           | `src/internal/service.ts` (the service description's `features`)                                                      |
-| New error kind                    | `src/errors.ts` (the class), `src/internal/mapError.ts` (`ERROR_CLASS_BY_TYPE`), problem type upstream                |
-| Encryption format or key handling | `src/edv/` (never in core; keep the seam interface-only)                                                              |
-| Descriptor read or refresh policy | `src/edv/acquire.ts`, `src/edv/refresh.ts`, `src/edv/refreshingDocCipher.ts`                                          |
-| Codec resolution policy           | `src/internal/codec.ts`                                                                                               |
-| Write payload kinds, content type | `src/internal/content.ts` (`resolvePayload`)                                                                          |
-| Cross-replica sync behavior       | `src/sync/` (port stays verbatim/keyless; ciphers implement `DocCipher`)                                              |
+| Change                            | Start in                                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| New public API method             | The relevant handle class in `src/*.ts`                                                                                  |
+| New server endpoint or path shape | `src/internal/paths.ts`, or `src/internal/layout.ts` above a Space (+ wire types upstream in `@interop/storage-core`)    |
+| Request/transport behavior        | `src/internal/request.ts`                                                                                                |
+| Supported spec versions           | `src/internal/service.ts` (`SUPPORTED_PWS_VERSIONS`, `SUPPORTED_AUTHZ_PROFILE_VERSIONS`, `SUPPORTED_COMPANION_VERSIONS`) |
+| Write preconditions, ETags        | `src/internal/conditional.ts`, `src/internal/write.ts`                                                                   |
+| Server affordance token           | `src/internal/service.ts` (an entry's `features`, read by `hasFeature({ spec, feature })`)                               |
+| New error kind                    | `src/errors.ts` (the class), `src/internal/mapError.ts` (`ERROR_CLASS_BY_TYPE`), problem type upstream                   |
+| Encryption format or key handling | `src/edv/` (never in core; keep the seam interface-only)                                                                 |
+| Descriptor read or refresh policy | `src/edv/acquire.ts`, `src/edv/refresh.ts`, `src/edv/refreshingDocCipher.ts`                                             |
+| Codec resolution policy           | `src/internal/codec.ts`                                                                                                  |
+| Write payload kinds, content type | `src/internal/content.ts` (`resolvePayload`)                                                                             |
+| Cross-replica sync behavior       | `src/sync/` (port stays verbatim/keyless; ciphers implement `DocCipher`)                                                 |

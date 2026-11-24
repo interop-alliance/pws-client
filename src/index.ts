@@ -27,6 +27,16 @@ export {
   isResourceChange,
   ProblemTypes
 } from '@interop/storage-core'
+// The `specs` key of each specification's version entries, the `spec`
+// argument of `ServiceInfo.hasFeature`.
+export {
+  AUTHZ_PROFILE_SPEC_ID,
+  CLIENT_ANNEX_SPEC_ID,
+  ENCRYPTED_COLLECTIONS_SPEC_ID,
+  PWS_SPEC_ID,
+  REPLICATION_SPEC_ID,
+  WALLET_PROFILE_SPEC_ID
+} from '@interop/storage-core'
 export type { WritePrecondition } from './internal/conditional.js'
 
 export {

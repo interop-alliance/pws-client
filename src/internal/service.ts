@@ -3,16 +3,26 @@
  */
 /**
  * Service discovery: reads the server's service description without a
- * capability invocation and selects the PWS specification version this client
- * speaks. A client built from a base server URL reads the document directly
- * at `{base}service` (`readServiceDescription`). One opened on a single fixed
+ * capability invocation and selects the PWS specification version and the
+ * zCap authorization profile version this client speaks. A client built from
+ * a base server URL reads the document directly at `{base}service`
+ * (`readServiceDescription`). One opened on a single fixed
  * Space, which has no base, follows the `Link: <...>; rel="service"` header
  * the server's responses carry (`discoverService`), probing the Space URL
  * itself. The client speaks only v0.5, so a server whose responses carry no
  * `service` link (one that predates v0.5) is refused rather than spoken to in
  * the v0.4 layout.
  */
+import {
+  AUTHZ_PROFILE_SPEC_ID,
+  CLIENT_ANNEX_SPEC_ID,
+  ENCRYPTED_COLLECTIONS_SPEC_ID,
+  PWS_SPEC_ID,
+  REPLICATION_SPEC_ID,
+  WALLET_PROFILE_SPEC_ID
+} from '@interop/storage-core'
 import type {
+  AuthzProfileVersionEntry,
   PwsVersionEntry,
   ServiceDescription,
   ServiceDescriptionVersionEntry
@@ -25,16 +35,30 @@ import { fetchMapped } from './request.js'
 import type { ServiceInfo } from '../types.js'
 
 /**
- * The PWS specification's identifier, the `specs` key its version entries sit
- * under. Provisional until the spec's rename registers it.
- */
-export const PWS_SPEC_ID = 'https://w3id.org/pws'
-
-/**
  * The PWS specification versions this client speaks, newest first. Selection
  * takes the first one the server lists.
  */
 export const SUPPORTED_PWS_VERSIONS = ['0.5']
+
+/**
+ * The zCap authorization profile versions this client speaks, newest first.
+ * The profile describes the credential the client constructs: an Ed25519
+ * `did:key` capability invocation with the `Digest` header.
+ */
+export const SUPPORTED_AUTHZ_PROFILE_VERSIONS = ['0.1']
+
+/**
+ * The versions this client speaks of each companion specification, newest
+ * first, keyed by the specification's identifier. A companion is optional. A
+ * server that lists none of these versions is still spoken to, and
+ * `hasFeature` answers `false` for that specification.
+ */
+export const SUPPORTED_COMPANION_VERSIONS: Record<string, string[]> = {
+  [ENCRYPTED_COLLECTIONS_SPEC_ID]: ['0.1'],
+  [REPLICATION_SPEC_ID]: ['0.1'],
+  [CLIENT_ANNEX_SPEC_ID]: ['0.1'],
+  [WALLET_PROFILE_SPEC_ID]: ['0.1']
+}
 
 /**
  * The link relation that names the service description.
@@ -138,18 +162,140 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Applies the spec's version-selection rules to a service description: a
- * `specs` key other than the PWS identifier is ignored, a version entry
- * without a string `version` is ignored, and the newest version this client
- * speaks is chosen. The members the client acts on are checked before they are
- * used: `spaces` must be an absolute `http(s)` URL and `features` an array of
- * strings.
+ * Lists the well-formed version entries a service description carries for
+ * one specification. An entry without a string `version` is left out.
+ *
+ * @param options {object}
+ * @param options.specs {Record<string, unknown>}   the `specs` member
+ * @param options.spec {string}   the specification's identifier
+ * @returns {ServiceDescriptionVersionEntry[]}
+ */
+function versionEntries({
+  specs,
+  spec
+}: {
+  specs: Record<string, unknown>
+  spec: string
+}): ServiceDescriptionVersionEntry[] {
+  const candidates = specs[spec]
+  return (Array.isArray(candidates) ? candidates : []).filter(
+    (entry): entry is ServiceDescriptionVersionEntry =>
+      isObject(entry) && typeof entry.version === 'string'
+  )
+}
+
+/**
+ * Picks the version entry of one specification from a service description:
+ * the newest version in `supported` that the server lists under `spec`.
+ *
+ * @param options {object}
+ * @param options.specs {Record<string, unknown>}   the `specs` member
+ * @param options.spec {string}   the specification's identifier
+ * @param options.supported {string[]}   the versions this client speaks,
+ *   newest first
+ * @returns {ServiceDescriptionVersionEntry | undefined}   `undefined` when
+ *   the server lists no supported version
+ */
+function chooseEntry({
+  specs,
+  spec,
+  supported
+}: {
+  specs: Record<string, unknown>
+  spec: string
+  supported: string[]
+}): ServiceDescriptionVersionEntry | undefined {
+  const entries = versionEntries({ specs, spec })
+  let chosen: ServiceDescriptionVersionEntry | undefined
+  for (const version of supported) {
+    chosen = entries.find(entry => entry.version === version)
+    if (chosen !== undefined) {
+      break
+    }
+  }
+  return chosen
+}
+
+/**
+ * Whether a version entry's `features`, which the client acts on, is absent
+ * or an array of strings.
+ *
+ * @param entry {ServiceDescriptionVersionEntry}
+ * @returns {boolean}
+ */
+function hasWellFormedFeatures(entry: ServiceDescriptionVersionEntry): boolean {
+  const { features } = entry
+  return (
+    features === undefined ||
+    (Array.isArray(features) &&
+      features.every(token => typeof token === 'string'))
+  )
+}
+
+/**
+ * Picks the version entry of a specification the client cannot work without
+ * (see {@link chooseEntry}).
+ *
+ * @param options {object}
+ * @param options.url {string}   the service description's `url`
+ * @param options.specs {Record<string, unknown>}   its `specs` member
+ * @param options.spec {string}   the specification's identifier
+ * @param options.supported {string[]}   the versions this client speaks,
+ *   newest first
+ * @returns {ServiceDescriptionVersionEntry}
+ * @throws {IncompatibleServerError}   when no entry names a supported version,
+ *   or the chosen entry's `features` is malformed
+ */
+function requireEntry({
+  url,
+  specs,
+  spec,
+  supported
+}: {
+  url: string
+  specs: Record<string, unknown>
+  spec: string
+  supported: string[]
+}): ServiceDescriptionVersionEntry {
+  const chosen = chooseEntry({ specs, spec, supported })
+  if (chosen === undefined) {
+    const offered = versionEntries({ specs, spec }).map(entry => entry.version)
+    throw new IncompatibleServerError(
+      `The server at "${url}" lists no version of ` +
+        `${spec} this client speaks (offered: ` +
+        `${offered.length === 0 ? 'none' : offered.join(', ')}; supported: ` +
+        `${supported.join(', ')}).`
+    )
+  }
+  if (!hasWellFormedFeatures(chosen)) {
+    throw new IncompatibleServerError(
+      `The ${spec} ${chosen.version} entry's \`features\` is not an ` +
+        'array of strings.'
+    )
+  }
+  return chosen
+}
+
+/**
+ * Applies the spec's version-selection rules to a service description. A
+ * `specs` key the client does not know is ignored, a version entry without a
+ * string `version` is ignored, and under each key it knows the newest version
+ * this client speaks is chosen. The server must list such a version under
+ * both the PWS identifier and the zCap authorization profile's, and is
+ * refused otherwise. A companion specification
+ * ({@link SUPPORTED_COMPANION_VERSIONS}) is optional, so a server that lists
+ * no version of one the client speaks has no chosen entry for it. The members
+ * the client acts on are checked before they are used: the PWS entry's
+ * `spaces` must be an absolute `http(s)` URL and each chosen entry's
+ * `features` an array of strings. A malformed `features` refuses the server
+ * on a required entry, and on a companion entry it reads as no entry.
  *
  * @param description {unknown}   the parsed service description
  * @returns {ServiceInfo}
  * @throws {IncompatibleServerError}   when the document lacks `url` or `specs`,
- *   when no entry names a version this client speaks, or when the chosen
- *   entry's `spaces` or `features` is malformed
+ *   when no PWS entry or no authorization profile entry names a version this
+ *   client speaks, or when the `spaces` or `features` of one of those two
+ *   entries is malformed
  */
 export function selectServiceVersion(description: unknown): ServiceInfo {
   if (
@@ -161,31 +307,20 @@ export function selectServiceVersion(description: unknown): ServiceInfo {
       'The service description is not a JSON object with `url` and `specs`.'
     )
   }
-  const candidates = description.specs[PWS_SPEC_ID]
-  const entries = (Array.isArray(candidates) ? candidates : []).filter(
-    (entry): entry is ServiceDescriptionVersionEntry =>
-      isObject(entry) && typeof entry.version === 'string'
-  )
-  let chosen: PwsVersionEntry | undefined
-  for (const version of SUPPORTED_PWS_VERSIONS) {
-    chosen = entries.find(entry => entry.version === version)
-    if (chosen !== undefined) {
-      break
-    }
-  }
-  if (chosen === undefined) {
-    const offered = entries.map(entry => entry.version)
-    throw new IncompatibleServerError(
-      `The server at "${description.url}" lists no version of ` +
-        `${PWS_SPEC_ID} this client speaks (offered: ` +
-        `${offered.length === 0 ? 'none' : offered.join(', ')}; supported: ` +
-        `${SUPPORTED_PWS_VERSIONS.join(', ')}).`
-    )
-  }
-  const { spaces, features } = chosen as {
-    spaces?: unknown
-    features?: unknown
-  }
+  const { url, specs } = description
+  const chosen: PwsVersionEntry = requireEntry({
+    url,
+    specs,
+    spec: PWS_SPEC_ID,
+    supported: SUPPORTED_PWS_VERSIONS
+  })
+  const authzProfile: AuthzProfileVersionEntry = requireEntry({
+    url,
+    specs,
+    spec: AUTHZ_PROFILE_SPEC_ID,
+    supported: SUPPORTED_AUTHZ_PROFILE_VERSIONS
+  })
+  const { spaces } = chosen as { spaces?: unknown }
   if (
     spaces !== undefined &&
     (typeof spaces !== 'string' || parseAbsoluteHttpUrl(spaces) === null)
@@ -195,25 +330,29 @@ export function selectServiceVersion(description: unknown): ServiceInfo {
         'absolute http(s) URL.'
     )
   }
-  if (
-    features !== undefined &&
-    (!Array.isArray(features) ||
-      !features.every(token => typeof token === 'string'))
-  ) {
-    throw new IncompatibleServerError(
-      `The ${PWS_SPEC_ID} ${chosen.version} entry's \`features\` is not an ` +
-        'array of strings.'
-    )
+  const entries: ServiceInfo['entries'] = {
+    [PWS_SPEC_ID]: chosen,
+    [AUTHZ_PROFILE_SPEC_ID]: authzProfile
   }
-  const tokens = [...((features as string[] | undefined) ?? [])]
+  for (const [spec, supported] of Object.entries(
+    SUPPORTED_COMPANION_VERSIONS
+  )) {
+    const companion = chooseEntry({ specs, spec, supported })
+    if (companion !== undefined && hasWellFormedFeatures(companion)) {
+      entries[spec] = companion
+    }
+  }
   return {
     description: description as unknown as ServiceDescription,
     version: chosen.version,
     entry: chosen,
+    entries,
     ...(spaces !== undefined && { spacesUrl: canonicalContainerUrl(spaces) }),
-    features: tokens,
-    hasFeature(token: string): boolean {
-      return tokens.includes(token)
+    hasFeature({ spec, feature }: { spec: string; feature: string }): boolean {
+      const entry = Object.hasOwn(entries, spec) ? entries[spec] : undefined
+      // `features` was checked on every entry kept in `entries`.
+      const features = entry?.features as string[] | undefined
+      return features?.includes(feature) ?? false
     }
   }
 }

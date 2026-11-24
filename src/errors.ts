@@ -168,12 +168,13 @@ export class TargetDereferenceError extends PwsError {
 }
 
 /**
- * The server speaks no version of the PWS specification this client
- * understands, so the client stops rather than guess a URL layout. Raised by
- * service discovery before the first signed request when the server's
- * responses carry no `rel="service"` link (a server that predates v0.5), when
- * the service description is not valid JSON or lacks `url` or `specs`, or
- * when no version entry under the PWS specification identifier names a
+ * The server speaks no version of the PWS specification, or of the zCap
+ * authorization profile, this client understands, so the client stops rather
+ * than guess a URL layout. Raised by service discovery before the first signed
+ * request when the server's responses carry no `rel="service"` link (a server
+ * that predates v0.5), when the service description is not valid JSON or
+ * lacks `url` or `specs`, or when no version entry under the PWS
+ * specification identifier, or under the authorization profile's, names a
  * version this client understands. Not a transient failure: retrying against
  * the same server gives the same answer.
  */

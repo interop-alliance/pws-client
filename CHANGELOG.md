@@ -27,12 +27,38 @@
   that passes its own hook keeps the DID library out of its main bundle.
 - Today the hook takes effect through `pws.request()`. The handle methods,
   `fromCapability()` and `grant()` do not yet understand DID URL targets.
+- `ServiceInfo.entries`, the chosen version entries keyed by specification
+  identifier. `info.entries[PWS_SPEC_ID]` is the same object as `info.entry`.
+  `info.entries[AUTHZ_PROFILE_SPEC_ID]` is an `AuthzProfileVersionEntry` with
+  `version` and, when the server lists them, `signatureAlgorithms`,
+  `zcapCryptosuites` and `features`. A companion specification (encrypted
+  collections, replication, the client annex, the wallet profile) has an entry
+  when the server lists it at version `0.1`. A companion is optional, so a
+  server that lists none is still accepted. A companion entry with a malformed
+  `features` is treated as absent.
+- The spec identifier constants `PWS_SPEC_ID`, `AUTHZ_PROFILE_SPEC_ID`,
+  `ENCRYPTED_COLLECTIONS_SPEC_ID`, `CLIENT_ANNEX_SPEC_ID`, `REPLICATION_SPEC_ID`
+  and `WALLET_PROFILE_SPEC_ID`, and the `AuthzProfileVersionEntry` type, are
+  exported from the main entry.
 
 ### Changed
 
 - Bump `@interop/ezcap` to `^7.9.0`, `@interop/zcap` to `^12.3.0` and
   `@interop/storage-core` to `^0.47.0`. Add `@interop/did-method-webvh`
   `^5.22.0` as a direct dependency.
+- **BREAKING**: service discovery now selects a version under the zCap
+  authorization profile key `https://w3id.org/pws/authz-profile` as well as
+  `https://w3id.org/pws`. A server that lists no profile entry at version `0.1`
+  is refused with `IncompatibleServerError`. The server must run a
+  web-spaces-server that lists the profile entry.
+- **BREAKING**: `info.hasFeature({ spec, feature })` replaces
+  `info.hasFeature(token)`. It answers whether the chosen entry of `spec` lists
+  `feature`. It answers `false` for a `spec` with no chosen entry, which is a
+  companion the server does not list at a version the client speaks, or a
+  specification the client does not know.
+- **BREAKING**: `ServiceInfo.features` is removed. Read the tokens from
+  `info.entry.features` or `info.entries[...].features`. Each is `undefined`
+  when the server lists none, where `info.features` was an empty array.
 
 ## 0.111.0 - 2026-11-21
 
