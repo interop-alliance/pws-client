@@ -1031,13 +1031,19 @@ export class Space {
    * Space. It does not issue an https grant in its place. `didUrl` does not
    * apply to a re-delegation (a `capability`, given or bound).
    *
+   * A re-delegation under a capability in DID URL form, such as the one a
+   * handle from `fromCapability()` is bound to, is issued in DID URL form
+   * too. The target is the parent's DID URL plus the path beneath it. Before
+   * signing, the client checks that the server advertises `did-url-targets`
+   * and that the link's DID URL dereferences to the URL the grant asked for.
+   *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}
-   * @throws {NotSupportedError}   when the handle has a `didUrl` and the
+   * @throws {NotSupportedError}   when the grant is in DID URL form and the
    *   server does not advertise `did-url-targets`
    * @throws {ValidationError}   when the handle's `didUrl` does not
-   *   dereference to this Space, or the grant's DID URL does not dereference
-   *   to its target
+   *   dereference to this Space, the grant's DID URL does not dereference
+   *   to its target, or a parent in DID URL form does not cover the target
    * @throws {TargetDereferenceError}   when a DID URL cannot be dereferenced
    */
   async grant(options: GrantOptions): Promise<IDelegatedZcap> {

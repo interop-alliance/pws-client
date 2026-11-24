@@ -18,6 +18,7 @@ import {
   PwsClient,
   allowsAction
 } from '../../src/index.js'
+import type { Collection, IZcap, Space } from '../../src/index.js'
 import { rootCapabilityId } from '../../src/paths/index.js'
 import {
   clientWithRequestSpy,
@@ -76,7 +77,10 @@ describe('pws.grant (delegation)', () => {
   it('passes through controller, invocationTarget, expires and capability', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
     const expires = '2026-01-01T00:00:00Z'
-    const parent = { id: 'urn:zcap:parent' }
+    const parent = {
+      id: 'urn:zcap:parent',
+      invocationTarget: 'https://pws.example/space/s'
+    }
     await client.grant({
       to: 'did:example:bob',
       actions: ['GET', 'put'],
@@ -213,7 +217,7 @@ describe('grant rooting (revocability)', () => {
 
   it('re-delegation keeps the bound capability as the parent', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
-    const held = { id: 'urn:uuid:held' }
+    const held = { id: 'urn:uuid:held', invocationTarget: spaceUrlFor('s') }
     await client
       .spaceAt(spaceUrlFor('s'), { capability: held as never })
       .collection('c')
@@ -224,7 +228,10 @@ describe('grant rooting (revocability)', () => {
 
   it('re-delegates from a Resource handle bound to a capability', async () => {
     const { client, lastDelegate } = clientWithDelegateSpy()
-    const held = { id: 'urn:uuid:held' }
+    const held = {
+      id: 'urn:uuid:held',
+      invocationTarget: `${spaceUrlFor('s')}c/r`
+    }
     await client
       .spaceAt(spaceUrlFor('s'))
       .collection('c')
@@ -646,12 +653,184 @@ describe('grants from a Space handle with `didUrl`', () => {
 
   it('does not apply `didUrl` under a parent capability', async () => {
     const { client, lastDelegate, dereferenced } = didUrlClient()
-    const parent = { id: 'urn:uuid:parent' } as never
+    const parent = { id: 'urn:uuid:parent', invocationTarget: SPACE } as never
     const space = client.space('s', { didUrl: DID_URL })
     await space.grant({ ...grantOptions, capability: parent })
     expect(lastDelegate()?.capability).toBe(parent)
     expect(lastDelegate()?.invocationTarget).toBe(SPACE)
     expect(dereferenced).toEqual([])
+  })
+
+  describe('re-delegation under a DID-form parent', () => {
+    /**
+     * A grant in DID URL form on `target`, as a delegate holds it.
+     *
+     * @param target {string}   the grant's DID URL `invocationTarget`
+     * @returns {IZcap}
+     */
+    function didFormGrant(target: string): IZcap {
+      return {
+        id: 'urn:uuid:parent',
+        controller: 'did:example:alice',
+        parentCapability: rootCapabilityId(DID_URL),
+        invocationTarget: target,
+        allowedAction: ['GET']
+      } as unknown as IZcap
+    }
+
+    it('names the DID URL of a handle built from the grant', async () => {
+      const { client, lastDelegate } = didUrlClient()
+      const parent = didFormGrant(`${DID_URL}photos/`)
+      const photos = (await client.fromCapability(parent)) as Collection
+      await photos.grant(grantOptions)
+      expect(lastDelegate()?.capability).toBe(parent)
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/`)
+
+      await photos.resource('cat 1').grant(grantOptions)
+      expect(lastDelegate()?.capability).toBe(parent)
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/cat%201`)
+    })
+
+    it('names the handle path beneath a grant on the Space', async () => {
+      const { client, lastDelegate } = didUrlClient()
+      const parent = didFormGrant(DID_URL)
+      const space = (await client.fromCapability(parent)) as Space
+      await space.grant(grantOptions)
+      expect(lastDelegate()?.invocationTarget).toBe(DID_URL)
+
+      await space.collection('photos').resource('r').grant(grantOptions)
+      expect(lastDelegate()?.capability).toBe(parent)
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/r`)
+    })
+
+    it('translates an explicit https target, and takes a DID URL one as given', async () => {
+      const { client, lastDelegate } = didUrlClient({
+        aliases: { [`${DID_URL}photos/pic`]: `${SPACE}photos/doc-2` }
+      })
+      const parent = didFormGrant(`${DID_URL}photos/`)
+      const photos = (await client.fromCapability(parent)) as Collection
+      await photos.grant({ ...grantOptions, target: `${SPACE}photos/doc-1` })
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/doc-1`)
+
+      await photos.grant({ ...grantOptions, target: `${DID_URL}photos/pic` })
+      expect(lastDelegate()?.capability).toBe(parent)
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/pic`)
+    })
+
+    it('translates the https target of a `pws.grant` too', async () => {
+      const { client, lastDelegate, dereferenced } = didUrlClient()
+      const parent = didFormGrant(`${DID_URL}photos/`)
+      await client.grant({
+        ...grantOptions,
+        capability: parent,
+        target: `${SPACE}photos/doc-1`
+      })
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/doc-1`)
+
+      // With no target the parent's own is kept, and nothing is dereferenced.
+      dereferenced.length = 0
+      await client.grant({ ...grantOptions, capability: parent })
+      expect(lastDelegate()?.invocationTarget).toBeUndefined()
+      expect(dereferenced).toEqual([])
+    })
+
+    it('refuses a link a longer `PathHandler` maps elsewhere', async () => {
+      const { client, lastDelegate } = didUrlClient({
+        aliases: { [`${DID_URL}photos/r`]: `${SPACE}private/r` }
+      })
+      const photos = (await client.fromCapability(
+        didFormGrant(`${DID_URL}photos/`)
+      )) as Collection
+      const refusal = photos.resource('r').grant(grantOptions)
+      await expect(refusal).rejects.toBeInstanceOf(ValidationError)
+      await expect(refusal).rejects.toThrow(/dereferences to/)
+      expect(lastDelegate()).toBeUndefined()
+    })
+
+    it('refuses a target outside the parent, or with a query', async () => {
+      const { client, lastDelegate } = didUrlClient({
+        aliases: {
+          [`${DID_URL}photos/out`]: `${SPACE}albums/a-1`,
+          [`${DID_URL}photos/dots`]: `${SPACE}photos/../albums/a-1`
+        }
+      })
+      const photos = (await client.fromCapability(
+        didFormGrant(`${DID_URL}photos/`)
+      )) as Collection
+      for (const target of [
+        `${SPACE}albums/`,
+        SPACE,
+        `${SPACE}photos/../albums/`,
+        `${DID_URL}albums/`,
+        `${DID_URL}photos-2/`,
+        'did:webvh:QmOther:alice.example/photos/r',
+        `${DID_URL}photos/out`,
+        `${DID_URL}photos/dots`,
+        `${SPACE}photos/?versionId=1`,
+        `${DID_URL}photos/?versionId=1`
+      ]) {
+        await expect(
+          photos.grant({ ...grantOptions, target }),
+          target
+        ).rejects.toBeInstanceOf(ValidationError)
+      }
+      expect(lastDelegate()).toBeUndefined()
+    })
+
+    it('keeps the selector of a parent that carries one', async () => {
+      const selector = '?versionId=1'
+      const { client, lastDelegate } = didUrlClient({
+        aliases: {
+          [`${DID_URL}photos/${selector}`]: `${SPACE}photos/`,
+          [`${DID_URL}photos/doc-1${selector}`]: `${SPACE}photos/doc-1`
+        }
+      })
+      const parent = didFormGrant(`${DID_URL}photos/${selector}`)
+      for (const target of [
+        `${DID_URL}photos/${selector}`,
+        `${DID_URL}photos/doc-1${selector}`
+      ]) {
+        await client.grant({ ...grantOptions, capability: parent, target })
+        expect(lastDelegate()?.capability).toBe(parent)
+        expect(lastDelegate()?.invocationTarget).toBe(target)
+      }
+
+      // Another selector, no selector, and an https target are refused.
+      for (const target of [
+        `${DID_URL}photos/doc-1?versionId=2`,
+        `${DID_URL}photos/doc-1`,
+        `${SPACE}photos/doc-1`
+      ]) {
+        await expect(
+          client.grant({ ...grantOptions, capability: parent, target }),
+          target
+        ).rejects.toBeInstanceOf(ValidationError)
+      }
+    })
+
+    it('leaves a parent with no target of its own to the signer', async () => {
+      const { client, lastDelegate, dereferenced } = didUrlClient()
+      const parent = { id: 'urn:uuid:parent' } as never
+      await client.grant({
+        ...grantOptions,
+        capability: parent,
+        target: `${SPACE}photos/`
+      })
+      expect(lastDelegate()?.capability).toBe(parent)
+      expect(lastDelegate()?.invocationTarget).toBe(`${SPACE}photos/`)
+      expect(dereferenced).toEqual([])
+    })
+
+    it('refuses a server without `did-url-targets`, before signing', async () => {
+      const { client, lastDelegate } = didUrlClient({ advertised: false })
+      const photos = (await client.fromCapability(
+        didFormGrant(`${DID_URL}photos/`)
+      )) as Collection
+      await expect(photos.grant(grantOptions)).rejects.toBeInstanceOf(
+        NotSupportedError
+      )
+      expect(lastDelegate()).toBeUndefined()
+    })
   })
 
   it('issues https grants from a handle without `didUrl`', async () => {

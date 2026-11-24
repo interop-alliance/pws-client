@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 180
+nextAvailableId: 183
 
 <!-- roadmap-order:index:start -->
 
@@ -66,6 +66,7 @@ Ready:
 - WCL-167 [M] A governing log write retried after a dropped response is refused
 - WCL-178 [M] `pws.revoke()` of a DID-form grant goes to the old server after
   the Space moves
+- WCL-180 [M] The `did-url-targets` check reads the client's own server
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -82,6 +83,10 @@ Ready:
   path
 - WCL-14 [L] Upstream: `_updateStream` overrides caller hmac suppression
 - WCL-168 [L] Callers that read a 401 from a Space, Collection or Resource URL
+- WCL-181 [L] `grant()` from a handle the Space moved away from throws
+  `ValidationError`
+- WCL-182 [L] A dot-segment resource id reads as a moved Space under a DID-form
+  grant
 
 **Spec and protocol**
 
@@ -111,7 +116,6 @@ Waiting on another repo:
 Ready:
 
 - WCL-179 [M] Address a Space, Collection or Resource by its DID URL
-- WCL-176 [M] A delegate re-delegates from a handle built on a DID-form grant
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 - WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
 
@@ -1106,6 +1110,30 @@ document it does not host. It is not tested. `space.revoke()` on a handle at the
 Space's new URL is not affected, and the README points callers at it for now. A
 caller's own `dereferenceTarget` hook has whatever cache it chose.
 
+### WCL-180: [M] The `did-url-targets` check reads the client's own server
+
+- status: todo
+- priority: medium
+- labels: zcap, webvh, portability, correctness
+- discovered-from: WCL-176 review (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/internal/grant.ts` (`requireDidUrlTargets`),
+    README.md
+- acceptance:
+  - [ ] A re-delegation under a DID-form parent is checked against the server
+        the parent's target dereferences to, or the README states that the
+        client's configured server decides. Which of the two is the maintainer's
+        decision
+  - [ ] A test covers a client configured for one server holding a grant on a
+        Space at another
+
+Context: `requireDidUrlTargets` reads `context.service()`, the discovery of the
+client's `baseServerUrl`. A delegate's client may be configured for a server
+other than the one the granted Space lives on. A re-delegation with a `target`
+under a DID-form parent was offline signing before WCL-176. It now throws
+`NotSupportedError` naming the client's own server when that server does not
+list the feature, even if the Space's server does.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1389,6 +1417,49 @@ A client that signs every request never met the 401, so this is a check of the
 anonymous paths. `isAuthStatus` and the read fallback already treat 404 as an
 authorization answer. `AuthRequiredError` is now reachable from a Space URL only
 through a 403.
+
+### WCL-181: [L] `grant()` from a handle the Space moved away from throws `ValidationError`
+
+- status: todo
+- priority: low
+- labels: zcap, webvh, portability, errors
+- discovered-from: WCL-176 review (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/internal/grant.ts` (`didUrlAttenuated`),
+    README.md
+- acceptance:
+  - [ ] `grant()` on a handle whose URL no longer lies under the URL its
+        DID-form grant dereferences to rejects with the error a request from
+        that handle gets, or the README states the difference. Which of the two
+        is the maintainer's decision
+  - [ ] A test repoints the `PathHandler` between `fromCapability()` and
+        `grant()`
+
+Context: a request from such a handle rejects with `TargetDereferenceError`,
+whose message points at `fromCapability()`. `didUrlAttenuated` compares the
+handle's old https URL with the parent's fresh dereference and reports that the
+target is not beneath the parent. `checkRootLocation` in
+`src/internal/request.ts` has the check a request runs.
+
+### WCL-182: [L] A dot-segment resource id reads as a moved Space under a DID-form grant
+
+- status: todo
+- priority: low
+- labels: zcap, webvh, correctness
+- discovered-from: WCL-176 review (2026-11-24)
+- touches:
+  - zcap: export `hasDotSegments` from `@interop/zcap`
+  - pws-client (this repo): `src/internal/request.ts` (`checkRootLocation`)
+- acceptance:
+  - [ ] A test confirms or refutes the scenario: `collection.get('a/../b')`
+        under a DID-form Collection grant
+  - [ ] If confirmed, the read resolves as it does under an https grant
+
+Context: found by reading, not run. `checkRootLocation` uses `isValidTarget`,
+which returns false for any URL with a dot segment and counts `%2F` as a
+boundary. A request URL such as `.../photos/a%2F..%2Fb` would then fail the root
+check although it lies under the root, and reject with `TargetDereferenceError`
+in place of resolving `null`.
 
 ## Spec and protocol
 
@@ -1776,44 +1847,6 @@ DID URL dereferences to now.
 
 A Space handle opened on its root DID URL could also set `didUrl` for its
 grants, which is worth deciding in the same pass.
-
-### WCL-176: [M] A delegate re-delegates from a handle built on a DID-form grant
-
-- status: todo
-- priority: medium
-- labels: zcap, webvh, portability
-- discovered-from: WCL-173 (2026-11-23)
-- touches:
-  - pws-client (this repo): `src/internal/grant.ts` (`delegateGrantAt`,
-    `delegateGrant`), the `grant` methods of `src/Space.ts`, `src/Collection.ts`
-    and `src/Resource.ts`, README.md, ARCHITECTURE.md
-- acceptance:
-  - [ ] `grant()` on a handle whose bound capability is DID-form issues a
-        DID-form link, or refuses with a named error before signing. Which of
-        the two is the maintainer's decision
-  - [ ] It never issues an https link under a DID-form parent
-  - [ ] A test against web-spaces-server covers the chosen behavior
-
-Context: `fromCapability` now builds a handle from a DID-form grant, and the
-handle's URLs are the https URLs the grant dereferences to. The `grant` sugar
-prefills the target from the handle's `url`, so a re-delegation from such a
-handle names an https target under a DID URL parent. That is a mixed-form chain,
-which the server refuses with the masked `not-found`. The delegate gets a grant
-that never works and no error.
-
-The DID URL for the new link is not derivable from the handle alone. The handle
-knows the parent's DID URL and its own https URL. Appending the https path below
-the parent's dereferenced target to the parent's DID URL is right only when no
-longer `PathHandler` intercepts that path, so the result has to be dereferenced
-and compared before signing. The item that adds `didUrl` to the Space handle
-covers the controller's side and does not cover this one.
-
-Found on 2026-11-24 while landing WCL-174. The signer already refuses this
-re-delegation. `@interop/zcap` 12.3.1 throws a plain `Error` ("must not be less
-restrictive than its parent") from `delegate`, since a `did:` target and an
-https target never attenuate each other. So no mixed-form link is issued today,
-and what is left is the named error or the DID-form link. `didUrlRooted` in
-`src/internal/grant.ts` has the dereference-and-compare check to reuse.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 

@@ -550,7 +550,8 @@ export class Resource {
    * it.
    *
    * A handle reached from a Space handle built with `didUrl` issues the
-   * grant in DID URL form (see `Space.grant`).
+   * grant in DID URL form, and so does a handle bound to a capability in
+   * DID URL form (see `Space.grant`).
    *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}

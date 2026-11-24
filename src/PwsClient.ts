@@ -923,6 +923,10 @@ export class PwsClient {
    * hierarchy (fixed collections, or resources alone), where there is no
    * Space to root a chain in. Such a grant is not Space-revocable.
    *
+   * Under a `capability` in DID URL form, a `target` is delegated in DID URL
+   * form. An https `target` is translated to the DID URL beneath the
+   * parent's, and checked by dereferencing it before signing.
+   *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}
    */

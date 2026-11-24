@@ -1185,11 +1185,13 @@ create.
    in this order. The server must list `did-url-targets`, `didUrl` must
    dereference to exactly the Space URL, and the link's DID URL must dereference
    to the https URL the grant asked for. A parent capability wins, so `didUrl`
-   does not apply to a re-delegation. Its target still defaults to the handle's
-   https URL, which the signer refuses under a DID-form parent. When the server
-   lacks `did-url-targets`, the client throws `NotSupportedError`. It does not
-   fall back to an https grant. `PwsClient.revoke` dereferences a DID URL chain
-   root first.
+   does not apply to a re-delegation. Under a DID-form parent,
+   `didUrlAttenuated` translates an https target to the parent's DID URL plus
+   the path beneath what the parent dereferences to. It delegates a DID URL
+   target as given. It then checks the result by dereferencing, so the link is
+   never https under a DID-form parent. When the server lacks `did-url-targets`,
+   the client throws `NotSupportedError`. It does not fall back to an https
+   grant. `PwsClient.revoke` dereferences a DID URL chain root first.
 6. **`@interop/http-client` pre-consumes JSON bodies** into `.data`, which is
    why body handling funnels through `internal/content.ts` helpers and why
    `getText`/`getBytes` are not byte-exact for JSON content types.

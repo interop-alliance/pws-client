@@ -35,7 +35,8 @@ import {
   NotSupportedError,
   PwsClient,
   Resource,
-  Space
+  Space,
+  ValidationError
 } from '../../src/index.js'
 import type {
   IDelegatedZcap,
@@ -283,6 +284,57 @@ describe('a controller issuing DID-form grants (live servers)', () => {
     expect(logFetches).toBe(fetchesBefore)
   })
 
+  it('a delegate re-delegates from a handle built on a DID-form grant', async () => {
+    const bob = clientOn({
+      baseServerUrl: one.baseServerUrl,
+      signer: bobSigner
+    })
+    const carol = clientOn({
+      baseServerUrl: one.baseServerUrl,
+      signer: carolSigner
+    })
+    const photos = (await bob.fromCapability(photosGrant)) as Collection
+    const to = carol.controllerDid
+
+    const docGrant = await photos
+      .resource('doc-1')
+      .grant({ to, actions: ['GET'], expires })
+    expect(docGrant.parentCapability).toBe(photosGrant.id)
+    expect(docGrant.invocationTarget).toBe(`${didUrl}photos/doc-1`)
+    const doc = (await carol.fromCapability(docGrant)) as Resource
+    expect(doc.url).toBe(`${space.url}photos/doc-1`)
+    expect(await doc.get()).toEqual({ photo: 1 })
+
+    // The Collection handle re-delegates the whole of its own grant, and an
+    // explicit https target is translated the same way.
+    const collectionGrant = await photos.grant({
+      to,
+      actions: ['GET'],
+      expires
+    })
+    expect(collectionGrant.invocationTarget).toBe(`${didUrl}photos/`)
+    const granted = (await carol.fromCapability(collectionGrant)) as Collection
+    expect(await granted.get('doc-1')).toEqual({ photo: 1 })
+    const translated = await bob.grant({
+      to,
+      actions: ['GET'],
+      capability: photosGrant,
+      target: `${space.url}photos/doc-1`,
+      expires
+    })
+    expect(translated.invocationTarget).toBe(`${didUrl}photos/doc-1`)
+
+    // A target the parent does not cover is refused before signing.
+    await expect(
+      photos.grant({
+        to,
+        actions: ['GET'],
+        target: `${space.url}albums/`,
+        expires
+      })
+    ).rejects.toBeInstanceOf(ValidationError)
+  })
+
   it('a chain that mixes the two forms is refused', async () => {
     const bob = clientOn({
       baseServerUrl: one.baseServerUrl,
@@ -292,13 +344,14 @@ describe('a controller issuing DID-form grants (live servers)', () => {
       baseServerUrl: one.baseServerUrl,
       signer: carolSigner
     })
-    // An https link beneath a DID URL link: the signer refuses to issue it.
+    // An https link beneath a DID URL link, which `grant()` never issues:
+    // the signer refuses it.
     await expect(
-      bob.grant({
-        to: carol.controllerDid,
-        actions: ['GET', 'PUT'],
+      bob.zcapClient.delegate({
         capability: photosGrant,
-        target: `${space.url}photos/`,
+        invocationTarget: `${space.url}photos/`,
+        controller: carol.controllerDid,
+        allowedActions: ['GET', 'PUT'],
         expires
       })
     ).rejects.toThrow(/less restrictive/)
