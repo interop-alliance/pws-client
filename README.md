@@ -1766,10 +1766,20 @@ checked against the URL the grant's target dereferences to, and a request
 outside it is answered locally. A grant on the Space in DID URL form may write
 Collection metadata, as its https form may.
 
-A handle keeps the https URLs it was built with. After the Space moves, call
-`fromCapability()` again to get a handle at the new location. The built-in
-dereferencer caches each DID URL for five minutes, so a call on the same
-`PwsClient` within that time can still return the old location. A new
+A handle keeps the https URLs it was built with. After the Space moves, a
+request from the old handle rejects with `TargetDereferenceError`, on a read and
+on a delete as well. The client compares the request URL with the URL the
+chain's root dereferences to now, and a URL outside it is not reported as an
+absent resource. Call `fromCapability()` again to get a handle at the new
+location.
+
+The same error answers any handle whose URL is outside the Space the grant is
+rooted in, such as one built with `spaceAt()` for another Space. It also answers
+a grant whose target dereferences outside the URL its root dereferences to.
+
+The built-in dereferencer caches each DID URL for five minutes. Within that time
+an old handle still sends its requests to the old location, and a call to
+`fromCapability()` on the same `PwsClient` can still return it. A new
 `PwsClient`, or your own `dereferenceTarget`, sees the move at once.
 
 A chain must use one form throughout. The server refuses a chain that mixes an

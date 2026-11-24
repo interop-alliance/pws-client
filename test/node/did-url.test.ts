@@ -643,6 +643,128 @@ describe('a delegate holding a DID-form grant', () => {
     expect(requests).toEqual([])
   })
 
+  it('reports a handle the Space has moved away from, on a read and a delete', async () => {
+    const requests = stubServer()
+    const host = logHost()
+    const pws = PwsClient.fromSigner({
+      baseServerUrl: baseServerUrlFor(),
+      signer: bobSigner,
+      serviceDescription: serviceDescriptionFor(),
+      dereferenceTarget: createTargetDereferencer({ fetch: host.fetch })
+    })
+    const start = Date.now()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(start)
+    const zcap = await grant({ root: `${did}/`, target: `${did}/photos/` })
+    const collection = (await pws.fromCapability(zcap)) as Collection
+    await expect(collection.get('doc-1')).resolves.toEqual({ photo: 1 })
+
+    // The `PathHandler` is repointed, and the cached mapping expires.
+    host.served.log = secondLog
+    now.mockReturnValue(start + TARGET_CACHE_TTL)
+    // Each request starts only once the one before it has settled.
+    for (const request of [
+      async () => collection.get('doc-1'),
+      async () => collection.resource('doc-1').delete(),
+      async () => collection.resource('doc-1').get(),
+      async () => collection.put('doc-1', { photo: 2 })
+    ]) {
+      const refusal = await request().catch((err: unknown) => err)
+      expect(refusal).toBeInstanceOf(TargetDereferenceError)
+      expect((refusal as Error).message).toMatch(/fromCapability\(\)/)
+    }
+    expect(requests.map(request => request.url)).toEqual([resourceUrl])
+
+    // A handle built again addresses the new location.
+    const moved = await pws.fromCapability(zcap)
+    expect(moved.url).toBe(`${MOVED_SPACE_URL}photos/`)
+  })
+
+  /**
+   * The delegate's client over a hook that reads a table the test edits.
+   *
+   * @param table {Record<string, string>}   the URL each DID URL names
+   * @returns {object} { pws, calls }, where `calls` lists the DID URLs the
+   *   hook was asked for, in order
+   */
+  function tableClient(table: Record<string, string>): {
+    pws: PwsClient
+    calls: string[]
+  } {
+    const calls: string[] = []
+    const pws = PwsClient.fromSigner({
+      baseServerUrl: baseServerUrlFor(),
+      signer: bobSigner,
+      serviceDescription: serviceDescriptionFor(),
+      dereferenceTarget: async ({ invocationTarget }) => {
+        calls.push(invocationTarget)
+        return table[invocationTarget] as string
+      }
+    })
+    return { pws, calls }
+  }
+
+  it('reports a moved Space while the root answer is still the old one', async () => {
+    const requests = stubServer()
+    const table = {
+      [`${did}/`]: SPACE_URL,
+      [`${did}/photos/`]: `${SPACE_URL}photos/`
+    }
+    const { pws } = tableClient(table)
+    const zcap = await grant({ root: `${did}/`, target: `${did}/photos/` })
+    const collection = (await pws.fromCapability(zcap)) as Collection
+
+    // Only the target's answer has caught up with the move.
+    table[`${did}/photos/`] = `${MOVED_SPACE_URL}photos/`
+    await expect(collection.get('doc-1')).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+    await expect(collection.resource('doc-1').delete()).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+    expect(requests).toEqual([])
+  })
+
+  it('reports a target the DID document maps to another Space', async () => {
+    const requests = stubServer()
+    const table = {
+      [`${did}/`]: SPACE_URL,
+      [`${did}/photos/`]: `${SPACE_URL}photos/`
+    }
+    const { pws } = tableClient(table)
+    const zcap = await grant({ root: `${did}/`, target: `${did}/photos/` })
+    const collection = (await pws.fromCapability(zcap)) as Collection
+
+    // A longer `PathHandler` now maps the granted path, and the root stays.
+    table[`${did}/photos/`] = 'https://other.example/space/s2/photos/'
+    const refusal = await collection.get('doc-1').catch((err: unknown) => err)
+    expect(refusal).toBeInstanceOf(TargetDereferenceError)
+    expect((refusal as Error).message).toMatch(/its root .* dereferences to/)
+    expect(requests).toEqual([])
+  })
+
+  it('reports a moved Space on a Collection Metadata write of a Space grant', async () => {
+    const requests = stubServer()
+    const table = { [`${did}/`]: SPACE_URL }
+    const { pws, calls } = tableClient(table)
+    const zcap = await grant({ root: `${did}/`, target: `${did}/` })
+    const space = (await pws.fromCapability(zcap)) as Space
+
+    table[`${did}/`] = MOVED_SPACE_URL
+    calls.length = 0
+    await expect(
+      space.collection('photos').setName('Photos')
+    ).rejects.toBeInstanceOf(TargetDereferenceError)
+    // The grant's target is its root, which is dereferenced once.
+    expect(calls).toEqual([`${did}/`])
+
+    calls.length = 0
+    await expect(
+      space.collection('photos').get('doc-1')
+    ).rejects.toBeInstanceOf(TargetDereferenceError)
+    expect(calls).toEqual([`${did}/`])
+    expect(requests).toEqual([])
+  })
+
   it('reports a target that does not dereference, even on a read', async () => {
     stubServer()
     const pws = bobClient()

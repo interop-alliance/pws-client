@@ -355,6 +355,18 @@ translations. This is what makes codec discovery under a resource-scoped
 capability fail closed with `EncryptionError` instead of a generic transport
 error.
 
+For a chain rooted at a DID URL, a request outside the target first goes through
+`checkRootLocation`, which dereferences the root too. Every URL of a handle lies
+under its Space URL, so a request URL outside the root's current URL comes from
+a handle that addresses another location, usually one built before the Space
+moved. It rejects with `TargetDereferenceError` and does not take the 404
+translations, which would report the Space's documents as absent. The two
+dereferences are separate calls of the hook, so one answer can be older than the
+other. A DID URL target that dereferences outside the root's URL is refused the
+same way. The Collection Metadata write guard runs the same check before it
+reports `SpaceGrantRequiredError`. A grant on the Space names its root as its
+target, so the root is not dereferenced again.
+
 Failure classes:
 
 - `IncompatibleServerError` -- no `service` link on the probe response (a server

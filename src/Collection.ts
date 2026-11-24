@@ -37,7 +37,12 @@ import {
 } from './errors.js'
 import { allowsAction, delegateGrantAt } from './internal/grant.js'
 import type { ClientContext } from './internal/request.js'
-import { dereferencedTarget, send, readData } from './internal/request.js'
+import {
+  checkRootLocation,
+  dereferencedTarget,
+  send,
+  readData
+} from './internal/request.js'
 import { withCheckedCreatedBy } from './internal/createdBy.js'
 import {
   codecForDescriptor,
@@ -527,14 +532,17 @@ export class Collection {
    * answer's 404 `status`.
    *
    * A DID URL target is dereferenced first, so a grant on the Space in DID
-   * URL form passes as its https form does.
+   * URL form passes as its https form does. A target that dereferences
+   * elsewhere may mean the Space has moved away from this handle, so the
+   * handle's location is checked before the grant is judged.
    *
    * @param operation {string}   what the caller is doing, for the message
    * @returns {Promise<void>}
    * @throws {SpaceGrantRequiredError}   when the bound capability is delegated
    *   and does not target the Space URL
    * @throws {TargetDereferenceError}   when the capability's DID URL target
-   *   cannot be dereferenced
+   *   cannot be dereferenced, or the handle no longer lies under the URL the
+   *   chain's root dereferences to
    */
   async #assertSpaceGrant(operation: string): Promise<void> {
     const capability = this.#capability
@@ -552,6 +560,11 @@ export class Collection {
     if (target === this.spaceUrl) {
       return
     }
+    await checkRootLocation(this.#context, {
+      url: this.#metaUrl,
+      capability,
+      targetUrl: target
+    })
     throw new SpaceGrantRequiredError(
       `${operation} refused on collection "${this.id}": a Collection ` +
         'Metadata write needs a capability that targets the Space URL ' +
