@@ -115,6 +115,18 @@ function chainRootId(zcap: IZcap): string | undefined {
 }
 
 /**
+ * The invocation target of the root capability a chain starts at, or `null`
+ * when the chain does not start at a root capability id.
+ *
+ * @param zcap {IZcap}   the capability to read
+ * @returns {string | null}
+ */
+export function findChainRootTarget(zcap: IZcap): string | null {
+  const rootId = chainRootId(zcap)
+  return rootId === undefined ? null : rootCapabilityTarget(rootId)
+}
+
+/**
  * The invocation target of the root capability a chain starts at, as the
  * root's id encodes it. It is an https URL, or a DID URL for a chain in DID
  * URL form.
@@ -125,8 +137,7 @@ function chainRootId(zcap: IZcap): string | undefined {
  *   capability id
  */
 export function chainRootTarget(zcap: IZcap): string {
-  const rootId = chainRootId(zcap)
-  const target = rootId === undefined ? null : rootCapabilityTarget(rootId)
+  const target = findChainRootTarget(zcap)
   if (target === null) {
     throw new ValidationError(
       `Cannot derive a Space from capability "${zcap.id}": its chain does ` +

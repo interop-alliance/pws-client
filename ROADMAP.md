@@ -64,8 +64,6 @@ Ready:
   refused as tampering
 - WCL-165 [M] A 404 on a `DELETE` is reported as success
 - WCL-167 [M] A governing log write retried after a dropped response is refused
-- WCL-177 [M] A handle built on a DID-form grant reads as empty after the Space
-  moves
 - WCL-178 [M] `pws.revoke()` of a DID-form grant goes to the old server after
   the Space moves
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
@@ -1073,31 +1071,6 @@ append that landed is a 412 under the old `ETag`, and a caller cannot tell it
 from a concurrent writer without reading the log. The `did.jsonl` log of a
 self-hosted `did:webvh` is not affected: a re-sent body there stays a no-op.
 
-### WCL-177: [M] A handle built on a DID-form grant reads as empty after the Space moves
-
-- status: todo
-- priority: medium
-- labels: zcap, webvh, portability, correctness
-- discovered-from: WCL-173 review (2026-11-23)
-- touches:
-  - pws-client (this repo): `src/internal/request.ts` (`send()`), README.md,
-    ARCHITECTURE.md
-- acceptance:
-  - [ ] A request from a handle whose URL no longer lies under the URL its
-        DID-form grant dereferences to does not resolve `null` on a read or
-        succeed on an idempotent delete. What it does instead (a named error, or
-        the handle re-locating itself) is the maintainer's decision
-  - [ ] A test repoints the `PathHandler` between two requests of one handle
-
-Context: a handle keeps the https URLs it was built with. `send()` dereferences
-the grant's DID URL on every request and answers a request outside the result
-locally, with the 404 translations. Once the DID's `PathHandler` is repointed
-and the dereferencer's cache expires, every URL of the old handle is outside the
-target. A read then resolves `null` and a delete reports success with nothing
-sent, so a sync consumer could take the documents for deleted. Calling
-`fromCapability()` again yields a working handle, and the README says so, but
-nothing tells the caller that the moment has come.
-
 ### WCL-178: [M] `pws.revoke()` of a DID-form grant goes to the old server after the Space moves
 
 - status: todo
@@ -1770,6 +1743,9 @@ recorded in the CHANGELOG, not here.
         `TargetDereferenceError`, and one with a fragment is refused
   - [ ] Whether a selector such as `versionId` is accepted on the URL is decided
         and documented
+  - [ ] A request from a handle opened on a DID URL, made after the Space moves,
+        rejects with `TargetDereferenceError` on a read and on an idempotent
+        delete, as a handle built on a DID-form grant does
   - [ ] A test against web-spaces-server reads and writes through a DID URL
 
 Context: the client understands a DID URL in two places only. One is the
@@ -1785,9 +1761,20 @@ A caller can do the step by hand today. `createTargetDereferencer()` on the
 `request`, `spaceAt` or `collectionAt`.
 
 A handle opened this way keeps the https URL it resolved when it was built, so
-it goes out of date when the Space moves. That is the problem WCL-177 records
-for a handle built on a DID-form grant, and the answer chosen there should apply
-here. A Space handle opened on its root DID URL could also set `didUrl` for its
+it goes out of date when the Space moves. WCL-177 settled that case for a handle
+built on a DID-form grant. The handle does not re-locate itself. A request from
+it rejects with `TargetDereferenceError`, and the caller builds a new handle.
+The same answer applies here.
+
+The WCL-177 check does not cover this item as it stands. It lives in `send()`
+(`checkRootLocation`), runs only when a request falls outside the capability's
+target, and reads the DID URL from the capability's chain root. A handle opened
+on a DID URL may carry no capability, and its requests under the controller's
+own root capability never reach that branch. So the handle has to keep the DID
+URL it was opened on, and `send()` has to compare the request URL with what that
+DID URL dereferences to now.
+
+A Space handle opened on its root DID URL could also set `didUrl` for its
 grants, which is worth deciding in the same pass.
 
 ### WCL-176: [M] A delegate re-delegates from a handle built on a DID-form grant

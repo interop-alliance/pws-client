@@ -33,7 +33,8 @@ import {
   PwsClient,
   Resource,
   Space,
-  SpaceGrantRequiredError
+  SpaceGrantRequiredError,
+  TargetDereferenceError
 } from '../../src/index.js'
 import type { ISigner, IZcap } from '../../src/index.js'
 import { createTargetDereferencer } from '../../src/did-url.js'
@@ -52,6 +53,7 @@ describeLive('a delegate holding a DID-form grant (live server)', () => {
   let spaceUrl: string
   let otherSpace: Space
   let log: DIDLog
+  let logSigner: Parameters<typeof updateDID>[0]['signer']
 
   /**
    * A grant to the delegate, signed by the Space's controller.
@@ -96,6 +98,7 @@ describeLive('a delegate holding a DID-form grant (live server)', () => {
       baseServerUrl: baseServerUrl as string
     })
     ;({ did, spaceUrl } = account)
+    logSigner = account.logSigner
     const updated = await updateDID({
       log: account.log,
       signer: account.logSigner,
@@ -242,5 +245,55 @@ describeLive('a delegate holding a DID-form grant (live server)', () => {
     expect(
       await owner.spaceAt(spaceUrl).collection('photos').get('doc-8')
     ).toBeNull()
+  })
+
+  it('reports a handle the Space has moved away from', async () => {
+    // The delegate's own copy of the log, so the repoint stays in this test.
+    let served = log
+    const logUrl = getFileUrl(did)
+    /**
+     * A dereferencer with an empty cache, over the log served now.
+     *
+     * @returns {ReturnType<typeof createTargetDereferencer>}
+     */
+    function freshDereferencer(): ReturnType<typeof createTargetDereferencer> {
+      return createTargetDereferencer({
+        fetch: async (input: string) =>
+          input === logUrl
+            ? new Response(logToJsonlString(served), { status: 200 })
+            : new Response('not found', { status: 404 })
+      })
+    }
+    let dereferenceTarget = freshDereferencer()
+    const delegate = new PwsClient({
+      baseServerUrl: baseServerUrl as string,
+      zcapClient: bob.zcapClient,
+      dereferenceTarget: async input => dereferenceTarget(input)
+    })
+    const zcap = await grant({ root: `${did}/`, target: `${did}/photos/` })
+    const photos = (await delegate.fromCapability(zcap)) as Collection
+    expect(await photos.get('doc-1')).toEqual({ photo: 1 })
+
+    // Repoint the DID's `PathHandler` at another Space, and drop the cache.
+    const repointed = await updateDID({
+      log: served,
+      signer: logSigner,
+      services: [pathHandler({ path: '/', serviceEndpoint: otherSpace.url })]
+    })
+    served = repointed.log
+    dereferenceTarget = freshDereferencer()
+
+    await expect(photos.get('doc-1')).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+    await expect(photos.resource('doc-1').delete()).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+    expect(
+      await owner.spaceAt(spaceUrl).collection('photos').get('doc-1')
+    ).toEqual({ photo: 1 })
+
+    const moved = await delegate.fromCapability(zcap)
+    expect(moved.url).toBe(`${otherSpace.url}photos/`)
   })
 })

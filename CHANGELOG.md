@@ -30,7 +30,10 @@
   to find what the handle addresses. The handles check each request URL against
   the dereferenced target. A grant on the Space in DID URL form may write
   Collection metadata. A failure of a caller's `dereferenceTarget` hook is
-  wrapped in `TargetDereferenceError`.
+  wrapped in `TargetDereferenceError`. A handle keeps the https URLs it was
+  built with. Once the Space has moved, its requests reject with
+  `TargetDereferenceError` instead of reading as absent, and `fromCapability()`
+  called again returns a handle at the new location.
 - A `didUrl` option on `PwsClient.space()` and `PwsClient.spaceAt()`, the
   Space's root DID URL, such as `did:webvh:<scid>:alice.example/`. It must end
   in `/` and carry no selector and no fragment, or the call throws

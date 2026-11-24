@@ -162,6 +162,11 @@ export class NotSupportedError extends PwsError {
  * target that is not a `did:webvh` DID URL, one with a fragment or no path, a
  * DID that does not resolve, a path no `PathHandler` service of the DID
  * document matches, and a result that is not an https URL in canonical form. The underlying error, when there is one, is the `cause`.
+ *
+ * Also raised for a request from a handle that carries a DID URL grant, when
+ * the request URL or the grant's dereferenced target is not under the URL the
+ * grant's root dereferences to. A handle built before the Space moved is the
+ * usual case, and `fromCapability()` builds one at the new location.
  */
 export class TargetDereferenceError extends PwsError {
   override name = 'TargetDereferenceError'

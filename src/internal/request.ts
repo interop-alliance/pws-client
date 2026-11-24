@@ -25,6 +25,7 @@ import {
 import { mapError } from './mapError.js'
 import { dataOrNull } from './content.js'
 import { readEtag } from './conditional.js'
+import { findChainRootTarget } from './rootCapability.js'
 import type { EncryptionProvider } from '../codec.js'
 import type {
   DereferenceTarget,
@@ -134,7 +135,9 @@ export async function dereferencedTarget(
  * @param input {SendInput}
  * @param [dereferenceTarget] {DereferenceTarget}   the hook handed to ezcap.
  *   Defaults to the context's. `send()` passes one that returns the URL it
- *   has already dereferenced, so the hook runs once per request
+ *   has already dereferenced, so ezcap does not call the hook again. A
+ *   request `send()` answers without sending may call it once more, for the
+ *   chain's root (see `checkRootLocation`)
  * @returns {Promise<HttpResponse>}
  */
 export async function rawRequest(
@@ -228,6 +231,85 @@ export async function unsignedRequest(input: {
 }
 
 /**
+ * Rejects a request that does not fit the location a DID URL chain is rooted
+ * at today. Every URL of a handle lies under its Space URL, so a request URL
+ * outside the root's current URL comes from a handle that addresses another
+ * location. A handle built before the Space moved is the usual case. Such a
+ * request must not take the 404 translations, which would report the
+ * documents as absent. A chain rooted at an https URL is not checked.
+ *
+ * The target and the root are dereferenced by separate calls of the hook, so
+ * one answer can be older than the other. A DID URL target that dereferences
+ * outside the root's URL is refused too. That covers a root answer older than
+ * a move, and a target the DID document maps to another Space.
+ *
+ * The cause cannot be told from the request alone. A handle built with
+ * `spaceAt()` for a Space the chain is not rooted in is refused the same way.
+ *
+ * @param context {ClientContext}
+ * @param options {object}
+ * @param options.url {string}   the request URL
+ * @param options.capability {IZcap}   the capability attached to the request
+ * @param options.targetUrl {string}   the URL the capability's target
+ *   dereferences to. A grant on the Space names its root as its target, so
+ *   the root is not dereferenced a second time
+ * @returns {Promise<void>}
+ * @throws {TargetDereferenceError}   when `url` or `targetUrl` is not at or
+ *   beneath the URL the root's DID URL dereferences to, or that DID URL
+ *   cannot be dereferenced
+ */
+export async function checkRootLocation(
+  context: ClientContext,
+  {
+    url,
+    capability,
+    targetUrl
+  }: { url: string; capability: IZcap; targetUrl: string }
+): Promise<void> {
+  const root = findChainRootTarget(capability)
+  if (!root?.startsWith('did:')) {
+    return
+  }
+  const { invocationTarget } = capability
+  const rootUrl =
+    root === invocationTarget
+      ? targetUrl
+      : await dereferencedTarget(context, root)
+  const advice =
+    'The request was not sent. If the Space has moved, call ' +
+    '`fromCapability()` again for a handle at its current location.'
+  if (
+    !isValidTarget({
+      invocationTarget: url,
+      baseInvocationTarget: rootUrl,
+      allowTargetAttenuation: true
+    })
+  ) {
+    throw new TargetDereferenceError(
+      `"${url}" is not at or beneath "${rootUrl}", the URL the capability's ` +
+        `root "${root}" dereferences to now. The handle addresses another ` +
+        `location. ${advice}`,
+      { requestUrl: url }
+    )
+  }
+  if (
+    invocationTarget.startsWith('did:') &&
+    !isValidTarget({
+      invocationTarget: targetUrl,
+      baseInvocationTarget: rootUrl,
+      allowTargetAttenuation: true
+    })
+  ) {
+    throw new TargetDereferenceError(
+      `The capability's target "${invocationTarget}" dereferences to ` +
+        `"${targetUrl}", which is not at or beneath "${rootUrl}", the URL ` +
+        `its root "${root}" dereferences to. ${advice}`,
+      { requestUrl: url }
+    )
+  }
+}
+
+/**
  * Signs and sends a request, applying the typed-error mapping. When `read` is
  * set, a 404 resolves to `null` (MongoDB `findOne` semantics); otherwise every
  * non-2xx maps to a `PwsError` subclass.
@@ -245,6 +327,12 @@ export async function unsignedRequest(input: {
  * with the https URL it names. A target that cannot be dereferenced rejects
  * with `TargetDereferenceError`, whatever the 404 translations.
  *
+ * For a chain rooted at a DID URL, a request outside the target also goes
+ * through `checkRootLocation`. It rejects with `TargetDereferenceError`,
+ * instead of taking the 404 translations, when the request URL or the
+ * dereferenced target lies outside the URL the root dereferences to. A handle
+ * built before the Space moved is refused this way.
+ *
  * @param context {ClientContext}
  * @param input {SendInput}
  * @returns {Promise<HttpResponse | null>}
@@ -253,9 +341,12 @@ export async function send(
   context: ClientContext,
   input: SendInput
 ): Promise<HttpResponse | null> {
-  const invocationTarget = input.capability?.invocationTarget
+  const { capability } = input
   let baseInvocationTarget: string | undefined
-  if (invocationTarget !== undefined) {
+  // A capability with no target (a stand-in a caller passes through) is left
+  // for the signer to judge.
+  const invocationTarget = capability?.invocationTarget
+  if (capability !== undefined && invocationTarget !== undefined) {
     const { url } = input
     baseInvocationTarget = await dereferencedTarget(context, invocationTarget)
     if (
@@ -265,6 +356,11 @@ export async function send(
         allowTargetAttenuation: true
       })
     ) {
+      await checkRootLocation(context, {
+        url,
+        capability,
+        targetUrl: baseInvocationTarget
+      })
       if (input.read || input.idempotent) {
         return null
       }

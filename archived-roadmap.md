@@ -5706,3 +5706,35 @@ added. Revocation submits under the https root of the revocation URL, and
 `pws.revoke()` now dereferences a DID URL chain root to find the Space. `didUrl`
 does not apply to a re-delegation, which is WCL-176. The `Resource` method is
 tracked by WCL-154.
+
+### WCL-177: [M] A handle built on a DID-form grant reads as empty after the Space moves
+
+- status: done (2026-11-24)
+- priority: medium
+- labels: zcap, webvh, portability, correctness
+- discovered-from: WCL-173 review (2026-11-23)
+- touches:
+  - pws-client (this repo): `src/internal/request.ts` (`send()`), README.md,
+    ARCHITECTURE.md (shipped here)
+- acceptance:
+  - [x] A request from a handle whose URL no longer lies under the URL its
+        DID-form grant dereferences to does not resolve `null` on a read or
+        succeed on an idempotent delete. What it does instead (a named error, or
+        the handle re-locating itself) is the maintainer's decision
+  - [x] A test repoints the `PathHandler` between two requests of one handle
+
+Context: a handle keeps the https URLs it was built with. `send()` dereferences
+the grant's DID URL on every request and answers a request outside the result
+locally, with the 404 translations. Once the DID's `PathHandler` is repointed
+and the dereferencer's cache expires, every URL of the old handle is outside the
+target. A read then resolves `null` and a delete reports success with nothing
+sent, so a sync consumer could take the documents for deleted. Calling
+`fromCapability()` again yields a working handle, and the README says so, but
+nothing tells the caller that the moment has come.
+
+Decision (2026-11-24): a named error, with no new error class. In its
+out-of-target branch `send()` dereferences the chain's DID URL root and compares
+the request URL with the result. A URL outside it rejects with
+`TargetDereferenceError`, whose message points at `fromCapability()`. The handle
+does not re-locate itself. The request still goes to the old location until the
+dereferencer's cache expires, which WCL-178 covers.
