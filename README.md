@@ -1787,11 +1787,32 @@ https root with a DID URL link, or the reverse, with the masked 404. The client
 does not check this itself, so such a grant yields a handle whose reads resolve
 to `null` and whose writes throw `NotFoundError`.
 
-`grant()` on a handle built from a DID-form grant does not work yet. The handle
-prefills its own https URL as the target, and the signer refuses an https link
-under a DID URL parent with a plain `Error`. To re-delegate such a grant, call
-`pws.grant()` with the grant as `capability`. Leave `target` out to keep the
-parent's target, or pass a DID URL beneath it.
+`grant()` on a handle built from a DID-form grant issues a DID-form link. The
+parent stays the bound capability, and the link is never an https URL.
+
+```ts
+const photos = await bobPws.fromCapability(zcap)
+const grant = await photos.resource('cat.jpg').grant({ to, actions: ['GET'] })
+grant.invocationTarget // 'did:webvh:<scid>:alice.example/photos/cat.jpg'
+```
+
+The same holds for `pws.grant({ capability, target })` when `capability` is a
+DID-form grant and a `target` is given. An https target is translated to the
+parent's DID URL plus the path of the target beneath the URL the parent's target
+dereferences to. A DID URL target at or beneath the parent's is delegated as
+given. The client dereferences the result and compares it with the https target
+before signing. A mismatch throws `ValidationError`.
+
+The client refuses before signing in these cases.
+
+- The server does not list `did-url-targets`. This throws `NotSupportedError`.
+- The target is outside the parent, carries a query or a fragment the parent's
+  DID URL does not carry, or is an https URL under a parent whose DID URL
+  carries a selector. These throw `ValidationError`.
+- A DID URL cannot be dereferenced. This throws `TargetDereferenceError`.
+
+`pws.grant({ capability })` with no `target` keeps the parent's target and runs
+none of these checks.
 
 #### Issuing a DID-form grant
 
@@ -1837,11 +1858,10 @@ how a path the DID document aliases is granted. A target with a query or a
 fragment is refused, and so is a `spaceUrl` that names another Space.
 
 A parent capability wins over `didUrl`. When a `capability` is passed to
-`grant()`, or the handle is bound to one, `didUrl` does not apply, and the
-target still defaults to the handle's https URL. Under a DID-form parent the
-signer refuses that target (see
-[Holding a DID-form grant](#holding-a-did-form-grant)). A handle built without
-`didUrl` issues https grants.
+`grant()`, or the handle is bound to one, `didUrl` does not apply. A DID-form
+parent yields a DID-form link, as described in
+[Holding a DID-form grant](#holding-a-did-form-grant). A handle built without
+`didUrl` and without a DID-form parent issues https grants.
 
 `space.revoke(zcap)` revokes a DID-form grant as it does an https one.
 `pws.revoke(zcap)` dereferences the DID URL of the chain root to find the Space,

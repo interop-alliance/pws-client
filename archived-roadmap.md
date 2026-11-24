@@ -5738,3 +5738,51 @@ the request URL with the result. A URL outside it rejects with
 `TargetDereferenceError`, whose message points at `fromCapability()`. The handle
 does not re-locate itself. The request still goes to the old location until the
 dereferencer's cache expires, which WCL-178 covers.
+
+### WCL-176: [M] A delegate re-delegates from a handle built on a DID-form grant
+
+- status: done (2026-11-24)
+- priority: medium
+- labels: zcap, webvh, portability
+- discovered-from: WCL-173 (2026-11-23)
+- touches:
+  - pws-client (this repo): `src/internal/grant.ts` (`delegateGrantAt`,
+    `delegateGrant`), the `grant` methods of `src/Space.ts`, `src/Collection.ts`
+    and `src/Resource.ts`, README.md, ARCHITECTURE.md (shipped here)
+- acceptance:
+  - [x] `grant()` on a handle whose bound capability is DID-form issues a
+        DID-form link, or refuses with a named error before signing. Which of
+        the two is the maintainer's decision
+  - [x] It never issues an https link under a DID-form parent
+  - [x] A test against web-spaces-server covers the chosen behavior
+
+Context: `fromCapability` now builds a handle from a DID-form grant, and the
+handle's URLs are the https URLs the grant dereferences to. The `grant` sugar
+prefills the target from the handle's `url`, so a re-delegation from such a
+handle names an https target under a DID URL parent. That is a mixed-form chain,
+which the server refuses with the masked `not-found`. The delegate gets a grant
+that never works and no error.
+
+The DID URL for the new link is not derivable from the handle alone. The handle
+knows the parent's DID URL and its own https URL. Appending the https path below
+the parent's dereferenced target to the parent's DID URL is right only when no
+longer `PathHandler` intercepts that path, so the result has to be dereferenced
+and compared before signing. The item that adds `didUrl` to the Space handle
+covers the controller's side and does not cover this one.
+
+Found on 2026-11-24 while landing WCL-174. The signer already refuses this
+re-delegation. `@interop/zcap` 12.3.1 throws a plain `Error` ("must not be less
+restrictive than its parent") from `delegate`, since a `did:` target and an
+https target never attenuate each other. So no mixed-form link is issued today,
+and what is left is the named error or the DID-form link. `didUrlRooted` in
+`src/internal/grant.ts` has the dereference-and-compare check to reuse.
+
+Decision (2026-11-24): issue the DID-form link, and refuse with
+`ValidationError`, with no new error class. Under a parent whose target is a DID
+URL, `delegateGrant` translates an https target to the parent's DID URL plus the
+path beneath the URL the parent dereferences to. It dereferences the result and
+compares it with the https target before signing. A DID URL target at or beneath
+the parent's is delegated as given. This covers the three handle `grant()`
+methods and `pws.grant({ capability, target })`. A server without
+`did-url-targets` is refused with `NotSupportedError`. Three gaps found in
+review are WCL-180, WCL-181 and WCL-182.

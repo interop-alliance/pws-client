@@ -27,6 +27,9 @@
  * form: a chain rooted in `urn:zcap:root:<encoded didUrl>` whose link names a
  * DID URL. Such a grant keeps working when the Space moves to another
  * provider. See `didUrlRooted`.
+ *
+ * A re-delegation under a parent in DID URL form names a DID URL as well.
+ * See `didUrlAttenuated`.
  */
 import { AUTHZ_PROFILE_SPEC_ID } from '@interop/storage-core'
 import { isValidTarget } from '@interop/zcap'
@@ -179,6 +182,121 @@ async function didUrlRooted(
     target
   }: { didUrl: string; spaceUrl: string; target: string }
 ): Promise<{ parent: string; target: string }> {
+  await requireDidUrlTargets(context)
+  checkNoSelector(target)
+  const named = target.startsWith('did:')
+  if (named && !target.startsWith(didUrl)) {
+    throw new ValidationError(
+      `Grant target "${target}" is not at or beneath the Space's ` +
+        `\`didUrl\` "${didUrl}".`
+    )
+  }
+  // The https URL an https target asks for, in canonical form.
+  const wanted = named ? undefined : spaceRooted({ spaceUrl, target }).target
+  const rootUrl = await dereferencedTarget(context, didUrl)
+  if (rootUrl !== spaceUrl) {
+    throw new ValidationError(
+      `The Space's \`didUrl\` "${didUrl}" dereferences to "${rootUrl}", not ` +
+        `to the Space "${spaceUrl}". No grant was issued.`
+    )
+  }
+  return {
+    parent: rootCapabilityId(didUrl),
+    target: await didUrlLink(context, {
+      base: didUrl,
+      baseUrl: spaceUrl,
+      target: wanted ?? target
+    })
+  }
+}
+
+/**
+ * The DID URL target of a re-delegation under a parent capability in DID URL
+ * form. A link beneath such a parent has to name a DID URL too, since the
+ * signer and the server both refuse a chain that mixes the two forms.
+ *
+ * An https `target` is translated: it becomes the parent's DID URL plus the
+ * path of `target` beneath the URL the parent's target dereferences to. The
+ * result is dereferenced and compared with `target`, because a longer
+ * `PathHandler` of the DID document may map that path elsewhere. A DID URL
+ * `target` beneath the parent's is delegated as given, once it dereferences
+ * to a URL the parent covers. Nothing is signed when a check fails.
+ *
+ * A selector is refused on the target, with one exception. Under a parent
+ * whose DID URL carries a selector, a DID URL target has to carry the same
+ * one, and an https target cannot be translated.
+ *
+ * @param context {ClientContext}
+ * @param options {object}
+ * @param options.capability {IZcap}   the parent, whose `invocationTarget`
+ *   is a DID URL
+ * @param options.target {string}   the grant target, an https URL or a DID
+ *   URL
+ * @returns {Promise<string>}   the DID URL to delegate
+ * @throws {NotSupportedError}   when the server does not advertise
+ *   `did-url-targets`
+ * @throws {ValidationError}   when `target` is outside what the parent
+ *   covers, carries a query or a fragment the parent does not, or translates
+ *   to a DID URL that dereferences elsewhere than asked
+ * @throws {TargetDereferenceError}   when a DID URL cannot be dereferenced
+ */
+async function didUrlAttenuated(
+  context: ClientContext,
+  { capability, target }: { capability: IZcap; target: string }
+): Promise<string> {
+  await requireDidUrlTargets(context)
+  const base = capability.invocationTarget
+  const named = target.startsWith('did:')
+  // A link keeps the selector of its parent, so a DID URL target under a
+  // parent that carries one is left to the check below, which requires the
+  // two selectors to be identical.
+  if (!named || !/[?#]/.test(base)) {
+    checkNoSelector(target)
+  }
+  if (
+    named &&
+    !isValidTarget({
+      invocationTarget: target,
+      baseInvocationTarget: base,
+      allowTargetAttenuation: true
+    })
+  ) {
+    throw new ValidationError(
+      `Grant target "${target}" is not at or beneath the parent ` +
+        `capability's target "${base}".`
+    )
+  }
+  // A path cannot be appended to a parent target that carries a selector.
+  if (!named && /[?#]/.test(base)) {
+    throw new ValidationError(
+      `The parent capability's target "${base}" carries a selector, so the ` +
+        `grant target "${target}" cannot be translated to a DID URL beneath ` +
+        'it. Give the target as a DID URL that carries the same selector.'
+    )
+  }
+  const baseUrl = await dereferencedTarget(context, base)
+  // An https target is held to the server's rule as well: a URL in
+  // canonical form, at or beneath what the parent covers.
+  if (!named && !isCanonicalBeneath({ url: target, baseUrl })) {
+    throw new ValidationError(
+      `Grant target "${target}" is not a URL in canonical form at or ` +
+        `beneath "${baseUrl}", the URL the parent capability's target ` +
+        `"${base}" dereferences to. No grant was issued.`
+    )
+  }
+  return didUrlLink(context, { base, baseUrl, target })
+}
+
+/**
+ * Refuses a server that does not accept a capability in DID URL form. Such a
+ * server answers the grant with the masked `not-found`.
+ *
+ * @param context {ClientContext}
+ * @returns {Promise<void>}
+ * @throws {NotSupportedError}   when the server does not advertise
+ *   `did-url-targets`
+ */
+async function requireDidUrlTargets(context: ClientContext): Promise<void> {
   const info = await context.service()
   if (
     !info.hasFeature({
@@ -193,59 +311,95 @@ async function didUrlRooted(
         'grant was issued.'
     )
   }
-  // In DID URL form a query is a selector of the DID document's version,
-  // which this client does not issue.
+}
+
+/**
+ * Refuses a grant target with a query or a fragment. In DID URL form a query
+ * is a selector of the DID document's version, which this client does not
+ * issue.
+ *
+ * @param target {string}
+ * @throws {ValidationError}
+ */
+function checkNoSelector(target: string): void {
   if (/[?#]/.test(target)) {
     throw new ValidationError(
       `Grant target "${target}" carries a query or a fragment, which a ` +
         'grant in DID URL form cannot name.'
     )
   }
-  const named = target.startsWith('did:')
-  if (named && !target.startsWith(didUrl)) {
-    throw new ValidationError(
-      `Grant target "${target}" is not at or beneath the Space's ` +
-        `\`didUrl\` "${didUrl}".`
-    )
-  }
-  // The https URL an https target asks for, in canonical form.
-  const wanted = named ? undefined : spaceRooted({ spaceUrl, target }).target
+}
+
+/**
+ * Whether `url` is at or beneath `baseUrl` and in the form a URL parser
+ * leaves unchanged. That is the server's rule for the https URL a link
+ * covers.
+ *
+ * @param options {object}
+ * @param options.url {string}
+ * @param options.baseUrl {string}
+ * @returns {boolean}
+ */
+function isCanonicalBeneath({
+  url,
+  baseUrl
+}: {
+  url: string
+  baseUrl: string
+}): boolean {
+  return (
+    isValidTarget({
+      invocationTarget: url,
+      baseInvocationTarget: baseUrl,
+      allowTargetAttenuation: true
+    }) && new URL(url).href === url
+  )
+}
+
+/**
+ * The DID URL a link in DID URL form names, checked against the https URL it
+ * dereferences to. `base` is the DID URL the link sits at or beneath (the
+ * root's, or the parent's target), and `baseUrl` is the https URL `base`
+ * dereferences to.
+ *
+ * For an https `target`, the link is `base` plus the path of `target`
+ * beneath `baseUrl`, and it must dereference to exactly `target`. A DID URL
+ * `target` is the link itself. It may be an alias, so it is held to the
+ * server's rule: it dereferences to a URL in canonical form, at or beneath
+ * `baseUrl`.
+ *
+ * @param context {ClientContext}
+ * @param options {object}
+ * @param options.base {string}
+ * @param options.baseUrl {string}
+ * @param options.target {string}   a DID URL at or beneath `base`, or an
+ *   https URL in canonical form at or beneath `baseUrl`
+ * @returns {Promise<string>}
+ * @throws {ValidationError}   when the link dereferences elsewhere
+ * @throws {TargetDereferenceError}   when the link cannot be dereferenced
+ */
+async function didUrlLink(
+  context: ClientContext,
+  { base, baseUrl, target }: { base: string; baseUrl: string; target: string }
+): Promise<string> {
+  const wanted = target.startsWith('did:') ? undefined : target
   const didTarget =
-    wanted === undefined ? target : `${didUrl}${wanted.slice(spaceUrl.length)}`
-  const rootUrl = await dereferencedTarget(context, didUrl)
-  if (rootUrl !== spaceUrl) {
-    throw new ValidationError(
-      `The Space's \`didUrl\` "${didUrl}" dereferences to "${rootUrl}", not ` +
-        `to the Space "${spaceUrl}". No grant was issued.`
-    )
-  }
+    wanted === undefined ? target : `${base}${wanted.slice(baseUrl.length)}`
   const url =
-    didTarget === didUrl
-      ? rootUrl
-      : await dereferencedTarget(context, didTarget)
+    didTarget === base ? baseUrl : await dereferencedTarget(context, didTarget)
   if (wanted !== undefined && url !== wanted) {
     throw new ValidationError(
       `Grant target "${didTarget}" dereferences to "${url}", not to ` +
         `"${wanted}". No grant was issued.`
     )
   }
-  // A DID URL target may name an alias, so it is held to the server's rule:
-  // a URL in canonical form, at or beneath the Space.
-  if (
-    wanted === undefined &&
-    (new URL(url).href !== url ||
-      !isValidTarget({
-        invocationTarget: url,
-        baseInvocationTarget: spaceUrl,
-        allowTargetAttenuation: true
-      }))
-  ) {
+  if (wanted === undefined && !isCanonicalBeneath({ url, baseUrl })) {
     throw new ValidationError(
       `Grant target "${didTarget}" dereferences to "${url}", which is not ` +
-        `inside the Space "${spaceUrl}". No grant was issued.`
+        `at or beneath "${baseUrl}". No grant was issued.`
     )
   }
-  return { parent: rootCapabilityId(didUrl), target: didTarget }
+  return didTarget
 }
 
 /**
@@ -256,12 +410,19 @@ async function didUrlRooted(
  * `pws.revoke()`; otherwise ezcap roots it at the target's own root
  * capability.
  *
+ * Under a `capability` whose target is a DID URL, a `target` is delegated in
+ * DID URL form. An https one is translated first (see `didUrlAttenuated`).
+ *
  * @param context {ClientContext}
  * @param options {GrantOptions}
  * @returns {Promise<IDelegatedZcap>}
  * @throws {ValidationError}   when neither `target` nor `capability` is given,
- *   so the delegation names nothing to grant; or when `spaceUrl` is given
- *   and `target` does not lie at or beneath it
+ *   so the delegation names nothing to grant; when `spaceUrl` is given
+ *   and `target` does not lie at or beneath it; or when `capability` is in
+ *   DID URL form and does not cover `target`
+ * @throws {NotSupportedError}   when `capability` is in DID URL form, a
+ *   `target` is given, and the server does not advertise `did-url-targets`
+ * @throws {TargetDereferenceError}   when a DID URL cannot be dereferenced
  */
 export async function delegateGrant(
   context: ClientContext,
@@ -277,6 +438,22 @@ export async function delegateGrant(
       'A grant needs a `target` (the invocationTarget URL to grant) or a ' +
         '`capability` (the parent capability to attenuate); neither was given.'
     )
+  }
+  // A link beneath a parent in DID URL form names a DID URL as well. With no
+  // `target` the signer keeps the parent's own. A parent with no target of
+  // its own (a stand-in a caller passes through) is left for the signer.
+  if (
+    capability !== undefined &&
+    target !== undefined &&
+    capability.invocationTarget?.startsWith('did:')
+  ) {
+    return signGrant(context, {
+      options,
+      rooted: {
+        parent: capability,
+        target: await didUrlAttenuated(context, { capability, target })
+      }
+    })
   }
   const rooted =
     capability === undefined && target !== undefined && spaceUrl !== undefined
@@ -354,9 +531,11 @@ export function allowsAction({
  *
  * A handle that carries the Space's `didUrl` issues the grant in DID URL
  * form. A parent capability still wins, so `didUrl` does not apply to a
- * re-delegation. Its target still defaults to the handle's https URL, which
- * the signer refuses under a parent in DID URL form. An explicit `spaceUrl`
- * that names another Space is refused, since `didUrl` names the handle's own.
+ * re-delegation. Under a parent in DID URL form, such as the bound capability
+ * of a handle built from a DID-form grant, the prefilled https target is
+ * translated to a DID URL beneath the parent's (see `delegateGrant`). An
+ * explicit `spaceUrl` that names another Space is refused, since `didUrl`
+ * names the handle's own.
  *
  * @param context {ClientContext}
  * @param options {object}
@@ -368,9 +547,10 @@ export function allowsAction({
  * @param [options.didUrl] {string}       the root DID URL of the handle's Space
  * @returns {Promise<IDelegatedZcap>}
  * @throws {ValidationError}   when `didUrl` applies and `options.spaceUrl`
- *   names another Space
- * @throws {NotSupportedError}   when `didUrl` applies and the server does
- *   not advertise `did-url-targets`
+ *   names another Space, or the parent is in DID URL form and does not
+ *   cover the target
+ * @throws {NotSupportedError}   when the grant is in DID URL form and the
+ *   server does not advertise `did-url-targets`
  */
 export async function delegateGrantAt(
   context: ClientContext,

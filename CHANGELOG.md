@@ -46,6 +46,13 @@
   dereferences to the URL the grant was asked for (else `ValidationError`). An
   explicit `target` may be a DID URL at or beneath `didUrl`. `didUrl` does not
   apply to a re-delegation.
+- Re-delegation under a parent capability whose target is a DID URL issues a
+  DID-form link. This covers `grant()` on a handle built by `fromCapability()`
+  from a DID-form grant, and `pws.grant({ capability, target })`. An https
+  target is translated and checked by dereferencing before signing. A target
+  outside the parent, or with a query or fragment the parent does not carry,
+  throws `ValidationError`. A server without `did-url-targets` throws
+  `NotSupportedError`.
 - `resource.grant(options)`, with the target prefilled with the Resource URL.
 - `ServiceInfo.entries`, the chosen version entries keyed by specification
   identifier. `info.entries[PWS_SPEC_ID]` is the same object as `info.entry`.
