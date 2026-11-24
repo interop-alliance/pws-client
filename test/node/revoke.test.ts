@@ -12,7 +12,11 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import { ValidationError, NotFoundError } from '../../src/index.js'
+import {
+  ValidationError,
+  NotFoundError,
+  TargetDereferenceError
+} from '../../src/index.js'
 import type { IDelegatedZcap } from '../../src/index.js'
 import { rootCapabilityId } from '../../src/paths/index.js'
 import { clientWithRequestSpy, spaceUrlFor } from '../helpers/stubClient.js'
@@ -249,11 +253,21 @@ describe('pws.revoke (space derived from the delegation chain)', () => {
 
   it('rejects a root capability that names no Space URL', async () => {
     const { client, lastRequest } = clientWithRequestSpy()
-    for (const target of ['did:example:alice']) {
+    for (const target of ['urn:example:alice', 'https://pws.example/?x=1']) {
       await expect(
         client.revoke(delegatedZcap({ rootId: rootCapabilityId(target) }))
       ).rejects.toThrow(ValidationError)
     }
+    expect(lastRequest()).toBeUndefined()
+  })
+
+  it('reports a DID URL root that cannot be dereferenced', async () => {
+    const { client, lastRequest } = clientWithRequestSpy()
+    await expect(
+      client.revoke(
+        delegatedZcap({ rootId: rootCapabilityId('did:example:alice') })
+      )
+    ).rejects.toThrow(TargetDereferenceError)
     expect(lastRequest()).toBeUndefined()
   })
 
@@ -267,6 +281,15 @@ describe('pws.revoke (space derived from the delegation chain)', () => {
     } as unknown as IDelegatedZcap
 
     await expect(client.revoke(root)).rejects.toThrow(ValidationError)
+    // A root that names a DID URL is refused with no dereference.
+    const didUrl = 'did:example:alice/'
+    await expect(
+      client.revoke({
+        ...root,
+        id: rootCapabilityId(didUrl),
+        invocationTarget: didUrl
+      })
+    ).rejects.toThrow(ValidationError)
     expect(lastRequest()).toBeUndefined()
   })
 })

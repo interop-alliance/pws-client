@@ -22,13 +22,25 @@
  * container to root a chain in. Such a grant cannot be revoked through a
  * Space's revocation endpoint; that is a limitation of that conformance
  * level, not of the client.
+ *
+ * A handle built from a Space handle that carries `didUrl` issues the third
+ * form: a chain rooted in `urn:zcap:root:<encoded didUrl>` whose link names a
+ * DID URL. Such a grant keeps working when the Space moves to another
+ * provider. See `didUrlRooted`.
  */
+import { AUTHZ_PROFILE_SPEC_ID } from '@interop/storage-core'
 import { isValidTarget } from '@interop/zcap'
-import type { ClientContext } from './request.js'
+import { dereferencedTarget, type ClientContext } from './request.js'
 import { canonicalSpaceUrl } from './layout.js'
 import { rootCapabilityId } from './rootCapability.js'
-import { ValidationError } from '../errors.js'
+import { NotSupportedError, ValidationError } from '../errors.js'
 import type { GrantOptions, IDelegatedZcap, IZcap } from '../types.js'
+
+/**
+ * The token a server lists on its authorization profile entry when it accepts
+ * a capability whose `invocationTarget` is a DID URL.
+ */
+const DID_URL_TARGETS_FEATURE = 'did-url-targets'
 
 /**
  * Roots a grant in its Space: the root capability id
@@ -102,6 +114,141 @@ function spaceRooted({
 }
 
 /**
+ * Checks the root DID URL a Space handle is given as `didUrl`. The server
+ * synthesizes one root capability per such URL, and refuses a root that
+ * carries a selector or a fragment or does not end in `/`.
+ *
+ * @param didUrl {string}
+ * @returns {string}   `didUrl`, unchanged
+ * @throws {ValidationError}   when `didUrl` is not a DID URL that ends in
+ *   `/`, or it carries a selector or a fragment
+ */
+export function checkedSpaceDidUrl(didUrl: string): string {
+  if (
+    !didUrl.startsWith('did:') ||
+    !didUrl.endsWith('/') ||
+    /[?#]/.test(didUrl)
+  ) {
+    throw new ValidationError(
+      `The Space's \`didUrl\` "${didUrl}" must be a DID URL that ends ` +
+        'in `/` and carries no selector and no fragment, such as ' +
+        '"did:webvh:<scid>:alice.example/".'
+    )
+  }
+  return didUrl
+}
+
+/**
+ * Roots a grant in the DID URL form of its Space: the root capability id
+ * (`urn:zcap:root:<encoded didUrl>`) to parent it on, and the DID URL target
+ * to delegate. The target is `didUrl` plus the path of `target` within the
+ * Space.
+ *
+ * Three checks run first, in this order, and nothing is signed when one
+ * fails. The server must advertise `did-url-targets`, since a server without
+ * it answers such a grant with the masked `not-found`. `didUrl` must
+ * dereference to exactly the Space's canonical URL, the rule the server
+ * applies to the root. The link's DID URL must dereference to the https URL
+ * the grant was asked for. A longer `PathHandler` of the DID document may map
+ * that path elsewhere, and the grant would then reach something other than
+ * what the handle addresses.
+ *
+ * `target` may also be given as a DID URL at or beneath `didUrl`. It is then
+ * delegated as given, once it dereferences to a URL inside the Space. That is
+ * how a path the DID document aliases is granted.
+ *
+ * @param context {ClientContext}
+ * @param options {object}
+ * @param options.didUrl {string}     the Space's root DID URL
+ * @param options.spaceUrl {string}   the Space's canonical URL
+ * @param options.target {string}     the grant target, an https URL at or
+ *   beneath the Space or a DID URL at or beneath `didUrl`
+ * @returns {Promise<{ parent: string, target: string }>}
+ * @throws {NotSupportedError}   when the server does not advertise
+ *   `did-url-targets`
+ * @throws {ValidationError}   when `didUrl` does not dereference to the
+ *   Space, or `target` is outside it, carries a query or a fragment, or
+ *   names a DID URL that dereferences elsewhere than asked
+ * @throws {TargetDereferenceError}   when a DID URL cannot be dereferenced
+ */
+async function didUrlRooted(
+  context: ClientContext,
+  {
+    didUrl,
+    spaceUrl,
+    target
+  }: { didUrl: string; spaceUrl: string; target: string }
+): Promise<{ parent: string; target: string }> {
+  const info = await context.service()
+  if (
+    !info.hasFeature({
+      spec: AUTHZ_PROFILE_SPEC_ID,
+      feature: DID_URL_TARGETS_FEATURE
+    })
+  ) {
+    throw new NotSupportedError(
+      `The server at "${info.description.url}" does not accept a grant in ` +
+        `DID URL form: its ${AUTHZ_PROFILE_SPEC_ID} service description ` +
+        `entry does not list the \`${DID_URL_TARGETS_FEATURE}\` feature. No ` +
+        'grant was issued.'
+    )
+  }
+  // In DID URL form a query is a selector of the DID document's version,
+  // which this client does not issue.
+  if (/[?#]/.test(target)) {
+    throw new ValidationError(
+      `Grant target "${target}" carries a query or a fragment, which a ` +
+        'grant in DID URL form cannot name.'
+    )
+  }
+  const named = target.startsWith('did:')
+  if (named && !target.startsWith(didUrl)) {
+    throw new ValidationError(
+      `Grant target "${target}" is not at or beneath the Space's ` +
+        `\`didUrl\` "${didUrl}".`
+    )
+  }
+  // The https URL an https target asks for, in canonical form.
+  const wanted = named ? undefined : spaceRooted({ spaceUrl, target }).target
+  const didTarget =
+    wanted === undefined ? target : `${didUrl}${wanted.slice(spaceUrl.length)}`
+  const rootUrl = await dereferencedTarget(context, didUrl)
+  if (rootUrl !== spaceUrl) {
+    throw new ValidationError(
+      `The Space's \`didUrl\` "${didUrl}" dereferences to "${rootUrl}", not ` +
+        `to the Space "${spaceUrl}". No grant was issued.`
+    )
+  }
+  const url =
+    didTarget === didUrl
+      ? rootUrl
+      : await dereferencedTarget(context, didTarget)
+  if (wanted !== undefined && url !== wanted) {
+    throw new ValidationError(
+      `Grant target "${didTarget}" dereferences to "${url}", not to ` +
+        `"${wanted}". No grant was issued.`
+    )
+  }
+  // A DID URL target may name an alias, so it is held to the server's rule:
+  // a URL in canonical form, at or beneath the Space.
+  if (
+    wanted === undefined &&
+    (new URL(url).href !== url ||
+      !isValidTarget({
+        invocationTarget: url,
+        baseInvocationTarget: spaceUrl,
+        allowTargetAttenuation: true
+      }))
+  ) {
+    throw new ValidationError(
+      `Grant target "${didTarget}" dereferences to "${url}", which is not ` +
+        `inside the Space "${spaceUrl}". No grant was issued.`
+    )
+  }
+  return { parent: rootCapabilityId(didUrl), target: didTarget }
+}
+
+/**
  * Delegates a capability per `GrantOptions`, returning the signed zcap to hand
  * off out-of-band. An explicit `capability` (re-delegation of a parent zcap)
  * always wins; otherwise a grant naming its `spaceUrl` is rooted at that
@@ -118,8 +265,9 @@ function spaceRooted({
  */
 export async function delegateGrant(
   context: ClientContext,
-  { to, actions, expires, target, capability, spaceUrl }: GrantOptions
+  options: GrantOptions
 ): Promise<IDelegatedZcap> {
+  const { target, capability, spaceUrl } = options
   // The scoped sugar always prefills `target`, so this only catches a direct
   // `pws.grant()`. Without either member ezcap has no invocation target and no
   // parent to take one from, and rejects the call with a bare `TypeError` a
@@ -134,6 +282,29 @@ export async function delegateGrant(
     capability === undefined && target !== undefined && spaceUrl !== undefined
       ? spaceRooted({ spaceUrl, target })
       : { parent: capability, target }
+  return signGrant(context, { options, rooted })
+}
+
+/**
+ * Signs the delegation of a grant whose parent and target are settled.
+ *
+ * @param context {ClientContext}
+ * @param options {object}
+ * @param options.options {GrantOptions}   the delegate, actions and expiry
+ * @param options.rooted {object}   the parent capability (or root id) and
+ *   the `invocationTarget` to delegate
+ * @returns {Promise<IDelegatedZcap>}
+ */
+async function signGrant(
+  context: ClientContext,
+  {
+    options: { to, actions, expires },
+    rooted
+  }: {
+    options: GrantOptions
+    rooted: { parent?: IZcap | string; target?: string }
+  }
+): Promise<IDelegatedZcap> {
   return context.zcapClient.delegate({
     controller: to,
     invocationTarget: rooted.target,
@@ -175,19 +346,31 @@ export function allowsAction({
 }
 
 /**
- * The scoped-grant sugar shared by `Space.grant` and `Collection.grant`:
- * delegates per `GrantOptions` with the grant `target` prefilled from the
+ * The scoped-grant sugar shared by `Space.grant`, `Collection.grant` and
+ * `Resource.grant`: delegates per `GrantOptions` with the grant `target` prefilled from the
  * handle's `url`, the rooting `spaceUrl` from the handle's Space, and the
  * handle's bound `capability`, if any, as the parent for re-delegation.
  * Explicit options win over every prefill.
  *
+ * A handle that carries the Space's `didUrl` issues the grant in DID URL
+ * form. A parent capability still wins, so `didUrl` does not apply to a
+ * re-delegation. Its target still defaults to the handle's https URL, which
+ * the signer refuses under a parent in DID URL form. An explicit `spaceUrl`
+ * that names another Space is refused, since `didUrl` names the handle's own.
+ *
  * @param context {ClientContext}
  * @param options {object}
  * @param options.url {string}            the handle's URL (target fallback)
- * @param options.spaceUrl {string}       the handle's Space (rooting fallback)
+ * @param options.spaceUrl {string}       the handle's Space (rooting fallback),
+ *   in canonical form
  * @param options.options {GrantOptions}  the caller's grant options
  * @param [options.capability] {IZcap}    the handle's bound capability
+ * @param [options.didUrl] {string}       the root DID URL of the handle's Space
  * @returns {Promise<IDelegatedZcap>}
+ * @throws {ValidationError}   when `didUrl` applies and `options.spaceUrl`
+ *   names another Space
+ * @throws {NotSupportedError}   when `didUrl` applies and the server does
+ *   not advertise `did-url-targets`
  */
 export async function delegateGrantAt(
   context: ClientContext,
@@ -195,18 +378,38 @@ export async function delegateGrantAt(
     url,
     spaceUrl,
     options,
-    capability
+    capability,
+    didUrl
   }: {
     url: string
     spaceUrl: string
     options: GrantOptions
     capability?: IZcap
+    didUrl?: string
   }
 ): Promise<IDelegatedZcap> {
-  return delegateGrant(context, {
-    ...options,
-    target: options.target ?? url,
-    spaceUrl: options.spaceUrl ?? spaceUrl,
-    capability: options.capability ?? capability
+  const parent = options.capability ?? capability
+  const target = options.target ?? url
+  if (didUrl === undefined || parent !== undefined) {
+    return delegateGrant(context, {
+      ...options,
+      target,
+      spaceUrl: options.spaceUrl ?? spaceUrl,
+      capability: parent
+    })
+  }
+  if (
+    options.spaceUrl !== undefined &&
+    canonicalSpaceUrl(options.spaceUrl) !== spaceUrl
+  ) {
+    throw new ValidationError(
+      `This handle issues grants under the \`didUrl\` "${didUrl}" of the ` +
+        `Space "${spaceUrl}", so it cannot root one in the Space ` +
+        `"${options.spaceUrl}".`
+    )
+  }
+  return signGrant(context, {
+    options,
+    rooted: await didUrlRooted(context, { didUrl, spaceUrl, target })
   })
 }

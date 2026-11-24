@@ -56,11 +56,7 @@ import {
 import type { PageWalk } from './internal/pagination.js'
 import { delegateGrant } from './internal/grant.js'
 import { submitRevocation } from './internal/revoke.js'
-import {
-  chainRootTarget,
-  spaceUrlAtRoot,
-  spaceUrlOf
-} from './internal/rootCapability.js'
+import { chainRootTarget, spaceUrlAtRoot } from './internal/rootCapability.js'
 import { Memo } from './internal/memo.js'
 import {
   discoverService,
@@ -490,15 +486,25 @@ export class PwsClient {
    *   override for the Collections reached through this Space handle (see
    *   `EncryptionOverride`); `space.collection(id, { encryption })` overrides
    *   it per collection
+   * @param [options.didUrl] {string}   the Space's root DID URL, such as
+   *   `did:webvh:<scid>:alice.example/`. Grants from this handle, and from
+   *   the Collection and Resource handles beneath it, are then issued in DID
+   *   URL form (see `Space.grant`). It ends in `/` and carries no selector
+   *   and no fragment
    * @returns {Space}
-   * @throws {ValidationError}   when `spaceUrl` is not a Space URL
+   * @throws {ValidationError}   when `spaceUrl` is not a Space URL, or
+   *   `didUrl` is not a root DID URL
    */
-  spaceAt(spaceUrl: string, options: HandleOptions = {}): Space {
+  spaceAt(
+    spaceUrl: string,
+    options: HandleOptions & { didUrl?: string } = {}
+  ): Space {
     return new Space({
       context: this.#context,
       spaceUrl,
       capability: options.capability,
-      encryption: options.encryption
+      encryption: options.encryption,
+      didUrl: options.didUrl
     })
   }
 
@@ -513,12 +519,17 @@ export class PwsClient {
    * @param options {object}
    * @param [options.capability] {IZcap}
    * @param [options.encryption] {EncryptionOverride}   see {@link spaceAt}
+   * @param [options.didUrl] {string}   see {@link spaceAt}
    * @returns {Space}
    * @throws {NotSupportedError}   on a client built by {@link forSpace}, which
    *   has no base server URL
-   * @throws {ValidationError}   when `spaceId` is empty or a dot segment
+   * @throws {ValidationError}   when `spaceId` is empty or a dot segment, or
+   *   `didUrl` is not a root DID URL
    */
-  space(spaceId: string, options: HandleOptions = {}): Space {
+  space(
+    spaceId: string,
+    options: HandleOptions & { didUrl?: string } = {}
+  ): Space {
     const baseServerUrl = this.#requireBase('space(id)')
     return this.spaceAt(spaceUrlById({ baseServerUrl, spaceId }), options)
   }
@@ -924,8 +935,14 @@ export class PwsClient {
    * the owning Space off the capability's delegation chain (a Space-rooted
    * chain starts at the Space's root capability) and submits it to that
    * Space's revocation endpoint. Equivalent to `pws.spaceAt(url).revoke(zcap)`.
-   * The chain root's target is taken to be the Space (see `spaceUrlOf` on the
-   * `./paths` entry); the server refuses a chain not rooted exactly in it.
+   * The chain root's target is taken to be the Space; the server refuses a
+   * chain not rooted exactly in it. A root that names a DID URL is
+   * dereferenced first, to find the Space the grant reaches today. An https
+   * root is read as `spaceUrlOf` on the `./paths` entry reads it.
+   *
+   * The built-in dereferencer caches a DID URL for five minutes. Right after
+   * the Space moves, this method can still submit to the old location. Call
+   * `revoke` on a Space handle at the new URL then.
    *
    * Revocation is scoped to one space: there is no cross-space or global
    * revocation. See {@link Space.revoke} for who may call it, what it does and
@@ -935,10 +952,20 @@ export class PwsClient {
    * @returns {Promise<void>}
    * @throws {ValidationError}   when the capability's chain starts at no root
    *   capability, or at one whose target cannot be a Space URL
+   * @throws {TargetDereferenceError}   when the root's DID URL cannot be
+   *   dereferenced
    */
   async revoke(zcap: IDelegatedZcap): Promise<void> {
-    return submitRevocation(this.#context, {
-      spaceUrl: spaceUrlOf(zcap),
+    const context = this.#context
+    const root = chainRootTarget(zcap)
+    // `submitRevocation` refuses a root capability, so its target is not
+    // dereferenced.
+    const target =
+      'parentCapability' in zcap
+        ? await dereferencedTarget(context, root)
+        : root
+    return submitRevocation(context, {
+      spaceUrl: spaceUrlAtRoot({ zcap, target }),
       zcap
     })
   }

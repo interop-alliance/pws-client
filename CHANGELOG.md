@@ -31,7 +31,19 @@
   the dereferenced target. A grant on the Space in DID URL form may write
   Collection metadata. A failure of a caller's `dereferenceTarget` hook is
   wrapped in `TargetDereferenceError`.
-- `grant()` and `revoke()` do not yet understand DID URL targets.
+- A `didUrl` option on `PwsClient.space()` and `PwsClient.spaceAt()`, the
+  Space's root DID URL, such as `did:webvh:<scid>:alice.example/`. It must end
+  in `/` and carry no selector and no fragment, or the call throws
+  `ValidationError`. `grant()` on that Space handle, and on the Collection and
+  Resource handles reached from it, issues the grant in DID URL form. The chain
+  roots in `urn:zcap:root:<encoded didUrl>`, and the link targets `didUrl` plus
+  the handle's path. Before signing, the client checks that the server lists
+  `did-url-targets` (else `NotSupportedError`, with no https grant issued in its
+  place), that `didUrl` dereferences to the Space, and that the link's DID URL
+  dereferences to the URL the grant was asked for (else `ValidationError`). An
+  explicit `target` may be a DID URL at or beneath `didUrl`. `didUrl` does not
+  apply to a re-delegation.
+- `resource.grant(options)`, with the target prefilled with the Resource URL.
 - `ServiceInfo.entries`, the chosen version entries keyed by specification
   identifier. `info.entries[PWS_SPEC_ID]` is the same object as `info.entry`.
   `info.entries[AUTHZ_PROFILE_SPEC_ID]` is an `AuthzProfileVersionEntry` with
@@ -48,6 +60,9 @@
 
 ### Changed
 
+- `pws.revoke()` dereferences a DID URL chain root to find the Space, so it
+  accepts a grant in DID URL form. It used to throw `ValidationError` for one.
+  `space.revoke()` is unchanged.
 - **BREAKING**: `PwsClient.fromCapability()` is async and returns a promise of
   the handle, for every grant. An https grant still resolves with no request.
   What it threw as `ValidationError` is now a rejection.

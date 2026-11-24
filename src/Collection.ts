@@ -248,6 +248,11 @@ export class Collection {
 
   readonly #context: ClientContext
   readonly #capability?: IZcap
+  /**
+   * The root DID URL of this handle's Space, when the Space handle it came
+   * from was built with one. Grants are then issued in DID URL form.
+   */
+  readonly #didUrl?: string
   readonly #codecHolder: CodecHolder
   /**
    * The per-handle encryption override, kept so a write that states its own
@@ -266,19 +271,23 @@ export class Collection {
    * @param [options.encryption] {EncryptionOverride} - per-handle encryption
    *   override; wins over the Collection's declared descriptor and skips the
    *   descriptor-discovery round-trip
+   * @param [options.didUrl] {string} - the root DID URL of the Space, as the
+   *   Space handle checked it
    */
   constructor({
     context,
     spaceUrl,
     collectionId,
     capability,
-    encryption
+    encryption,
+    didUrl
   }: {
     context: ClientContext
     spaceUrl: string
     collectionId: string
     capability?: IZcap
     encryption?: EncryptionOverride
+    didUrl?: string
   }) {
     // Guard the id against the Reserved Path Segment Registry up front
     // (mirroring the `Resource` constructor), so a reserved id from caller
@@ -302,6 +311,7 @@ export class Collection {
     this.#queryUrl = collectionQueryUrl(beneath)
     this.historyLogUrl = collectionLogUrl(beneath)
     this.#capability = capability
+    this.#didUrl = didUrl
     this.#encryptionOverride = encryption
     this.#codecHolder = collectionCodecHolder(context, {
       spaceUrl: this.spaceUrl,
@@ -1715,6 +1725,7 @@ export class Collection {
       collectionId: this.id,
       resourceId,
       capability: options.capability ?? this.#capability,
+      didUrl: this.#didUrl,
       // A per-resource encryption override resolves its own codec (honoring the
       // override); without one, share this collection's resolved codec so the
       // resource handle does not repeat the descriptor-discovery round-trip.
@@ -2199,6 +2210,9 @@ export class Collection {
    * Delegates access to this collection. Prefills the grant `target` with this
    * collection's URL (and the bound `capability`, if any, for re-delegation).
    *
+   * A handle reached from a Space handle built with `didUrl` issues the
+   * grant in DID URL form (see `Space.grant`).
+   *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}
    */
@@ -2207,7 +2221,8 @@ export class Collection {
       url: this.url,
       spaceUrl: this.spaceUrl,
       options,
-      capability: this.#capability
+      capability: this.#capability,
+      didUrl: this.#didUrl
     })
   }
 

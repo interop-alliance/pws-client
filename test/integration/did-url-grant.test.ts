@@ -9,9 +9,9 @@
  * DID URL. The delegate's client dereferences both to find the Space and
  * what the handle addresses.
  *
- * The grants are minted with ezcap directly, since the client does not issue
- * this form yet. The delegate's dereferencer is the built-in one over a
- * `fetch` that serves the DID's history log from memory.
+ * The grants are minted with ezcap directly, so the suite can also mint the
+ * chains a handle refuses to issue. The delegate's dereferencer is the
+ * built-in one over a `fetch` that serves the DID's history log from memory.
  *
  * Runs against a live `@interop/web-spaces-server` at the URL named by
  * `TEST_SERVER_URL`. The suite skips when it is unset, so a bare

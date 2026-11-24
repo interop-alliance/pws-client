@@ -37,7 +37,7 @@ import {
   collectionWritableFields,
   unreadableDescriptionError
 } from './internal/describe.js'
-import { delegateGrantAt } from './internal/grant.js'
+import { checkedSpaceDidUrl, delegateGrantAt } from './internal/grant.js'
 import { submitRevocation } from './internal/revoke.js'
 import type { ClientContext } from './internal/request.js'
 import { withCheckedCreatedBy } from './internal/createdBy.js'
@@ -140,6 +140,7 @@ export class Space {
   readonly #context: ClientContext
   readonly #capability?: IZcap
   readonly #encryption?: EncryptionOverride
+  readonly #didUrl?: string
 
   /**
    * @param options {object}
@@ -149,19 +150,27 @@ export class Space {
    * @param [options.capability] {IZcap}   capability attached to every request
    * @param [options.encryption] {EncryptionOverride}   default encryption
    *   override for the Collections reached through this handle
-   * @throws {ValidationError}   when `spaceUrl` is not a Space URL
+   * @param [options.didUrl] {string}   the Space's root DID URL. Grants from
+   *   this handle and the handles beneath it are then issued in DID URL form
+   * @throws {ValidationError}   when `spaceUrl` is not a Space URL, or
+   *   `didUrl` is not a DID URL ending in `/` with no selector or fragment
    */
   constructor({
     context,
     spaceUrl,
     capability,
-    encryption
+    encryption,
+    didUrl
   }: {
     context: ClientContext
     spaceUrl: string
     capability?: IZcap
     encryption?: EncryptionOverride
+    didUrl?: string
   }) {
+    if (didUrl !== undefined) {
+      this.#didUrl = checkedSpaceDidUrl(didUrl)
+    }
     this.#context = context
     this.url = canonicalSpaceUrl(spaceUrl)
     this.id = spaceIdOfCanonicalUrl(this.url)
@@ -457,7 +466,8 @@ export class Space {
       spaceUrl: this.url,
       collectionId,
       capability: options.capability ?? this.#capability,
-      encryption: options.encryption ?? this.#encryption
+      encryption: options.encryption ?? this.#encryption,
+      didUrl: this.#didUrl
     })
   }
 
@@ -542,6 +552,7 @@ export class Space {
       spaceUrl: this.url,
       collectionId: createdId(response),
       capability: this.#capability,
+      didUrl: this.#didUrl,
       ...(canRoute && { encryption: declared })
     })
   }
@@ -1012,15 +1023,30 @@ export class Space {
    * Delegates access to this space. Prefills the grant `target` with this
    * space's URL (and the bound `capability`, if any, for re-delegation).
    *
+   * A handle built with `didUrl` issues the grant in DID URL form, so it
+   * keeps working when the Space moves to another provider. The chain roots
+   * in `urn:zcap:root:<encoded didUrl>`, and the target is `didUrl` plus the
+   * path within the Space. Before signing, the client checks that the server
+   * advertises `did-url-targets` and that `didUrl` dereferences to this
+   * Space. It does not issue an https grant in its place. `didUrl` does not
+   * apply to a re-delegation (a `capability`, given or bound).
+   *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}
+   * @throws {NotSupportedError}   when the handle has a `didUrl` and the
+   *   server does not advertise `did-url-targets`
+   * @throws {ValidationError}   when the handle's `didUrl` does not
+   *   dereference to this Space, or the grant's DID URL does not dereference
+   *   to its target
+   * @throws {TargetDereferenceError}   when a DID URL cannot be dereferenced
    */
   async grant(options: GrantOptions): Promise<IDelegatedZcap> {
     return delegateGrantAt(this.#context, {
       url: this.url,
       spaceUrl: this.url,
       options,
-      capability: this.#capability
+      capability: this.#capability,
+      didUrl: this.#didUrl
     })
   }
 
