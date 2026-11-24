@@ -71,6 +71,18 @@
  * (the root capability grammar). The rule pins the layout entry's closure to
  * exactly the modules it is meant to hold. A guard checks `./paths` still
  * reaches both packages, so the split cannot pass vacuously.
+ *
+ * A sixth rule keeps the DID library out of the main entry's bundle. The
+ * built-in dereferencer of a DID URL capability target lives in `did-url.ts`
+ * (the `./did-url` entry), the one module that imports
+ * `@interop/did-method-webvh` for DID resolution. The main entry's static
+ * closure must hold neither that module nor the package. It reaches the
+ * module through one dynamic edge, pinned by name: `PwsClient` loads it with
+ * `import()` when a request carries a DID URL target and the caller passed no
+ * `dereferenceTarget`. A bundler puts a dynamic import in a chunk of its own,
+ * so a build of a client that passes an override, or meets no DID URL, loads
+ * no DID library. A guard checks the `./did-url` entry does reach the
+ * package.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -528,5 +540,37 @@ describe('the layout entry', () => {
 
   it('makes no dynamic import', () => {
     expect([...dynamicEdges]).toEqual([])
+  })
+})
+
+describe('the main entry and the DID library', () => {
+  const { modules, packages, dynamicEdges } = runtimeGraphFrom('index.ts')
+  const DID_PACKAGE = '@interop/did-method-webvh'
+
+  it('holds neither the did-url module nor the DID library statically', () => {
+    expect(modules.has('did-url.ts')).toBe(false)
+    expect(
+      [...packages].filter(
+        specifier =>
+          specifier === DID_PACKAGE || specifier.startsWith(`${DID_PACKAGE}/`)
+      )
+    ).toEqual([])
+  })
+
+  it('makes one dynamic import, the built-in target dereferencer', () => {
+    expect([...dynamicEdges].sort()).toEqual(['PwsClient.ts -> did-url.ts'])
+  })
+
+  it('the did-url entry does reach the DID library', () => {
+    // Guards the test itself: the package is what the main entry leaves out.
+    const reached = runtimeGraphFrom('did-url.ts')
+    expect(reached.packages.has(DID_PACKAGE)).toBe(true)
+    expect([...reached.dynamicEdges]).toEqual([])
+  })
+
+  it('the paths entry imports nothing from the did-url entry', () => {
+    expect(reachableFrom('paths/index.ts').modules.has('did-url.ts')).toBe(
+      false
+    )
   })
 })

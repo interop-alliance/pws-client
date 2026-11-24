@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 172
+nextAvailableId: 175
 
 <!-- roadmap-order:index:start -->
 
@@ -90,12 +90,19 @@ Ready:
 - WCL-131 [M] The Resource `/meta` validator's relation to content writes is
   unstated in the spec
 - WCL-107 [M] Require an authorization profile entry in the service description
-  and read the signature members from it
+  and read the signature members from it (blocks 1)
 - WCL-160 [M] A root invocation of a URL with a query names the root of the URL
   without it
 - WCL-32 [L] Provisioning creates cannot be made race-safe (no create-if-absent
   precondition)
 - WCL-162 [L] Remove the `application/jose+json` option for stored envelopes
+
+Chains:
+
+- WCL-107 [M] Require an authorization profile entry in the service description
+  and read the signature members from it
+  - WCL-174 [M] A controller issues DID-form grants from a Space handle with
+    `didUrl` (in "Features")
 
 Waiting on another repo:
 
@@ -110,6 +117,20 @@ Ready:
 
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 - WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
+
+Chains:
+
+- WCL-173 [M] A delegate holds a DID-form grant: async `fromCapability`,
+  `send()` and the Collection grant check
+  - WCL-174 [M] A controller issues DID-form grants from a Space handle with
+    `didUrl`
+
+Waiting on another repo:
+
+- WCL-173 [M] A delegate holds a DID-form grant: async `fromCapability`,
+  `send()` and the Collection grant check (after WSS-245)
+- WCL-174 [M] A controller issues DID-form grants from a Space handle with
+  `didUrl` (after WSS-245)
 
 **Performance**
 
@@ -1378,8 +1399,9 @@ through a 403.
     today it checks tokens one by one, and gains the one-call check this item
     adds. Verify and name the call site, or waive
 - acceptance:
-  - [ ] A `WALLET_PROFILE_ID` constant beside `PWS_SPEC_ID` and
-        `AUTHZ_PROFILE_ID` in `src/internal/service.ts`
+  - [ ] The wallet profile identifier is storage-core's `WALLET_PROFILE_SPEC_ID`
+        (SC-15), imported beside the other spec identifier constants, not a
+        local constant in `src/internal/service.ts`
   - [ ] `ServiceInfo` exposes whether a `https://w3id.org/pws/wallet-profile`
         entry with `version` `0.1` is present. An entry carrying any member
         other than `version` and `url` is treated as absent (the profile's
@@ -1438,11 +1460,12 @@ the `/meta` validator, and neither validator is ever answered for the other. The
 independence question is a spec decision, so it is filed here rather than
 settled in a test.
 
-### WCL-107: [M] Require an authorization profile entry in the service description and read the signature members from it
+### WCL-107: [M] [blocks 1] Require an authorization profile entry in the service description and read the signature members from it
 
 - status: todo
 - priority: medium
 - labels: service-description, authorization, spec-alignment, wire-contract
+- blocks: WCL-174
 - touches:
   - portable-web-spaces-spec: WASS-44. SHIPPED (2026-09-16): the zCap profile is
     the companion spec `PWS-AUTHZ`
@@ -1453,7 +1476,12 @@ settled in a test.
     carries `signatureAlgorithms` and `zcapCryptosuites`
   - storage-core: `PwsVersionEntry` (`src/was.ts:839-843`) loses the two members
     and a new `AuthzProfileVersionEntry` carries them: SC-7 (filed 2026-09-16,
-    published as 0.17.0)
+    published as 0.17.0). SC-15 (filed 2026-11-23) adds one exported identifier
+    constant per specification (`PWS_SPEC_ID`, `AUTHZ_PROFILE_SPEC_ID`,
+    `ENCRYPTED_COLLECTIONS_SPEC_ID`, `CLIENT_ANNEX_SPEC_ID`,
+    `REPLICATION_SPEC_ID`, `WALLET_PROFILE_SPEC_ID`) and a `features` member on
+    `AuthzProfileVersionEntry`. This item imports them. SC-15 is published as
+    0.47.0, and this repo depends on `^0.47.0`
   - web-spaces-server: WSS-112 lists the entry and moves the members; this
     item's tests need a server past that item (the pair rule of LEARNINGS.md
     applies)
@@ -1463,14 +1491,30 @@ settled in a test.
     one-key selection this item widens
 - acceptance:
   - [ ] `selectServiceVersion` (`src/internal/service.ts`) also looks up
-        `https://w3id.org/pws/authz-profile` (a new `AUTHZ_PROFILE_ID` beside
-        `PWS_SPEC_ID`) and throws `IncompatibleServerError` when no entry there
-        names a version this client speaks (`0.1`), with a message naming the
-        offered versions as the core check does
+        `https://w3id.org/pws/authz-profile` (storage-core's
+        `AUTHZ_PROFILE_SPEC_ID`, imported, not a local constant) and throws
+        `IncompatibleServerError` when no entry there names a version this
+        client speaks (`0.1`), with a message naming the offered versions as the
+        core check does
+  - [ ] The client drops its own `PWS_SPEC_ID` and re-exports storage-core's
+        spec identifier constants from its main entry
   - [ ] `ServiceInfo` exposes the chosen profile entry (its version and, when
         present, `signatureAlgorithms` / `zcapCryptosuites`), typed with
         storage-core's new entry type; nothing reads the two members off the
         core entry any more
+  - [ ] `service.hasFeature({ spec, feature })` replaces `hasFeature(token)`. It
+        answers whether the chosen entry of the specification `spec` names lists
+        `feature`, and answers `false` when the server lists no chosen entry for
+        `spec`. This is a breaking change with no compatibility shim, and every
+        caller moves in the same pass. No per-spec property is added as the way
+        to read features
+  - [ ] The existing core-only `features` array of `ServiceInfo` is removed or
+        kept as a documented core-only convenience. The maintainer has not
+        settled which
+  - [ ] A case covers
+        `hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature:     'did-url-targets' })`
+        against a fixture whose profile entry lists the token, one whose entry
+        lacks it, and one with no profile entry
   - [ ] `test/node/service.test.ts` (around lines 49-50) moves the two members
         onto a profile entry in its fixtures, and gains a case for a description
         with a core entry but no profile entry
@@ -1485,6 +1529,16 @@ Filed 2026-09-16 from WASS-44. The client already constructs exactly what the
 profile describes (an Ed25519 `did:key` capability invocation with the `Digest`
 header); this item only makes it check that the server says it accepts that, in
 the place the spec now says to look.
+
+Widened 2026-11-23 for DID URL invocation targets. The server's authorization
+profile entry now carries `features: ['did-url-targets']`, and the client reads
+it before it issues a DID-form grant (the item that adds `Space` `didUrl`
+handles). Features of any specification are read through one call,
+`hasFeature({ spec, feature })`, so a later token on any entry needs no new
+property. The grant path checks
+`{ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'did-url-targets' }`. This item is the
+first step of that work and does not depend on the other pieces. The server side
+is web-spaces-server `decisions/0009-did-url-invocation-targets.md`.
 
 ### WCL-144: [M] [after WSS-238] Follow the replication companion: the server DID on the core entry, and unrecognized stall reasons
 
@@ -1704,6 +1758,121 @@ live in the wallet and the server stores opaque JWEs. Everything shipped on that
 front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
+
+### WCL-173: [M] [blocks 1] [after WSS-245] A delegate holds a DID-form grant: async `fromCapability`, `send()` and the Collection grant check
+
+- status: todo
+- priority: medium
+- labels: zcap, webvh, portability, breaking
+- discovered-from: web-spaces-server WSS-245 (2026-11-23)
+- blocked-by: WSS-245
+- blocks: WCL-174
+- touches:
+  - pws-client (this repo): `src/PwsClient.ts` (`fromCapability`),
+    `src/internal/rootCapability.ts` (`spaceUrlOf`, `rootCapabilityId`,
+    `rootCapability`), `src/internal/request.ts` (`send()` runs `isValidTarget`
+    of the request URL against the capability target, and `rawRequest`),
+    `src/Collection.ts` (`#assertSpaceGrant` compares
+    `invocationTarget === this.spaceUrl`), `src/internal/grant.ts`
+    (`spaceRooted` and `delegateGrantAt` check https forms only), README.md,
+    ARCHITECTURE.md. Verify each site before relying on it, since the list comes
+    from a survey
+  - web-spaces-server: a release that carries `did-url-targets`. Its test file
+    `test/did-url-targets-api.test.ts` shows how a DID-form request is built
+    today without client support
+  - `@interop/ezcap` 7.8.0 published (see WCL-172)
+- acceptance:
+  - [ ] `PwsClient.fromCapability` is async for every grant. This is a breaking
+        change with no compatibility shim, and every caller moves in the same
+        pass
+  - [ ] An https grant resolves with no fetch
+  - [ ] A DID-form grant dereferences its root target to find the Space URL, and
+        the client addresses requests there
+  - [ ] `send()` compares the request URL with the dereferenced target of the
+        invoked capability, not with the DID URL string
+  - [ ] `#assertSpaceGrant` compares the dereferenced target of the grant with
+        the Space URL, so a delegate holding a DID-form Space grant can use the
+        Collection handle
+  - [ ] A chain that mixes the two forms is refused by the server as the masked
+        `not-found`, and the client reports it as it reports any refusal
+  - [ ] Tests against web-spaces-server: a delegate reads and writes under a
+        DID-form grant, a grant for another Space is refused, and a mixed-form
+        chain is refused
+
+Context: a delegate receives a grant whose root and links name a DID URL such as
+`did:webvh:<scid>:alice.example/photos/`. Today the client assumes the grant's
+`invocationTarget` is the https URL it sends to. Everything that reads the
+target (finding the Space, comparing the request URL, the Collection handle's
+guard) therefore breaks for a DID-form grant. The client has to dereference the
+target first, through the `dereferenceTarget` option or the default of the item
+before this one. Dereferencing is a fetch for a DID not hosted by the server, so
+`fromCapability` must become async. An https grant stays offline.
+
+Settled by the maintainer on 2026-11-23: `fromCapability` is async for every
+grant, as one breaking change.
+
+### WCL-174: [M] [after WCL-107, WCL-173, WSS-245] A controller issues DID-form grants from a Space handle with `didUrl`
+
+- status: todo
+- priority: medium
+- labels: zcap, webvh, portability, breaking
+- discovered-from: web-spaces-server WSS-245 (2026-11-23)
+- blocked-by: WCL-173, WCL-107, WSS-245
+- touches:
+  - pws-client (this repo): `src/internal/grant.ts` (`spaceRooted`,
+    `delegateGrantAt`), `src/internal/rootCapability.ts`, `src/Space.ts`,
+    `src/Collection.ts`, `src/Resource.ts` (the handle options and the `grant`
+    methods), the revocation path, `src/internal/service.ts`
+    (`selectServiceVersion`, through the feature check of WCL-107), README.md,
+    ARCHITECTURE.md
+  - web-spaces-server: a release that carries `did-url-targets`. The server
+    admits the Space's DID URL root on the revocation route, and the https root
+    too
+  - `@interop/ezcap` 7.8.0 and the storage-core release of SC-15 published
+  - portable-web-spaces-spec and pws-conformance-suite: their items are in their
+    own roadmaps and do not gate this one
+- acceptance:
+  - [ ] `client.space(id, { didUrl })` takes the Space's root DID URL. It must
+        end in `/` and carry no selector and no fragment, or the client throws
+        before any request
+  - [ ] A grant from that handle, and from its Collection and Resource handles,
+        is DID-form. The root id is `urn:zcap:root:<url-encoded didUrl>`, and
+        the link target is `didUrl` plus the handle's path within the Space
+  - [ ] Before issuing, the client checks
+        `hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'did-url-targets'     })`
+        and that `didUrl` dereferences to exactly the Space's canonical URL
+  - [ ] A server without the token gets the existing `NotSupportedError` before
+        any request. Its message names the `did-url-targets` token. No new error
+        class is added, and the client never falls back to an https grant
+  - [ ] A handle without `didUrl` issues https grants as today
+  - [ ] Revoking a DID-form grant works. The client submits it under the
+        revocation URL's https root or the Space's DID URL root, and the test
+        covers the form it chose
+  - [ ] Tests against web-spaces-server: the controller issues, a delegate reads
+        and writes, a move case in which the DID's `PathHandler` is repointed to
+        a second server's copy of the Space and the unchanged grant still works,
+        a server without the token, a mixed-form refusal, and a revoke
+
+Context: this is the issuing half. A controller sets `didUrl` once on the Space
+handle, and every grant it makes from that handle or beneath it names the DID
+URL form. That is what lets the Space move to another provider later: the
+controller repoints the DID document's `PathHandler`, and the grants keep
+working. A client that issues such a grant to a server that does not advertise
+`did-url-targets` would hand out a grant the server answers with the masked
+`not-found`, so the client refuses first.
+
+Settled by the maintainer on 2026-11-23. The handle option is `didUrl`, set once
+on the Space handle. A server without the token raises the existing
+`NotSupportedError`, and the client does not retry with an https grant.
+
+Server-side rules to reproduce are in web-spaces-server
+`decisions/0009-did-url-invocation-targets.md` (points 1, 2, 4, 5 and 10) and
+`docs/webvh-controllers.md` ("DID URL invocation targets"). A selector on a link
+is allowed only for the link directly beneath the root, and the root carries
+none. Whether the client issues selectors is not part of this item.
+
+Dependencies. Needs `@interop/ezcap` 7.8.0 published, the storage-core release
+carrying SC-15, and a web-spaces-server release carrying the token.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 

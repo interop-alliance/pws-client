@@ -62,6 +62,12 @@
       "import": "./dist/paths/layout.js",
       "default": "./dist/paths/layout.js"
     },
+    "./did-url": {
+      "types": "./dist/did-url.d.ts",
+      "react-native": "./dist/did-url.js",
+      "import": "./dist/did-url.js",
+      "default": "./dist/did-url.js"
+    },
     "./log": {
       "types": "./dist/log/index.d.ts",
       "react-native": "./dist/log/index.js",
@@ -88,15 +94,16 @@
   "dependencies": {
     "@interop/capability-agent": "^0.2.2",
     "@interop/data-integrity-core": "^8.12.0",
+    "@interop/did-method-webvh": "^5.22.0",
     "@interop/ed25519-signature": "^7.2.5",
     "@interop/edv-client": "^17.9.5",
-    "@interop/ezcap": "^7.6.0",
+    "@interop/ezcap": "^7.9.0",
     "@interop/http-client": "^1.0.6",
     "@interop/minimal-cipher": "^7.11.1",
-    "@interop/storage-core": "^0.46.1",
+    "@interop/storage-core": "^0.47.0",
     "@interop/vh-resource-log": "^0.11.0",
     "@interop/x25519-key-agreement-key": "^5.4.3",
-    "@interop/zcap": "^12.0.0",
+    "@interop/zcap": "^12.3.0",
     "@noble/hashes": "^2.3.0",
     "@scure/base": "^2.3.0",
     "json-canonicalize": "3.0.0"
@@ -106,7 +113,7 @@
     "@interop/data-integrity-proof": "3.4.8",
     "@interop/ed25519-verification-key": "^8.2.2",
     "@interop/jsonld-signatures": "11.9.0",
-    "@interop/web-spaces-server": "^0.46.1",
+    "@interop/web-spaces-server": "^0.46.2",
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.1.2",
     "@vitest/coverage-v8": "^4.1.10",

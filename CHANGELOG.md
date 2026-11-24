@@ -1,5 +1,39 @@
 # @interop/pws-client Changelog
 
+## 0.112.0 - TBD
+
+### Added
+
+- The `@interop/pws-client/did-url` entry.
+  `createTargetDereferencer({ fetch? })` returns a `dereferenceTarget` hook that
+  maps a `did:webvh` DID URL capability target, such as
+  `did:webvh:<scid>:alice.example/photos/cat.jpg`, to the https URL it names. It
+  selects the `PathHandler` service with the longest matching path, and a
+  `versionId`, `versionNumber` or `versionTime` selector picks the document
+  version. Results are cached per target for `TARGET_CACHE_TTL` (5 minutes).
+  Failures are not cached. A target that is not a `did:` URL is returned as is.
+- `TargetDereferenceError`, a `PwsError` with no HTTP status and the underlying
+  error on `cause`. It is thrown for a target with a fragment, with no path,
+  that is not `did:webvh`, whose DID does not resolve, or that no `PathHandler`
+  service matches. It is also thrown for a result that is not an https URL (or
+  an http URL on a loopback host), that carries a query or fragment, or that a
+  URL parser would rewrite, such as a path with a dot segment. It is exported
+  from the main entry and from `./did-url`.
+- A `dereferenceTarget` option on the `PwsClient` constructor,
+  `PwsClient.fromSigner` and `PwsClient.forSpace`, and the `DereferenceTarget`
+  type. The hook is passed to ezcap on every signed request and is called only
+  when the capability's `invocationTarget` is a DID URL. When it is omitted, the
+  client loads `./did-url` with a dynamic `import()` on first need, so a build
+  that passes its own hook keeps the DID library out of its main bundle.
+- Today the hook takes effect through `pws.request()`. The handle methods,
+  `fromCapability()` and `grant()` do not yet understand DID URL targets.
+
+### Changed
+
+- Bump `@interop/ezcap` to `^7.9.0`, `@interop/zcap` to `^12.3.0` and
+  `@interop/storage-core` to `^0.47.0`. Add `@interop/did-method-webvh`
+  `^5.22.0` as a direct dependency.
+
 ## 0.111.0 - 2026-11-21
 
 ### Added

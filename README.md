@@ -31,6 +31,7 @@
   - [Cross-replica sync](#cross-replica-sync)
   - [Resource logs (co-managed key resources)](#resource-logs-co-managed-key-resources)
   - [Export and import](#export-and-import)
+  - [DID URL capability targets (`./did-url`)](#did-url-capability-targets-did-url)
   - [The manual-request escape hatch](#the-manual-request-escape-hatch)
 - [Errors and the 404/null caveat](#errors-and-the-404null-caveat)
 - [Contribute](#contribute)
@@ -168,6 +169,11 @@ rest of `./paths` (the reserved-id predicates, which read
 `@interop/storage-core`'s registry, and the root capability grammar from
 `@interop/zcap`) is not wanted; under plain Node ESM `./paths` evaluates both
 packages on first import.
+
+Both constructors accept an optional `dereferenceTarget` hook, and so does
+`PwsClient.forSpace()`. It maps a capability whose target is a DID URL to the
+https URL it names. Leave it out unless you have your own DID resolver. See
+[DID URL capability targets](#did-url-capability-targets-did-url).
 
 #### Single fixed Space
 
@@ -1648,6 +1654,63 @@ or when you need the bytes anyway. (In Node a Blob is memory-backed, so
 `exportBlob()` does not lower peak memory versus `export()`; browsers may spill
 large Blobs to disk.)
 
+### DID URL capability targets (`./did-url`)
+
+A capability's `invocationTarget` may be a `did:webvh` DID URL, such as
+`did:webvh:<scid>:alice.example/photos/cat.jpg`, so that the grant survives the
+Space moving to another provider. The request is still an https request. The
+signer has to find the https URL the DID URL names, and the `dereferenceTarget`
+hook does that. ezcap calls it only when the `invocationTarget` is a DID URL. It
+then checks the request `url` against the result.
+
+The hook has the same name and shape as the hooks of `@interop/zcap` and
+`@interop/ezcap`: `({ invocationTarget }) => Promise<string>`. The client passes
+it to ezcap on every signed request. When you give none, the client loads the
+built-in dereferencer from `@interop/pws-client/did-url` with a dynamic
+`import()` the first time it needs one. A build that passes its own hook, or
+never meets a DID URL, keeps `@interop/did-method-webvh` out of its main bundle.
+
+```ts
+// Use your own resolver instead of the built-in one.
+const pws = new PwsClient({
+  baseServerUrl: 'https://pws.example/',
+  zcapClient,
+  dereferenceTarget: async ({ invocationTarget }) =>
+    myResolver.toHttpsUrl(invocationTarget)
+})
+```
+
+`createTargetDereferencer({ fetch? })` builds the built-in hook. It resolves the
+DID with `dereference` of `@interop/did-method-webvh`, selects the `PathHandler`
+service whose `path` is the longest complete match of the DID URL path, and
+appends the rest of the path to that service's `serviceEndpoint`. A `versionId`,
+`versionNumber` or `versionTime` selector on the target picks the version of the
+DID document. The hook keeps its own cache, keyed by the target string, for 5
+minutes (`TARGET_CACHE_TTL`). A failure is not cached. A target that is not a
+`did:` URL is returned as is.
+
+```ts
+import { createTargetDereferencer } from '@interop/pws-client/did-url'
+
+const dereferenceTarget = createTargetDereferencer({ fetch })
+const url = await dereferenceTarget({
+  invocationTarget: 'did:webvh:<scid>:alice.example/photos/cat.jpg'
+})
+```
+
+A target with a fragment, with no path, that is not `did:webvh`, whose DID does
+not resolve, or that no `PathHandler` service matches throws
+`TargetDereferenceError`.
+
+So does a result that is not usable as a request URL. The result must be an
+https URL with no query or fragment, or an http URL on a loopback host. It must
+also be in the form a URL parser leaves unchanged, so a path with a dot segment
+or a backslash is refused.
+
+This is only the dereference hook. Today it takes effect through
+`pws.request()`. The handle methods, `fromCapability()` and the issuing of
+DID-form grants do not yet understand DID URL targets.
+
 ### The manual-request escape hatch
 
 `pws.request(...)` mirrors ezcap's generic `request()` for hand-built calls. It
@@ -1708,6 +1771,10 @@ refused Collection Metadata write: the handle's delegated capability does not
 target the Space URL, which the server would answer with the masked 404. It
 carries that 404 as its `status` and is thrown before the `PUT` is sent. See
 [Who may write Collection metadata](#who-may-write-collection-metadata).
+
+A `TargetDereferenceError` is a refused DID URL capability target. It carries no
+`status`, and the underlying error is on `cause`. See
+[DID URL capability targets](#did-url-capability-targets-did-url).
 
 `IncompatibleServerError` comes from service discovery, not from a response
 status. Any signed method, read methods included, throws it when the server

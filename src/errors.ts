@@ -156,6 +156,18 @@ export class NotSupportedError extends PwsError {
 }
 
 /**
+ * A capability's DID URL invocation target could not be dereferenced to the
+ * URL it names. Raised by the dereferencer of the `./did-url` entry before
+ * any request is signed, so it carries no HTTP status. The causes are a
+ * target that is not a `did:webvh` DID URL, one with a fragment or no path, a
+ * DID that does not resolve, a path no `PathHandler` service of the DID
+ * document matches, and a result that is not an https URL in canonical form. The underlying error, when there is one, is the `cause`.
+ */
+export class TargetDereferenceError extends PwsError {
+  override name = 'TargetDereferenceError'
+}
+
+/**
  * The server speaks no version of the PWS specification this client
  * understands, so the client stops rather than guess a URL layout. Raised by
  * service discovery before the first signed request when the server's

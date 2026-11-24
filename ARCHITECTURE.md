@@ -25,6 +25,12 @@ src/internal/*.ts   Transport and orchestration
 external deps       @interop/ezcap, @interop/storage-core,
                     @interop/http-client, ...
 
+src/did-url.ts      DID URL subpath (sibling, loaded on demand)
+  createTargetDereferencer, TARGET_CACHE_TTL
+  The built-in dereferencer of a did:webvh DID URL capability target.
+  Imports core (errors.ts, types.ts, internal/memo.ts) and
+  @interop/did-method-webvh. PwsClient.ts reaches it only through import().
+
 src/identity/*.ts   Data-identity subpath (sibling, opt-in)
   agents (agentsFromSecret, agentsFromSeed, agentsFromKeyAgent,
   ProfileAgents, ProfileKeyAgreementKey, BOOTSTRAP_HANDLE,
@@ -79,14 +85,15 @@ src/log/*.ts        Resource-log subpath (sibling, opt-in)
 
 The load-bearing rule: **core does not import `src/edv/`, and neither do
 `src/sync/` or `src/log/`** (the one exception is `src/edv/constants.ts`, which
-itself reaches only core). The package ships nine entry points in the
+itself reaches only core). The package ships ten entry points in the
 package.json exports map: `.`, `./paths`, `./paths/layout`, `./log`, and
 `./sync` are the core client. `./edv/cipher`, `./edv/core`, `./edv`, and
-`./identity` are the four that leave core. `./edv/cipher` is the log-free part
-of the offline half: the codec, the doc ciphers, the key epochs, the recipient
-operations, `resourceDescriptorStore`, and the blinding keys, none of which need
-a server or a resource log. `./edv/core` is that entry plus the log-governed
-descriptor stores, which read through a resource log verified by
+`./identity` are the four that leave core. `./did-url` is the tenth, described
+below. `./edv/cipher` is the log-free part of the offline half: the codec, the
+doc ciphers, the key epochs, the recipient operations,
+`resourceDescriptorStore`, and the blinding keys, none of which need a server or
+a resource log. `./edv/core` is that entry plus the log-governed descriptor
+stores, which read through a resource log verified by
 `@interop/vh-resource-log`; still no server in the graph, but that verifier (and
 thereby `@interop/did-method-webvh`) is. `./edv` is `./edv/core` plus the
 modules that do talk to a server (`PwsTransport`, `createEdvEncryption`,
@@ -159,6 +166,17 @@ there is exactly one place that could disagree with the suite the server
 verifies. A `ZcapClient` the caller constructs and passes to the `PwsClient`
 constructor is the caller's responsibility.
 
+`./did-url` (`src/did-url.ts`) is the built-in dereferencer of a `did:webvh` DID
+URL capability target. It is the one module that imports
+`@interop/did-method-webvh` for DID resolution. The main entry reaches it
+through one dynamic `import()` in `PwsClient.ts`, made the first time a request
+needs a dereferencer and the client was given no `dereferenceTarget`. A bundler
+puts a dynamic import in a chunk of its own, so a client that passes its own
+hook, or meets no DID URL, loads no DID library. The sixth rule in
+`test/node/import-graph.test.ts` holds the main entry's static closure free of
+`did-url.ts` and the package, and pins that dynamic edge by name. `./paths`
+stays offline and imports nothing from `./did-url`.
+
 ### Subpaths, not packages
 
 The core/encrypted split is by subpath within one package, not by splitting the
@@ -211,16 +229,16 @@ its export list, so the two entries cannot drift.
 **no network I/O**; requests happen only when a method is called.
 
 All handles share one `ClientContext` by reference (`src/internal/request.ts`):
-`{ zcapClient, controllerDid, encryption?, service }`. The context holds no base
-server URL. The client does, as `baseServerUrl`. Each handle carries the
-absolute URL it addresses: `Space.url`, and `Collection.url` and `Resource.url`
-derived beneath the Space URL the handle was opened on (`spaceUrl` is also a
-field of `Collection` and `Resource`). `service` is the client's memoized
-service discovery (see Service discovery). `controllerDid` is a lazy getter over
-the wrapped client's invocation signer, so a client that holds only a delegation
-signer can still build handles and `grant()`; it throws only where it is read
-(`createSpace`'s controller default and `rootCapability`'s client-side
-controller). Per-handle state on top of that:
+`{ zcapClient, controllerDid, encryption?, service, dereferenceTarget }`. The
+context holds no base server URL. The client does, as `baseServerUrl`. Each
+handle carries the absolute URL it addresses: `Space.url`, and `Collection.url`
+and `Resource.url` derived beneath the Space URL the handle was opened on
+(`spaceUrl` is also a field of `Collection` and `Resource`). `service` is the
+client's memoized service discovery (see Service discovery). `controllerDid` is
+a lazy getter over the wrapped client's invocation signer, so a client that
+holds only a delegation signer can still build handles and `grant()`; it throws
+only where it is read (`createSpace`'s controller default and `rootCapability`'s
+client-side controller). Per-handle state on top of that:
 
 - A bound `capability` (delegated zcap) flows from parent to child as the
   default (`options.capability ?? this.#capability`). A per-handle `encryption`
@@ -379,7 +397,11 @@ Taking `resource.put(data)` as the canonical path:
    (`GET`/`PUT`/...), not ezcap's `read`/`write` -- PWS scopes capabilities by
    verb. The vocabulary is `GET`, `POST`, `PUT` and `DELETE`. A `HEAD` request
    is authorized as a `GET` and signs `GET` (`actionForMethod`). With no bound
-   capability, ezcap synthesizes the root capability for the target URL.
+   capability, ezcap synthesizes the root capability for the target URL. The
+   context's `dereferenceTarget` goes to ezcap on every request. ezcap calls it
+   only when the capability's `invocationTarget` is a DID URL, then checks the
+   request `url` against the result. Only `pws.request()` carries such a request
+   today.
 6. **Error mapping** (`src/internal/mapError.ts`): `mapError` dispatches on the
    `application/problem+json` type URI (from `@interop/storage-core`'s
    `ProblemTypes`), falling back to HTTP status, onto the class hierarchy in
@@ -1216,9 +1238,19 @@ it, and otherwise cover the client-side concepts this file names.
   runtime state is the separate replica status (`replicaStatus`). Avoid: sync
   peer, subscription, mirror.
 - **`ClientContext`** -- the single
-  `{ zcapClient, controllerDid, encryption?, service }` record every handle
-  shares by reference (`src/internal/request.ts`). It holds no base server URL.
-  See The handle model.
+  `{ zcapClient, controllerDid, encryption?, service, dereferenceTarget }`
+  record every handle shares by reference (`src/internal/request.ts`). It holds
+  no base server URL. See The handle model.
+- **DID URL target** -- a capability `invocationTarget` that is a `did:webvh`
+  DID URL, such as `did:webvh:<scid>:alice.example/photos/cat.jpg`, rather than
+  an https URL. A fragment is refused. Avoid: DID target, DID-form URL. See
+  Layering.
+- **Target dereferencer** -- the `dereferenceTarget` hook, typed
+  `DereferenceTarget`: `({ invocationTarget }) => Promise<string>`, mapping a
+  DID URL target to the https URL it names. The same name and shape as the hooks
+  of `@interop/zcap` and `@interop/ezcap`. `createTargetDereferencer` in the
+  `./did-url` entry builds the built-in one. Avoid: DID resolver (that resolves
+  a DID document; this maps a target to a URL), target resolver.
 - **Base server URL** -- the absolute `http(s)` URL, with a trailing slash and
   no query, fragment, or userinfo, under which the spec's Server Layout places
   the server-level endpoints. The client is built from it and exposes it as
