@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 178
+nextAvailableId: 180
 
 <!-- roadmap-order:index:start -->
 
@@ -66,6 +66,8 @@ Ready:
 - WCL-167 [M] A governing log write retried after a dropped response is refused
 - WCL-177 [M] A handle built on a DID-form grant reads as empty after the Space
   moves
+- WCL-178 [M] `pws.revoke()` of a DID-form grant goes to the old server after
+  the Space moves
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -110,14 +112,10 @@ Waiting on another repo:
 
 Ready:
 
+- WCL-179 [M] Address a Space, Collection or Resource by its DID URL
 - WCL-176 [M] A delegate re-delegates from a handle built on a DID-form grant
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 - WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
-
-Waiting on another repo:
-
-- WCL-174 [M] A controller issues DID-form grants from a Space handle with
-  `didUrl` (after WSS-245)
 
 **Performance**
 
@@ -1100,6 +1098,41 @@ sent, so a sync consumer could take the documents for deleted. Calling
 `fromCapability()` again yields a working handle, and the README says so, but
 nothing tells the caller that the moment has come.
 
+### WCL-178: [M] `pws.revoke()` of a DID-form grant goes to the old server after the Space moves
+
+- status: todo
+- priority: medium
+- labels: zcap, webvh, portability, correctness
+- discovered-from: WCL-174 review (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/PwsClient.ts` (`revoke`), `src/did-url.ts`
+    (`createTargetDereferencer`), README.md, ARCHITECTURE.md
+  - `@interop/ezcap` and `@interop/zcap`: only if the fix changes the shape of
+    the `dereferenceTarget` hook, which the three packages share
+- acceptance:
+  - [ ] `pws.revoke()` of a DID-form grant, called after the DID's `PathHandler`
+        is repointed, submits the revocation at the Space's current location. It
+        does so on a client that dereferenced the root before the repoint
+  - [ ] How the client gets a fresh mapping is the maintainer's decision. The
+        options seen so far are a refresh option on the `dereferenceTarget`
+        hook, a dereference for revoke that skips the cache, and a way for the
+        caller to drop a cached target
+  - [ ] A test repoints the `PathHandler` between issuing a grant and revoking
+        it, on one client
+
+Context: `pws.revoke()` finds the Space by dereferencing the chain's DID URL
+root. The built-in dereferencer serves a mapping from its cache for
+`TARGET_CACHE_TTL`, which is 5 minutes. A controller that moves the Space and
+then revokes a grant within that time posts the revocation to the server the
+Space moved from. That server may still hold its copy of the Space and a cached
+DID document, so it can answer 204. The grant then keeps working at the new
+location, and the caller has no sign that the revocation missed.
+
+The old server's 204 is inferred from the server's own 5 minute cache of a DID
+document it does not host. It is not tested. `space.revoke()` on a handle at the
+Space's new URL is not affected, and the README points callers at it for now. A
+caller's own `dereferenceTarget` hook has whatever cache it chose.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1713,6 +1746,50 @@ front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
 
+### WCL-179: [M] Address a Space, Collection or Resource by its DID URL
+
+- status: todo
+- priority: medium
+- labels: webvh, portability, api
+- discovered-from: maintainer question after WCL-174 (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/PwsClient.ts` (`request`, `spaceAt`,
+    `collectionAt`), `src/internal/request.ts`, `src/did-url.ts`, README.md,
+    ARCHITECTURE.md
+- acceptance:
+  - [ ] A caller holding only a DID URL, such as
+        `did:webvh:<scid>:alice.example/photos/cat.jpg`, can read and write what
+        it names without dereferencing it by hand
+  - [ ] `pws.request({ url })` accepts a DID URL as `url`, dereferences it
+        through the `dereferenceTarget` hook, and sends the request to the https
+        URL it names
+  - [ ] A handle can be opened on a DID URL. Which call does it is the
+        maintainer's decision, since `spaceAt()` and `collectionAt()` are
+        synchronous and do no I/O, and a dereference is a fetch
+  - [ ] A DID URL that cannot be dereferenced rejects with
+        `TargetDereferenceError`, and one with a fragment is refused
+  - [ ] Whether a selector such as `versionId` is accepted on the URL is decided
+        and documented
+  - [ ] A test against web-spaces-server reads and writes through a DID URL
+
+Context: the client understands a DID URL in two places only. One is the
+`invocationTarget` of a capability, which `fromCapability()` and `send()`
+dereference. The other is the `didUrl` option of a Space handle, which changes
+what `grant()` signs. Every call that addresses something directly takes an
+https URL. `pws.request({ url })` hands `url` to the signer and to `fetch`, so a
+`did:` URL fails there. `resource.get()` takes no URL, and a handle's address is
+always derived from the https Space URL.
+
+A caller can do the step by hand today. `createTargetDereferencer()` on the
+`./did-url` entry maps a DID URL to its https URL, and the result goes to
+`request`, `spaceAt` or `collectionAt`.
+
+A handle opened this way keeps the https URL it resolved when it was built, so
+it goes out of date when the Space moves. That is the problem WCL-177 records
+for a handle built on a DID-form grant, and the answer chosen there should apply
+here. A Space handle opened on its root DID URL could also set `didUrl` for its
+grants, which is worth deciding in the same pass.
+
 ### WCL-176: [M] A delegate re-delegates from a handle built on a DID-form grant
 
 - status: todo
@@ -1744,68 +1821,12 @@ longer `PathHandler` intercepts that path, so the result has to be dereferenced
 and compared before signing. The item that adds `didUrl` to the Space handle
 covers the controller's side and does not cover this one.
 
-### WCL-174: [M] [after WSS-245] A controller issues DID-form grants from a Space handle with `didUrl`
-
-- status: todo
-- priority: medium
-- labels: zcap, webvh, portability, breaking
-- discovered-from: web-spaces-server WSS-245 (2026-11-23)
-- blocked-by: WSS-245
-- touches:
-  - pws-client (this repo): `src/internal/grant.ts` (`spaceRooted`,
-    `delegateGrantAt`), `src/internal/rootCapability.ts`, `src/Space.ts`,
-    `src/Collection.ts`, `src/Resource.ts` (the handle options and the `grant`
-    methods), the revocation path, `src/internal/service.ts`
-    (`selectServiceVersion`, through the feature check of WCL-107), README.md,
-    ARCHITECTURE.md
-  - web-spaces-server: a release that carries `did-url-targets`. The server
-    admits the Space's DID URL root on the revocation route, and the https root
-    too
-  - `@interop/ezcap` 7.8.0 and the storage-core release of SC-15 published
-  - portable-web-spaces-spec and pws-conformance-suite: their items are in their
-    own roadmaps and do not gate this one
-- acceptance:
-  - [ ] `client.space(id, { didUrl })` takes the Space's root DID URL. It must
-        end in `/` and carry no selector and no fragment, or the client throws
-        before any request
-  - [ ] A grant from that handle, and from its Collection and Resource handles,
-        is DID-form. The root id is `urn:zcap:root:<url-encoded didUrl>`, and
-        the link target is `didUrl` plus the handle's path within the Space
-  - [ ] Before issuing, the client checks
-        `hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'did-url-targets'     })`
-        and that `didUrl` dereferences to exactly the Space's canonical URL
-  - [ ] A server without the token gets the existing `NotSupportedError` before
-        any request. Its message names the `did-url-targets` token. No new error
-        class is added, and the client never falls back to an https grant
-  - [ ] A handle without `didUrl` issues https grants as today
-  - [ ] Revoking a DID-form grant works. The client submits it under the
-        revocation URL's https root or the Space's DID URL root, and the test
-        covers the form it chose
-  - [ ] Tests against web-spaces-server: the controller issues, a delegate reads
-        and writes, a move case in which the DID's `PathHandler` is repointed to
-        a second server's copy of the Space and the unchanged grant still works,
-        a server without the token, a mixed-form refusal, and a revoke
-
-Context: this is the issuing half. A controller sets `didUrl` once on the Space
-handle, and every grant it makes from that handle or beneath it names the DID
-URL form. That is what lets the Space move to another provider later: the
-controller repoints the DID document's `PathHandler`, and the grants keep
-working. A client that issues such a grant to a server that does not advertise
-`did-url-targets` would hand out a grant the server answers with the masked
-`not-found`, so the client refuses first.
-
-Settled by the maintainer on 2026-11-23. The handle option is `didUrl`, set once
-on the Space handle. A server without the token raises the existing
-`NotSupportedError`, and the client does not retry with an https grant.
-
-Server-side rules to reproduce are in web-spaces-server
-`decisions/0009-did-url-invocation-targets.md` (points 1, 2, 4, 5 and 10) and
-`docs/webvh-controllers.md` ("DID URL invocation targets"). A selector on a link
-is allowed only for the link directly beneath the root, and the root carries
-none. Whether the client issues selectors is not part of this item.
-
-Dependencies. Needs `@interop/ezcap` 7.8.0 published, the storage-core release
-carrying SC-15, and a web-spaces-server release carrying the token.
+Found on 2026-11-24 while landing WCL-174. The signer already refuses this
+re-delegation. `@interop/zcap` 12.3.1 throws a plain `Error` ("must not be less
+restrictive than its parent") from `delegate`, since a `did:` target and an
+https target never attenuate each other. So no mixed-form link is issued today,
+and what is left is the named error or the DID-form link. `didUrlRooted` in
+`src/internal/grant.ts` has the dereference-and-compare check to reuse.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 
@@ -1830,7 +1851,7 @@ call directly. discovered-from: WCL-123.
 
 ### WCL-154: [L] Add `Resource.grant()` so every handle depth can delegate
 
-- status: todo
+- status: in-progress
 - priority: low
 - labels: api, grant, zcap
 - discovered-from: the did-cli-typescript /simplify pass (2026-10-30)
@@ -1839,15 +1860,15 @@ call directly. discovered-from: WCL-123.
     `handle.grant()` at every depth and drop its `client`, `target` and
     `spaceUrl` options
 - acceptance:
-  - [ ] `Resource.grant(options: GrantOptions)` delegates through
+  - [x] `Resource.grant(options: GrantOptions)` delegates through
         `delegateGrantAt`, prefilling `target` from the handle's `url`,
         `spaceUrl` from its Space, and the parent from its bound capability.
         Explicit options win, as on `Space` and `Collection`
-  - [ ] Node tests cover a Space-rooted grant and a re-delegation from a handle
+  - [x] Node tests cover a Space-rooted grant and a re-delegation from a handle
         bound to a capability
   - [ ] A live test grants one Resource: the delegatee can read it, is refused a
         sibling Resource, and loses access after `space.revoke()`
-  - [ ] The recorded decision "No `collection.revoke()` / `resource.revoke()`
+  - [x] The recorded decision "No `collection.revoke()` / `resource.revoke()`
         sugar" drops its "`Resource` has no `grant()` to mirror" clause. The
         decision itself stands, because revocation is Space-scoped
   - [ ] README, ARCHITECTURE.md, the `delegateGrantAt` doc comment and CHANGELOG
@@ -1865,6 +1886,12 @@ use the handle sugar at all and has to thread both URLs through itself.
 holds `url`, `spaceUrl` and its bound capability, so this is one small method.
 It adds no wire format: `pws.grant()` already mints the same capability for a
 Resource target.
+
+The method landed on 2026-11-24 with WCL-174, which needed it for DID-form
+Resource grants. README, CHANGELOG and the `delegateGrantAt` doc comment name
+it. Two things are left. The live test covers a DID-form Resource grant the
+delegatee reads, and not the sibling refusal or the loss of access after
+`space.revoke()`. ARCHITECTURE.md does not name the method.
 
 ## Performance
 
@@ -2442,9 +2469,9 @@ why it is deferred past the first encrypted increment.
   `isPublic() === false` is the intended behavior.
 - **No `collection.revoke()` / `resource.revoke()` sugar.** Revocation is
   Space-scoped, so those would ignore their receiver's own path and use only its
-  `spaceId` -- `collection.revoke(zcap)` is exactly `space.revoke(zcap)`, and
-  `Resource` has no `grant()` to mirror. `pws.revoke()` already covers the
-  convenience case by deriving the Space from the capability.
+  `spaceId` -- `collection.revoke(zcap)` is exactly `space.revoke(zcap)`.
+  `pws.revoke()` already covers the convenience case by deriving the Space from
+  the capability.
 - **The bare `pws.grant({ target })` shape stays.** A grant with no `spaceUrl`
   and no `capability` is rooted at the target's own root capability. It is the
   shape for a server at the basic conformance level (fixed collections, or

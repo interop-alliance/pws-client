@@ -14,6 +14,7 @@ import {
 } from './internal/paths.js'
 import { canonicalSpaceUrl } from './internal/layout.js'
 import { assertNotReserved } from './internal/reserved.js'
+import { delegateGrantAt } from './internal/grant.js'
 import type { ClientContext } from './internal/request.js'
 import { send } from './internal/request.js'
 import { collectionCodecHolder } from './internal/codec.js'
@@ -39,6 +40,8 @@ import type {
 } from './codec.js'
 import type {
   EncryptionOverride,
+  GrantOptions,
+  IDelegatedZcap,
   IZcap,
   Json,
   ResourceData,
@@ -77,6 +80,11 @@ export class Resource {
 
   readonly #context: ClientContext
   readonly #capability?: IZcap
+  /**
+   * The root DID URL of this handle's Space, when the Space handle it came
+   * from was built with one. Grants are then issued in DID URL form.
+   */
+  readonly #didUrl?: string
   /**
    * Resolves the codec for this resource: the parent collection's shared codec
    * when this handle came from `collection.resource(id)`, otherwise one
@@ -118,6 +126,8 @@ export class Resource {
    * @param [options.encryption] {EncryptionOverride}   per-handle encryption
    *   override for a standalone resource (ignored when `codec` is supplied --
    *   the shared parent codec wins)
+   * @param [options.didUrl] {string}   the root DID URL of the Space, as the
+   *   Space handle checked it
    */
   constructor({
     context,
@@ -126,7 +136,8 @@ export class Resource {
     resourceId,
     capability,
     codec,
-    encryption
+    encryption,
+    didUrl
   }: {
     context: ClientContext
     spaceUrl: string
@@ -135,6 +146,7 @@ export class Resource {
     capability?: IZcap
     codec?: CodecHolder
     encryption?: EncryptionOverride
+    didUrl?: string
   }) {
     // Guard the id against the Reserved Path Segment Registry up front, so a
     // reserved id from caller input can never be mis-targeted at a
@@ -156,6 +168,7 @@ export class Resource {
     this.#metaUrl = resourceMetaUrl(beneath)
     this.#policyUrl = resourcePolicyUrl(beneath)
     this.#capability = capability
+    this.#didUrl = didUrl
     const holder =
       codec ??
       collectionCodecHolder(context, {
@@ -528,6 +541,28 @@ export class Resource {
   async setTags(tags: Record<string, string>): Promise<void> {
     await this.#codecForWrite()
     return patchCustom(this, { tags }, { create: true })
+  }
+
+  /**
+   * Delegates access to this resource. Prefills the grant `target` with this
+   * resource's URL (and the bound `capability`, if any, for re-delegation).
+   * The grant is rooted in the resource's Space, so `space.revoke()` revokes
+   * it.
+   *
+   * A handle reached from a Space handle built with `didUrl` issues the
+   * grant in DID URL form (see `Space.grant`).
+   *
+   * @param options {GrantOptions}
+   * @returns {Promise<IDelegatedZcap>}
+   */
+  async grant(options: GrantOptions): Promise<IDelegatedZcap> {
+    return delegateGrantAt(this.#context, {
+      url: this.url,
+      spaceUrl: this.spaceUrl,
+      options,
+      capability: this.#capability,
+      didUrl: this.#didUrl
+    })
   }
 
   readonly #policyUrl: string

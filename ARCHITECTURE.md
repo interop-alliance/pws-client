@@ -1164,7 +1164,20 @@ create.
    Space-revocable. `GrantOptions.spaceUrl` roots it at the Space; the root
    capability there is built in object form because string root-cap ids break on
    `http://localhost` (`internal/rootCapability.ts`, which also owns the id
-   grammar and `spaceUrlOf`; the submission itself is `internal/revoke.ts`).
+   grammar and `spaceUrlOf`; the submission itself is `internal/revoke.ts`). A
+   Space handle built with `didUrl` roots in the DID URL form instead
+   (`didUrlRooted` in `internal/grant.ts`). The chain roots in
+   `urn:zcap:root:<encoded didUrl>`, and the link targets `didUrl` plus the
+   handle's path. `didUrl` is checked once, by the Space constructor, and passed
+   down to the Collection and Resource handles. Three checks run before signing,
+   in this order. The server must list `did-url-targets`, `didUrl` must
+   dereference to exactly the Space URL, and the link's DID URL must dereference
+   to the https URL the grant asked for. A parent capability wins, so `didUrl`
+   does not apply to a re-delegation. Its target still defaults to the handle's
+   https URL, which the signer refuses under a DID-form parent. When the server
+   lacks `did-url-targets`, the client throws `NotSupportedError`. It does not
+   fall back to an https grant. `PwsClient.revoke` dereferences a DID URL chain
+   root first.
 6. **`@interop/http-client` pre-consumes JSON bodies** into `.data`, which is
    why body handling funnels through `internal/content.ts` helpers and why
    `getText`/`getBytes` are not byte-exact for JSON content types.
@@ -1278,6 +1291,10 @@ it, and otherwise cover the client-side concepts this file names.
   DID URL, such as `did:webvh:<scid>:alice.example/photos/cat.jpg`, rather than
   an https URL. A fragment is refused. Avoid: DID target, DID-form URL. See
   Layering.
+- **Root DID URL** -- the `didUrl` option of `space()` and `spaceAt()`: the DID
+  URL of one Space, ending in `/`, with no selector and no fragment. A grant
+  issued from that handle is rooted in it. Avoid: space DID, DID root. See
+  Invariants, item 5.
 - **Target dereferencer** -- the `dereferenceTarget` hook, typed
   `DereferenceTarget`: `({ invocationTarget }) => Promise<string>`, mapping a
   DID URL target to the https URL it names. The same name and shape as the hooks

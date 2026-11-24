@@ -598,19 +598,21 @@ await collection.put('greeting', new Blob(['hello'], { type: 'text/plain' }))
 
 ### Delegation and sharing
 
-`pws.grant(...)` is the general delegation primitive; `space.grant(...)` and
-`collection.grant(...)` are sugar that prefill the grant `target` and `spaceUrl`
-from the handle. A bare `pws.grant(...)` with no `capability` and no `spaceUrl`
-is rooted at the target's own root capability. Passing `spaceUrl` roots it at
-that Space instead, and throws `ValidationError` if `target` is not at or
-beneath the Space. The recipient rebuilds access from the received zcap with
-`fromCapability()`, which reads the Space off the capability's chain root. A
-zcap whose chain starts at no root capability, or at one whose target cannot be
-a Space URL, is refused with `ValidationError`, as is one whose
-`invocationTarget` is not the canonical form of the URL the handle would
-address. The server is the authority on whether the root names a Space.
-`fromCapability()` is async. An https grant resolves with no request. A grant in
-DID URL form is dereferenced first (see
+`pws.grant(...)` is the general delegation primitive. `space.grant(...)`,
+`collection.grant(...)` and `resource.grant(...)` are sugar that prefill the
+grant `target` and `spaceUrl` from the handle. A Space handle built with a
+`didUrl` issues its grants in DID URL form (see
+[Issuing a DID-form grant](#issuing-a-did-form-grant)). A bare `pws.grant(...)`
+with no `capability` and no `spaceUrl` is rooted at the target's own root
+capability. Passing `spaceUrl` roots it at that Space instead, and throws
+`ValidationError` if `target` is not at or beneath the Space. The recipient
+rebuilds access from the received zcap with `fromCapability()`, which reads the
+Space off the capability's chain root. A zcap whose chain starts at no root
+capability, or at one whose target cannot be a Space URL, is refused with
+`ValidationError`, as is one whose `invocationTarget` is not the canonical form
+of the URL the handle would address. The server is the authority on whether the
+root names a Space. `fromCapability()` is async. An https grant resolves with no
+request. A grant in DID URL form is dereferenced first (see
 [DID URL capability targets](#did-url-capability-targets-did-url)).
 
 ```ts
@@ -1775,10 +1777,68 @@ https root with a DID URL link, or the reverse, with the masked 404. The client
 does not check this itself, so such a grant yields a handle whose reads resolve
 to `null` and whose writes throw `NotFoundError`.
 
-The client does not issue DID-form grants yet, and `revoke()` refuses one. Do
-not call `grant()` on a handle built from a DID-form grant. It signs an https
-link under the DID URL parent, which is a mixed chain the server refuses, so the
-grant it returns never works.
+`grant()` on a handle built from a DID-form grant does not work yet. The handle
+prefills its own https URL as the target, and the signer refuses an https link
+under a DID URL parent with a plain `Error`. To re-delegate such a grant, call
+`pws.grant()` with the grant as `capability`. Leave `target` out to keep the
+parent's target, or pass a DID URL beneath it.
+
+#### Issuing a DID-form grant
+
+Give the Space handle its root DID URL as `didUrl`. It is a DID URL that ends in
+`/`, with no selector and no fragment. A value that is not one throws
+`ValidationError` when the handle is built, before any request.
+
+```ts
+const space = pws.space(spaceId, {
+  didUrl: 'did:webvh:<scid>:alice.example/'
+})
+const zcap = await space.collection('photos').grant({
+  to: bobDid,
+  actions: ['GET']
+})
+zcap.invocationTarget // 'did:webvh:<scid>:alice.example/photos/'
+```
+
+`space.grant()`, and `grant()` on the Collection and Resource handles reached
+from it, issue the grant in DID URL form. The chain roots in `urn:zcap:root:`
+plus the encoded `didUrl`. The link's `invocationTarget` is `didUrl` plus the
+handle's path within the Space. Such a grant keeps working when the Space moves,
+once the controller repoints the DID document's `PathHandler`.
+`pws.spaceAt(url, { didUrl })` takes the same option.
+
+Before it signs, the client runs three checks in this order.
+
+1. The server lists `did-url-targets` on its authorization profile entry. If it
+   does not, `grant()` throws `NotSupportedError` naming the token. It does not
+   issue an https grant in its place.
+2. `didUrl` dereferences, through the `dereferenceTarget` hook, to exactly the
+   Space's URL. Otherwise `ValidationError`.
+3. The link's DID URL dereferences to the https URL the grant was asked for. A
+   longer `PathHandler` could map the path elsewhere. Otherwise
+   `ValidationError`.
+
+A DID URL that cannot be dereferenced rejects with `TargetDereferenceError`.
+
+An explicit `target` may be an https URL at or beneath the Space, which is
+translated to DID URL form. It may also be a DID URL at or beneath `didUrl`. It
+is delegated as given once it dereferences to a URL inside the Space. That is
+how a path the DID document aliases is granted. A target with a query or a
+fragment is refused, and so is a `spaceUrl` that names another Space.
+
+A parent capability wins over `didUrl`. When a `capability` is passed to
+`grant()`, or the handle is bound to one, `didUrl` does not apply, and the
+target still defaults to the handle's https URL. Under a DID-form parent the
+signer refuses that target (see
+[Holding a DID-form grant](#holding-a-did-form-grant)). A handle built without
+`didUrl` issues https grants.
+
+`space.revoke(zcap)` revokes a DID-form grant as it does an https one.
+`pws.revoke(zcap)` dereferences the DID URL of the chain root to find the Space,
+so it accepts one too. The built-in dereferencer caches each DID URL for five
+minutes. Right after the Space moves, `pws.revoke()` on a client that has
+already dereferenced the root can submit the revocation to the old location.
+After a move, call `space.revoke(zcap)` on a handle at the Space's new URL.
 
 ### The manual-request escape hatch
 

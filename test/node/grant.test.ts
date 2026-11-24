@@ -10,7 +10,14 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import { ValidationError, PwsClient, allowsAction } from '../../src/index.js'
+import {
+  AUTHZ_PROFILE_SPEC_ID,
+  NotSupportedError,
+  TargetDereferenceError,
+  ValidationError,
+  PwsClient,
+  allowsAction
+} from '../../src/index.js'
 import { rootCapabilityId } from '../../src/paths/index.js'
 import {
   clientWithRequestSpy,
@@ -213,6 +220,19 @@ describe('grant rooting (revocability)', () => {
       .grant({ to: 'did:example:bob', actions: ['GET'] })
 
     expect(lastDelegate()?.capability).toBe(held)
+  })
+
+  it('re-delegates from a Resource handle bound to a capability', async () => {
+    const { client, lastDelegate } = clientWithDelegateSpy()
+    const held = { id: 'urn:uuid:held' }
+    await client
+      .spaceAt(spaceUrlFor('s'))
+      .collection('c')
+      .resource('r', { capability: held as never })
+      .grant({ to: 'did:example:bob', actions: ['GET'] })
+
+    expect(lastDelegate()?.capability).toBe(held)
+    expect(lastDelegate()?.invocationTarget).toBe(`${spaceUrlFor('s')}c/r`)
   })
 
   it('roots a pws.grant with no spaceUrl at the target itself', async () => {
@@ -445,5 +465,208 @@ describe('pws.request action normalization', () => {
       action: 'HEAD'
     })
     expect(lastRequest()?.action).toBe('HEAD')
+  })
+})
+
+describe('grants from a Space handle with `didUrl`', () => {
+  const SPACE = spaceUrlFor('s')
+  const DID_URL = 'did:webvh:QmScid:alice.example/'
+
+  /**
+   * A client over a delegate spy whose server advertises `did-url-targets`
+   * (unless `advertised` is false) and whose `dereferenceTarget` hook maps
+   * `DID_URL` to the Space, with `aliases` mapped first.
+   *
+   * @param [options] {object}
+   * @param [options.advertised] {boolean}
+   * @param [options.aliases] {Record<string, string>}   DID URL to https URL
+   * @returns {object} { client, lastDelegate, dereferenced }
+   */
+  function didUrlClient({
+    advertised = true,
+    aliases = {}
+  }: { advertised?: boolean; aliases?: Record<string, string> } = {}): {
+    client: PwsClient
+    lastDelegate: () => DelegateArgs | undefined
+    dereferenced: string[]
+  } {
+    let captured: DelegateArgs | undefined
+    const dereferenced: string[] = []
+    const description = serviceDescriptionFor()
+    if (advertised) {
+      for (const entry of description.specs[AUTHZ_PROFILE_SPEC_ID] ?? []) {
+        entry.features = ['did-url-targets']
+      }
+    }
+    const zcapClient = {
+      invocationSigner: { id: 'did:example:alice#key-1' },
+      async delegate(args: DelegateArgs) {
+        captured = args
+        return { ...args, allowedAction: args.allowedActions }
+      }
+    } as unknown as ConstructorParameters<typeof PwsClient>[0]['zcapClient']
+    const client = new PwsClient({
+      baseServerUrl: baseServerUrlFor(),
+      zcapClient,
+      serviceDescription: description,
+      dereferenceTarget: async ({ invocationTarget }) => {
+        dereferenced.push(invocationTarget)
+        if (Object.hasOwn(aliases, invocationTarget)) {
+          return aliases[invocationTarget] as string
+        }
+        if (!invocationTarget.startsWith(DID_URL)) {
+          throw new Error(`No mapping for ${invocationTarget}.`)
+        }
+        return `${SPACE}${invocationTarget.slice(DID_URL.length)}`
+      }
+    })
+    return { client, lastDelegate: () => captured, dereferenced }
+  }
+
+  const grantOptions = { to: 'did:example:bob', actions: ['GET' as const] }
+
+  it('refuses a `didUrl` that is not a root DID URL, at the handle', () => {
+    const { client, dereferenced } = didUrlClient()
+    for (const didUrl of [
+      'did:webvh:QmScid:alice.example',
+      'did:webvh:QmScid:alice.example/?versionId=1',
+      'did:webvh:QmScid:alice.example/#key',
+      'https://alice.example/'
+    ]) {
+      expect(() => client.space('s', { didUrl })).toThrow(ValidationError)
+      expect(() => client.spaceAt(SPACE, { didUrl })).toThrow(ValidationError)
+    }
+    expect(dereferenced).toEqual([])
+  })
+
+  it('roots a Space grant in the DID URL root', async () => {
+    const { client, lastDelegate } = didUrlClient()
+    await client.space('s', { didUrl: DID_URL }).grant(grantOptions)
+    expect(lastDelegate()?.capability).toBe(rootCapabilityId(DID_URL))
+    expect(lastDelegate()?.capability).toBe(
+      `urn:zcap:root:${encodeURIComponent(DID_URL)}`
+    )
+    expect(lastDelegate()?.invocationTarget).toBe(DID_URL)
+  })
+
+  it('names the handle path within the Space on Collection and Resource grants', async () => {
+    const { client, lastDelegate } = didUrlClient()
+    const photos = client.space('s', { didUrl: DID_URL }).collection('photos')
+    await photos.grant(grantOptions)
+    expect(lastDelegate()?.capability).toBe(rootCapabilityId(DID_URL))
+    expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/`)
+
+    await photos.resource('cat 1').grant(grantOptions)
+    expect(lastDelegate()?.capability).toBe(rootCapabilityId(DID_URL))
+    expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/cat%201`)
+  })
+
+  it('translates an explicit https target, and takes a DID URL one as given', async () => {
+    const { client, lastDelegate } = didUrlClient({
+      aliases: { [`${DID_URL}pics/`]: `${SPACE}photos/` }
+    })
+    const space = client.space('s', { didUrl: DID_URL })
+    await space.grant({ ...grantOptions, target: `${SPACE}photos/doc-1` })
+    expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}photos/doc-1`)
+
+    await space.grant({ ...grantOptions, target: `${DID_URL}pics/` })
+    expect(lastDelegate()?.capability).toBe(rootCapabilityId(DID_URL))
+    expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}pics/`)
+  })
+
+  it('refuses a target outside the Space, or with a query', async () => {
+    const { client, lastDelegate } = didUrlClient({
+      aliases: {
+        [`${DID_URL}elsewhere/`]: spaceUrlFor('other'),
+        [`${DID_URL}dots/`]: `${SPACE}../other/`
+      }
+    })
+    const space = client.space('s', { didUrl: DID_URL })
+    for (const target of [
+      spaceUrlFor('other'),
+      'did:webvh:QmOther:alice.example/photos/',
+      `${DID_URL}elsewhere/`,
+      `${DID_URL}dots/`,
+      `${SPACE}photos/?versionId=1`,
+      `${DID_URL}photos/?versionId=1`
+    ]) {
+      await expect(
+        space.grant({ ...grantOptions, target })
+      ).rejects.toBeInstanceOf(ValidationError)
+    }
+    await expect(
+      space.grant({ ...grantOptions, spaceUrl: spaceUrlFor('other') })
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(lastDelegate()).toBeUndefined()
+  })
+
+  it('refuses a server without `did-url-targets`, before any dereference', async () => {
+    const { client, lastDelegate, dereferenced } = didUrlClient({
+      advertised: false
+    })
+    const photos = client.space('s', { didUrl: DID_URL }).collection('photos')
+    const refusal = photos.grant(grantOptions)
+    await expect(refusal).rejects.toBeInstanceOf(NotSupportedError)
+    await expect(refusal).rejects.toThrow(/did-url-targets/)
+    expect(dereferenced).toEqual([])
+    expect(lastDelegate()).toBeUndefined()
+  })
+
+  it('refuses a `didUrl` that does not dereference to the Space', async () => {
+    const { client, lastDelegate } = didUrlClient({
+      aliases: { [DID_URL]: spaceUrlFor('other') }
+    })
+    await expect(
+      client.space('s', { didUrl: DID_URL }).grant(grantOptions)
+    ).rejects.toThrow(/dereferences to/)
+    expect(lastDelegate()).toBeUndefined()
+  })
+
+  it('refuses a link a longer `PathHandler` maps elsewhere', async () => {
+    const { client, lastDelegate } = didUrlClient({
+      aliases: { [`${DID_URL}photos/`]: `${SPACE}private/` }
+    })
+    await expect(
+      client
+        .space('s', { didUrl: DID_URL })
+        .collection('photos')
+        .grant(grantOptions)
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(lastDelegate()).toBeUndefined()
+  })
+
+  it('reports a `didUrl` that cannot be dereferenced', async () => {
+    const { client } = didUrlClient()
+    await expect(
+      client
+        .space('s', { didUrl: 'did:webvh:QmUnknown:alice.example/' })
+        .grant(grantOptions)
+    ).rejects.toBeInstanceOf(TargetDereferenceError)
+  })
+
+  it('does not apply `didUrl` under a parent capability', async () => {
+    const { client, lastDelegate, dereferenced } = didUrlClient()
+    const parent = { id: 'urn:uuid:parent' } as never
+    const space = client.space('s', { didUrl: DID_URL })
+    await space.grant({ ...grantOptions, capability: parent })
+    expect(lastDelegate()?.capability).toBe(parent)
+    expect(lastDelegate()?.invocationTarget).toBe(SPACE)
+    expect(dereferenced).toEqual([])
+  })
+
+  it('issues https grants from a handle without `didUrl`', async () => {
+    const { client, lastDelegate, dereferenced } = didUrlClient()
+    await client.space('s').collection('photos').grant(grantOptions)
+    expect(lastDelegate()?.capability).toBe(rootCapabilityId(SPACE))
+    expect(lastDelegate()?.invocationTarget).toBe(`${SPACE}photos/`)
+
+    await client
+      .space('s')
+      .collection('photos')
+      .resource('r')
+      .grant(grantOptions)
+    expect(lastDelegate()?.capability).toBe(rootCapabilityId(SPACE))
+    expect(lastDelegate()?.invocationTarget).toBe(`${SPACE}photos/r`)
+    expect(dereferenced).toEqual([])
   })
 })
