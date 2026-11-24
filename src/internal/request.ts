@@ -24,13 +24,20 @@ import { mapError } from './mapError.js'
 import { dataOrNull } from './content.js'
 import { readEtag } from './conditional.js'
 import type { EncryptionProvider } from '../codec.js'
-import type { IZcap, RequestInput, ServiceInfo } from '../types.js'
+import type {
+  DereferenceTarget,
+  IZcap,
+  RequestInput,
+  ServiceInfo
+} from '../types.js'
 
 /**
  * The shared context threaded through every handle: the wrapped ezcap client,
  * the controller DID of its signer, the optional encryption provider that
  * supplies an encrypting codec for the collections the client holds keys
- * for, and the memoized service discovery every signed request waits on.
+ * for, the memoized service discovery every signed request waits on, and the
+ * hook that dereferences a capability's DID URL target, which ezcap calls
+ * only for a capability whose target is one.
  *
  * `controllerDid` is a lazy read, not a stored string: `PwsClient` backs it
  * with a getter so that building a context (and therefore a handle) never
@@ -44,6 +51,7 @@ export interface ClientContext {
   controllerDid: string
   encryption?: EncryptionProvider
   service: () => Promise<ServiceInfo>
+  dereferenceTarget: DereferenceTarget
 }
 
 /**
@@ -106,7 +114,8 @@ export async function rawRequest(
     action: (input.action ?? actionForMethod(method)).toUpperCase(),
     headers: input.headers,
     json: input.json,
-    body: input.body
+    body: input.body,
+    dereferenceTarget: context.dereferenceTarget
   })
 }
 

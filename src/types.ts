@@ -332,3 +332,13 @@ export interface RequestInput {
   body?: Blob | Uint8Array
   capability?: IZcap
 }
+
+/**
+ * Maps a capability's DID URL `invocationTarget` to the https URL it
+ * dereferences to. The same name and shape as the `dereferenceTarget` hooks
+ * of `@interop/zcap` and `@interop/ezcap`. The result is an https URL (or an
+ * http URL on a loopback host) with no query or fragment.
+ */
+export type DereferenceTarget = (options: {
+  invocationTarget: string
+}) => Promise<string>

@@ -5371,3 +5371,97 @@ Create Collection is a `POST` at the Space URL and carries no such rule. No
 existing test wrote Collection Metadata under a Collection-scoped delegation.
 `test/integration/collection-metadata-grant.test.ts` pins the rule against the
 server, and `test/node/collection-metadata-write.test.ts` covers each writer.
+
+### WCL-172: [M] [blocks 1] A `did-url` subpath that dereferences a DID URL target, and a `dereferenceTarget` option on `PwsClient`
+
+- status: done 2026-11-23
+- priority: medium
+- labels: zcap, webvh, portability, bundle-size
+- discovered-from: web-spaces-server WSS-245 (2026-11-23)
+- blocks: WCL-173
+- touches:
+  - pws-client (this repo): a new `src/did-url.ts` entry and its `exports` map
+    row, `src/PwsClient.ts` (the constructor option), `src/internal/request.ts`
+    (`send()` and `rawRequest` pass the hook to ezcap), `package.json`
+    (`@interop/did-method-webvh` becomes a direct dependency; the ezcap range
+    moves to `^7.8.0`), README.md, ARCHITECTURE.md
+  - `@interop/ezcap`: 7.8.0 adds the `dereferenceTarget` option to `request()`.
+    Published as 7.8.0, and this repo depends on `^7.8.0`. ezcap has no roadmap
+    file, so its open question is recorded here: whether `read()` and `write()`
+    take the hook too. They do not today. The maintainer has not settled it
+  - web-spaces-server: `decisions/0009-did-url-invocation-targets.md` and
+    `docs/webvh-controllers.md` ("DID URL invocation targets") are the rules the
+    dereference must reproduce. unaffected: web-spaces-server (the client
+    follows its rules, and nothing there changes)
+- acceptance:
+  - [x] `@interop/pws-client/did-url` is a subpath export (types, import and
+        default conditions as the `./paths` row) of
+        `createTargetDereferencer({     fetch })`. It returns a
+        `dereferenceTarget({ invocationTarget })` function that resolves to an
+        https URL and holds its own cache
+  - [x] The dereference uses `@interop/did-method-webvh` (`dereference`,
+        `parseDidUrl`, `selectPathHandler`, `pathHandlerUrl`) and reimplements
+        none of it
+  - [x] A target with a version selector dereferences through the version it
+        names. A target with a fragment, or one no `PathHandler` matches, is
+        refused with a typed error
+  - [x] `PwsClient` takes a constructor option
+        `dereferenceTarget({     invocationTarget }) => Promise<string>`, the
+        same name and shape as the hooks of `@interop/zcap` and
+        `@interop/ezcap`, and passes it through to ezcap `request()` on every
+        signed request
+  - [x] When a DID URL must be dereferenced and no override was passed, the main
+        entry loads `./did-url` with a dynamic `import()` and builds the default
+        dereferencer once per client
+  - [x] A bundle test or a bundle analysis shows that a build of a client that
+        passes an override does not include `@interop/did-method-webvh` in its
+        main bundle
+  - [x] The `./paths` entry stays offline and imports nothing from `./did-url`
+  - [x] Tests with a stubbed `fetch` cover the dereference, the cache, the
+        selector case and the refusals. The `ezcap` request with a `did:`
+        capability target is exercised against a stub server
+
+Context: a grant can name a `did:webvh` DID URL as its `invocationTarget`, so a
+Space can move to another provider with its grants intact. The request is still
+an https request. The signer must dereference the DID URL to find the https URL
+to send to, and ezcap checks the request `url` against that result. This item
+gives the client that dereference, as a default it loads only when it needs it
+and an override a caller with its own resolver passes in. Nothing else in the
+client changes yet. The other pieces are the async `fromCapability` and the
+delegate path, and issuing DID-form grants.
+
+Settled by the maintainer on 2026-11-23. The hook is `dereferenceTarget` in
+every layer. The default lives in a subpath so a build that never sees a DID URL
+does not carry the DID library, and it takes `@interop/did-method-webvh` as a
+direct dependency. The ezcap rule is that for a capability whose target starts
+with `did:`, `url` and the hook are both required, the hook result must be an
+https URL with no query or fragment, and `url` is checked against the result.
+`@interop/http-signature-zcap-invoke` needs no change.
+
+Still open for the maintainer. First, the cache lifetime of the built-in
+dereferencer. The server caches a foreign document for 5 minutes. Second,
+whether ezcap `read()` and `write()` take the hook, as stated above.
+
+Start here first. This is the one item that needs only a published ezcap
+`7.8.0`, and its tests need no server release.
+
+Landed in the working tree on 2026-11-23. `src/did-url.ts` is the entry. It
+calls `dereference` of `@interop/did-method-webvh`, which parses the DID URL,
+selects the `PathHandler` and builds the URL. The maintainer settled the cache
+lifetime the same day. A dereferenced target is kept for 5 minutes, keyed by the
+target string, and a failure is not kept. Every refusal is the new
+`TargetDereferenceError`, also settled that day. `PwsClient`, `fromSigner` and
+`forSpace` take `dereferenceTarget`, and `rawRequest` passes it to ezcap. The
+hook takes effect through `pws.request()` only, since `send()` still compares
+the request URL with the DID URL string until the delegate item lands.
+`test/node/import-graph.test.ts` holds the main entry's static closure off
+`did-url.ts` and the DID library, and pins the one dynamic edge. A one-off vite
+build of the main entry put all 29 modules of the DID library in the `did-url`
+chunk and none in the entry chunk. `test/node/did-url.test.ts` covers the rest.
+The maintainer settled on 2026-11-23 that ezcap `read()` and `write()` do not
+take the hook. Only `request()` does.
+
+Added later on 2026-11-23, at the maintainer's request. The dereferencer checks
+its own result. It applies `checkDereferencedTarget`, which `@interop/ezcap`
+exports from 7.9.0, and refuses a URL that a URL parser would rewrite. Both
+refusals are `TargetDereferenceError`.

@@ -70,6 +70,7 @@ import { Space } from './Space.js'
 import { Collection } from './Collection.js'
 import { Resource } from './Resource.js'
 import type {
+  DereferenceTarget,
   EncryptionOverride,
   GrantOptions,
   HandleOptions,
@@ -130,6 +131,13 @@ export class PwsClient {
    *   version this client speaks, or (for a client built from a base server
    *   URL) if it describes another server (see {@link service}).
    *   `service({ refresh: true })` discards it and discovers afresh.
+   * @param [options.dereferenceTarget] {DereferenceTarget}   maps a
+   *   capability's DID URL invocation target to the https URL it
+   *   dereferences to, for a caller with its own DID resolver. It is passed
+   *   to ezcap on every signed request, and called only for a capability
+   *   whose target is a DID URL. Omitted, the client loads the built-in
+   *   dereferencer of the `@interop/pws-client/did-url` entry the first time
+   *   one is needed.
    * @throws {ValidationError}   when `baseServerUrl` is not an absolute
    *   http(s) URL, or carries a query, fragment, or userinfo
    */
@@ -138,6 +146,7 @@ export class PwsClient {
       zcapClient: ZcapClient
       encryption?: EncryptionProvider
       serviceDescription?: ServiceDescription
+      dereferenceTarget?: DereferenceTarget
     } & ({ baseServerUrl: string } | { [fixedSpace]: string })
   ) {
     if (fixedSpace in options) {
@@ -148,6 +157,9 @@ export class PwsClient {
     this.zcapClient = options.zcapClient
     this.encryption = options.encryption
     this.#serviceDescription = options.serviceDescription
+    this.#dereferenceTarget =
+      options.dereferenceTarget ??
+      (async input => (await this.#builtInDereferencer.get())(input))
   }
 
   /**
@@ -176,6 +188,8 @@ export class PwsClient {
    * @param [options.encryption] {EncryptionProvider}   see the constructor
    * @param [options.serviceDescription] {ServiceDescription}   see the
    *   constructor; not checked against the Space URL, which names no server
+   * @param [options.dereferenceTarget] {DereferenceTarget}   see the
+   *   constructor
    * @returns {PwsClient}
    * @throws {ValidationError}   when `spaceUrl` is not a Space URL, or neither
    *   or both of `zcapClient` and `signer` are given
@@ -185,13 +199,15 @@ export class PwsClient {
     zcapClient,
     signer,
     encryption,
-    serviceDescription
+    serviceDescription,
+    dereferenceTarget
   }: {
     spaceUrl: string
     zcapClient?: ZcapClient
     signer?: ISigner
     encryption?: EncryptionProvider
     serviceDescription?: ServiceDescription
+    dereferenceTarget?: DereferenceTarget
   }): PwsClient {
     if ((zcapClient === undefined) === (signer === undefined)) {
       throw new ValidationError(
@@ -203,7 +219,8 @@ export class PwsClient {
       zcapClient:
         zcapClient ?? zcapClientForSigner({ signer: signer as ISigner }),
       encryption,
-      serviceDescription
+      serviceDescription,
+      dereferenceTarget
     })
   }
 
@@ -222,24 +239,29 @@ export class PwsClient {
    * @param [options.encryption] {EncryptionProvider}   see the constructor
    * @param [options.serviceDescription] {ServiceDescription}   see the
    *   constructor
+   * @param [options.dereferenceTarget] {DereferenceTarget}   see the
+   *   constructor
    * @returns {PwsClient}
    */
   static fromSigner({
     baseServerUrl,
     signer,
     encryption,
-    serviceDescription
+    serviceDescription,
+    dereferenceTarget
   }: {
     baseServerUrl: string
     signer: ISigner
     encryption?: EncryptionProvider
     serviceDescription?: ServiceDescription
+    dereferenceTarget?: DereferenceTarget
   }): PwsClient {
     return new PwsClient({
       baseServerUrl,
       zcapClient: zcapClientForSigner({ signer }),
       encryption,
-      serviceDescription
+      serviceDescription,
+      dereferenceTarget
     })
   }
 
@@ -260,6 +282,23 @@ export class PwsClient {
   }
 
   #serviceDescription?: ServiceDescription
+
+  /**
+   * The hook every signed request hands to ezcap: the caller's
+   * `dereferenceTarget`, or one that defers to the built-in dereferencer.
+   */
+  readonly #dereferenceTarget: DereferenceTarget
+
+  /**
+   * The built-in dereferencer, built once per client. The `./did-url` entry
+   * is loaded with a dynamic `import()`, so a build that never dereferences a
+   * DID URL, or that passes its own `dereferenceTarget`, keeps the DID
+   * library out of its main bundle.
+   */
+  readonly #builtInDereferencer = new Memo<DereferenceTarget>(async () => {
+    const { createTargetDereferencer } = await import('./did-url.js')
+    return createTargetDereferencer()
+  })
 
   readonly #service = new Memo<ServiceInfo>(async () => {
     let info: ServiceInfo
@@ -419,7 +458,8 @@ export class PwsClient {
           return readControllerDid()
         },
         encryption: this.encryption,
-        service: () => this.service()
+        service: () => this.service(),
+        dereferenceTarget: this.#dereferenceTarget
       }
     }
     return this.#cachedContext
