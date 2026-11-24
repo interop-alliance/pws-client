@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 176
+nextAvailableId: 178
 
 <!-- roadmap-order:index:start -->
 
@@ -64,6 +64,8 @@ Ready:
   refused as tampering
 - WCL-165 [M] A 404 on a `DELETE` is reported as success
 - WCL-167 [M] A governing log write retried after a dropped response is refused
+- WCL-177 [M] A handle built on a DID-form grant reads as empty after the Space
+  moves
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
   success
 - WCL-71 [L] `Space.configure()` is a read-modify-write with no precondition and
@@ -108,20 +110,12 @@ Waiting on another repo:
 
 Ready:
 
+- WCL-176 [M] A delegate re-delegates from a handle built on a DID-form grant
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 - WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
 
-Chains:
-
-- WCL-173 [M] A delegate holds a DID-form grant: async `fromCapability`,
-  `send()` and the Collection grant check
-  - WCL-174 [M] A controller issues DID-form grants from a Space handle with
-    `didUrl`
-
 Waiting on another repo:
 
-- WCL-173 [M] A delegate holds a DID-form grant: async `fromCapability`,
-  `send()` and the Collection grant check (after WSS-245)
 - WCL-174 [M] A controller issues DID-form grants from a Space handle with
   `didUrl` (after WSS-245)
 
@@ -1081,6 +1075,31 @@ append that landed is a 412 under the old `ETag`, and a caller cannot tell it
 from a concurrent writer without reading the log. The `did.jsonl` log of a
 self-hosted `did:webvh` is not affected: a re-sent body there stays a no-op.
 
+### WCL-177: [M] A handle built on a DID-form grant reads as empty after the Space moves
+
+- status: todo
+- priority: medium
+- labels: zcap, webvh, portability, correctness
+- discovered-from: WCL-173 review (2026-11-23)
+- touches:
+  - pws-client (this repo): `src/internal/request.ts` (`send()`), README.md,
+    ARCHITECTURE.md
+- acceptance:
+  - [ ] A request from a handle whose URL no longer lies under the URL its
+        DID-form grant dereferences to does not resolve `null` on a read or
+        succeed on an idempotent delete. What it does instead (a named error, or
+        the handle re-locating itself) is the maintainer's decision
+  - [ ] A test repoints the `PathHandler` between two requests of one handle
+
+Context: a handle keeps the https URLs it was built with. `send()` dereferences
+the grant's DID URL on every request and answers a request outside the result
+locally, with the 404 translations. Once the DID's `PathHandler` is repointed
+and the dereferencer's cache expires, every URL of the old handle is outside the
+target. A read then resolves `null` and a delete reports success with nothing
+sent, so a sync consumer could take the documents for deleted. Calling
+`fromCapability()` again yields a working handle, and the README says so, but
+nothing tells the caller that the moment has come.
+
 ### WCL-59: [L] `addRecipient` treats an existing entry for the incoming kid as success
 
 - status: todo
@@ -1694,65 +1713,44 @@ front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
 
-### WCL-173: [M] [blocks 1] [after WSS-245] A delegate holds a DID-form grant: async `fromCapability`, `send()` and the Collection grant check
+### WCL-176: [M] A delegate re-delegates from a handle built on a DID-form grant
+
+- status: todo
+- priority: medium
+- labels: zcap, webvh, portability
+- discovered-from: WCL-173 (2026-11-23)
+- touches:
+  - pws-client (this repo): `src/internal/grant.ts` (`delegateGrantAt`,
+    `delegateGrant`), the `grant` methods of `src/Space.ts`, `src/Collection.ts`
+    and `src/Resource.ts`, README.md, ARCHITECTURE.md
+- acceptance:
+  - [ ] `grant()` on a handle whose bound capability is DID-form issues a
+        DID-form link, or refuses with a named error before signing. Which of
+        the two is the maintainer's decision
+  - [ ] It never issues an https link under a DID-form parent
+  - [ ] A test against web-spaces-server covers the chosen behavior
+
+Context: `fromCapability` now builds a handle from a DID-form grant, and the
+handle's URLs are the https URLs the grant dereferences to. The `grant` sugar
+prefills the target from the handle's `url`, so a re-delegation from such a
+handle names an https target under a DID URL parent. That is a mixed-form chain,
+which the server refuses with the masked `not-found`. The delegate gets a grant
+that never works and no error.
+
+The DID URL for the new link is not derivable from the handle alone. The handle
+knows the parent's DID URL and its own https URL. Appending the https path below
+the parent's dereferenced target to the parent's DID URL is right only when no
+longer `PathHandler` intercepts that path, so the result has to be dereferenced
+and compared before signing. The item that adds `didUrl` to the Space handle
+covers the controller's side and does not cover this one.
+
+### WCL-174: [M] [after WSS-245] A controller issues DID-form grants from a Space handle with `didUrl`
 
 - status: todo
 - priority: medium
 - labels: zcap, webvh, portability, breaking
 - discovered-from: web-spaces-server WSS-245 (2026-11-23)
 - blocked-by: WSS-245
-- blocks: WCL-174
-- touches:
-  - pws-client (this repo): `src/PwsClient.ts` (`fromCapability`),
-    `src/internal/rootCapability.ts` (`spaceUrlOf`, `rootCapabilityId`,
-    `rootCapability`), `src/internal/request.ts` (`send()` runs `isValidTarget`
-    of the request URL against the capability target, and `rawRequest`),
-    `src/Collection.ts` (`#assertSpaceGrant` compares
-    `invocationTarget === this.spaceUrl`), `src/internal/grant.ts`
-    (`spaceRooted` and `delegateGrantAt` check https forms only), README.md,
-    ARCHITECTURE.md. Verify each site before relying on it, since the list comes
-    from a survey
-  - web-spaces-server: a release that carries `did-url-targets`. Its test file
-    `test/did-url-targets-api.test.ts` shows how a DID-form request is built
-    today without client support
-  - `@interop/ezcap` 7.8.0 published (see WCL-172)
-- acceptance:
-  - [ ] `PwsClient.fromCapability` is async for every grant. This is a breaking
-        change with no compatibility shim, and every caller moves in the same
-        pass
-  - [ ] An https grant resolves with no fetch
-  - [ ] A DID-form grant dereferences its root target to find the Space URL, and
-        the client addresses requests there
-  - [ ] `send()` compares the request URL with the dereferenced target of the
-        invoked capability, not with the DID URL string
-  - [ ] `#assertSpaceGrant` compares the dereferenced target of the grant with
-        the Space URL, so a delegate holding a DID-form Space grant can use the
-        Collection handle
-  - [ ] A chain that mixes the two forms is refused by the server as the masked
-        `not-found`, and the client reports it as it reports any refusal
-  - [ ] Tests against web-spaces-server: a delegate reads and writes under a
-        DID-form grant, a grant for another Space is refused, and a mixed-form
-        chain is refused
-
-Context: a delegate receives a grant whose root and links name a DID URL such as
-`did:webvh:<scid>:alice.example/photos/`. Today the client assumes the grant's
-`invocationTarget` is the https URL it sends to. Everything that reads the
-target (finding the Space, comparing the request URL, the Collection handle's
-guard) therefore breaks for a DID-form grant. The client has to dereference the
-target first, through the `dereferenceTarget` option or the default of the item
-before this one. Dereferencing is a fetch for a DID not hosted by the server, so
-`fromCapability` must become async. An https grant stays offline.
-
-Settled by the maintainer on 2026-11-23: `fromCapability` is async for every
-grant, as one breaking change.
-
-### WCL-174: [M] [after WCL-173, WSS-245] A controller issues DID-form grants from a Space handle with `didUrl`
-
-- status: todo
-- priority: medium
-- labels: zcap, webvh, portability, breaking
-- discovered-from: web-spaces-server WSS-245 (2026-11-23)
-- blocked-by: WCL-173, WSS-245
 - touches:
   - pws-client (this repo): `src/internal/grant.ts` (`spaceRooted`,
     `delegateGrantAt`), `src/internal/rootCapability.ts`, `src/Space.ts`,

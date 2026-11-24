@@ -11,13 +11,15 @@
  * awaits the context's memoized service discovery, so no request reaches a
  * server whose protocol version this client does not speak.
  */
-import type { ZcapClient } from '@interop/ezcap'
+import { checkDereferencedTarget, type ZcapClient } from '@interop/ezcap'
 import { isValidTarget } from '@interop/zcap'
 import { httpClient, type HttpResponse } from '@interop/http-client'
 import {
   NotFoundError,
   PwsError,
   PwsServerError,
+  TargetDereferenceError,
+  errorMessage,
   httpStatus
 } from '../errors.js'
 import { mapError } from './mapError.js'
@@ -36,8 +38,9 @@ import type {
  * the controller DID of its signer, the optional encryption provider that
  * supplies an encrypting codec for the collections the client holds keys
  * for, the memoized service discovery every signed request waits on, and the
- * hook that dereferences a capability's DID URL target, which ezcap calls
- * only for a capability whose target is one.
+ * hook that dereferences a capability's DID URL target. It is called only
+ * for a capability whose target is one, by `dereferencedTarget` here and by
+ * ezcap under `pws.request()`.
  *
  * `controllerDid` is a lazy read, not a stored string: `PwsClient` backs it
  * with a getter so that building a context (and therefore a handle) never
@@ -84,6 +87,43 @@ export function actionForMethod(method: string): string {
 }
 
 /**
+ * The https URL a capability's invocation target names. An https target is
+ * returned as it is, with no call to the hook. A DID URL target goes through
+ * the context's `dereferenceTarget` hook, and the result passes the check
+ * ezcap applies to it at signing.
+ *
+ * @param context {ClientContext}
+ * @param invocationTarget {string}   the capability's `invocationTarget`
+ * @returns {Promise<string>}
+ * @throws {TargetDereferenceError}   when the hook fails, or its result is
+ *   not a URL a request can be sent to
+ */
+export async function dereferencedTarget(
+  context: ClientContext,
+  invocationTarget: string
+): Promise<string> {
+  if (!invocationTarget.startsWith('did:')) {
+    return invocationTarget
+  }
+  try {
+    const url = await context.dereferenceTarget({ invocationTarget })
+    checkDereferencedTarget({ dereferencedTarget: url })
+    return url
+  } catch (err) {
+    // Any other error of a caller's hook is wrapped, a `PwsError` included:
+    // one with a 404 status would read as an absent resource.
+    if (err instanceof TargetDereferenceError) {
+      throw err
+    }
+    throw new TargetDereferenceError(
+      `The capability target "${invocationTarget}" could not be ` +
+        `dereferenced: ${errorMessage(err)}`,
+      { cause: err }
+    )
+  }
+}
+
+/**
  * Signs and sends a request via the wrapped ezcap client, returning the raw
  * `HttpResponse` and throwing the raw ky/ezcap error. Does not apply error
  * mapping or null-on-404 -- this is the escape-hatch primitive. It waits on
@@ -92,11 +132,15 @@ export function actionForMethod(method: string): string {
  *
  * @param context {ClientContext}
  * @param input {SendInput}
+ * @param [dereferenceTarget] {DereferenceTarget}   the hook handed to ezcap.
+ *   Defaults to the context's. `send()` passes one that returns the URL it
+ *   has already dereferenced, so the hook runs once per request
  * @returns {Promise<HttpResponse>}
  */
 export async function rawRequest(
   context: ClientContext,
-  input: SendInput
+  input: SendInput,
+  dereferenceTarget: DereferenceTarget = context.dereferenceTarget
 ): Promise<HttpResponse> {
   const { url } = input
   await context.service()
@@ -115,7 +159,7 @@ export async function rawRequest(
     headers: input.headers,
     json: input.json,
     body: input.body,
-    dereferenceTarget: context.dereferenceTarget
+    dereferenceTarget
   })
 }
 
@@ -197,6 +241,10 @@ export async function unsignedRequest(input: {
  * The check is `isValidTarget` from `@interop/zcap`, the rule the server's
  * verifier applies, so the two cannot disagree.
  *
+ * A DID URL target is dereferenced first, and the request URL is compared
+ * with the https URL it names. A target that cannot be dereferenced rejects
+ * with `TargetDereferenceError`, whatever the 404 translations.
+ *
  * @param context {ClientContext}
  * @param input {SendInput}
  * @returns {Promise<HttpResponse | null>}
@@ -206,12 +254,14 @@ export async function send(
   input: SendInput
 ): Promise<HttpResponse | null> {
   const invocationTarget = input.capability?.invocationTarget
+  let baseInvocationTarget: string | undefined
   if (invocationTarget !== undefined) {
     const { url } = input
+    baseInvocationTarget = await dereferencedTarget(context, invocationTarget)
     if (
       !isValidTarget({
         invocationTarget: url,
-        baseInvocationTarget: invocationTarget,
+        baseInvocationTarget,
         allowTargetAttenuation: true
       })
     ) {
@@ -220,13 +270,24 @@ export async function send(
       }
       throw new NotFoundError(
         `"${url}" lies outside the capability's invocation target ` +
-          `"${invocationTarget}", which cannot be invoked against it.`,
+          `"${invocationTarget}"` +
+          (baseInvocationTarget === invocationTarget
+            ? ''
+            : ` (dereferenced to "${baseInvocationTarget}")`) +
+          ', which cannot be invoked against it.',
         { status: 404, requestUrl: url }
       )
     }
   }
   try {
-    return await rawRequest(context, input)
+    // ezcap signs against the URL the check above used, so the two agree and
+    // the hook is not called a second time.
+    const resolved = baseInvocationTarget
+    return await rawRequest(
+      context,
+      input,
+      resolved === undefined ? undefined : async () => resolved
+    )
   } catch (err) {
     // Only a raw transport error translates: a `PwsError` (such as a discovery
     // refusal) is already an answer and passes through whatever its status.

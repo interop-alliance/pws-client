@@ -25,8 +25,13 @@
   when the capability's `invocationTarget` is a DID URL. When it is omitted, the
   client loads `./did-url` with a dynamic `import()` on first need, so a build
   that passes its own hook keeps the DID library out of its main bundle.
-- Today the hook takes effect through `pws.request()`. The handle methods,
-  `fromCapability()` and `grant()` do not yet understand DID URL targets.
+- A delegate can use a grant in DID URL form. `fromCapability()` dereferences
+  the DID URL of the chain's root to find the Space, and the grant's own DID URL
+  to find what the handle addresses. The handles check each request URL against
+  the dereferenced target. A grant on the Space in DID URL form may write
+  Collection metadata. A failure of a caller's `dereferenceTarget` hook is
+  wrapped in `TargetDereferenceError`.
+- `grant()` and `revoke()` do not yet understand DID URL targets.
 - `ServiceInfo.entries`, the chosen version entries keyed by specification
   identifier. `info.entries[PWS_SPEC_ID]` is the same object as `info.entry`.
   `info.entries[AUTHZ_PROFILE_SPEC_ID]` is an `AuthzProfileVersionEntry` with
@@ -43,6 +48,9 @@
 
 ### Changed
 
+- **BREAKING**: `PwsClient.fromCapability()` is async and returns a promise of
+  the handle, for every grant. An https grant still resolves with no request.
+  What it threw as `ValidationError` is now a rejection.
 - Bump `@interop/ezcap` to `^7.9.0`, `@interop/zcap` to `^12.3.0` and
   `@interop/storage-core` to `^0.47.0`. Add `@interop/did-method-webvh`
   `^5.22.0` as a direct dependency.

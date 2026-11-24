@@ -93,16 +93,16 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   })
 
   it('fails closed with no override, on either collection', async () => {
-    const vaultHandle = reader.pws.fromCapability(vaultZcap) as Resource
+    const vaultHandle = (await reader.pws.fromCapability(vaultZcap)) as Resource
     await expect(vaultHandle.get()).rejects.toThrow(EncryptionError)
-    const notesHandle = reader.pws.fromCapability(notesZcap) as Resource
+    const notesHandle = (await reader.pws.fromCapability(notesZcap)) as Resource
     await expect(notesHandle.get()).rejects.toThrow(EncryptionError)
   })
 
   it('reads and writes an encrypted resource given the descriptor', async () => {
-    const handle = reader.pws.fromCapability(vaultZcap, {
+    const handle = (await reader.pws.fromCapability(vaultZcap, {
       encryption: descriptor
-    }) as Resource
+    })) as Resource
     expect(await handle.get()).toEqual({ note: 'encrypted', n: 1 })
 
     await handle.put({ note: 'encrypted', n: 2 })
@@ -112,9 +112,9 @@ describeLive('fromCapability with an encryption override (live server)', () => {
   })
 
   it("reads and writes a plaintext resource given 'plaintext'", async () => {
-    const handle = reader.pws.fromCapability(notesZcap, {
+    const handle = (await reader.pws.fromCapability(notesZcap, {
       encryption: 'plaintext'
-    }) as Resource
+    })) as Resource
     expect(await handle.get()).toEqual({ note: 'plain', n: 1 })
 
     await handle.put({ note: 'plain', n: 2 })
