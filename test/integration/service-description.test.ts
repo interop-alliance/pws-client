@@ -16,7 +16,9 @@ import { describe, it, expect } from 'vitest'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 
 import {
+  AUTHZ_PROFILE_SPEC_ID,
   IncompatibleServerError,
+  PWS_SPEC_ID,
   PwsClient,
   discoverService
 } from '../../src/index.js'
@@ -39,7 +41,10 @@ describeLive('service discovery (live server)', () => {
       new URL(baseServerUrl!).origin
     )
     expect(info.spacesUrl).toEqual(expect.any(String))
-    expect(info.hasFeature('listing')).toBe(true)
+    expect(info.hasFeature({ spec: PWS_SPEC_ID, feature: 'listing' })).toBe(
+      true
+    )
+    expect(info.entries[AUTHZ_PROFILE_SPEC_ID].version).toBe('0.1')
   })
 
   it('agrees with the base: the description names {base}service and {base}spaces/', async () => {

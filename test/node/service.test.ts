@@ -15,8 +15,14 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { HttpResponse } from '@interop/http-client'
 
 import {
+  AUTHZ_PROFILE_SPEC_ID,
+  CLIENT_ANNEX_SPEC_ID,
+  ENCRYPTED_COLLECTIONS_SPEC_ID,
   IncompatibleServerError,
   NotSupportedError,
+  PWS_SPEC_ID,
+  REPLICATION_SPEC_ID,
+  WALLET_PROFILE_SPEC_ID,
   ValidationError,
   PwsClient,
   PwsServerError,
@@ -24,7 +30,6 @@ import {
 } from '../../src/index.js'
 import type { ServiceDescription } from '../../src/index.js'
 import {
-  PWS_SPEC_ID,
   readServiceDescription,
   selectServiceVersion,
   serviceLinkTarget
@@ -39,7 +44,8 @@ const ALICE_URL = 'https://alice.example/'
 
 /**
  * A service description in the shape of the spec's example: a v0.5 and a v0.4
- * entry for PWS, another specification, and an `instance` disclosure.
+ * entry for PWS, the authorization profile's entry, another specification,
+ * and an `instance` disclosure.
  *
  * @returns {ServiceDescription}
  */
@@ -52,9 +58,7 @@ function exampleDescription(): ServiceDescription {
           version: '0.5',
           url: 'https://w3c-ccg.github.io/portable-web-spaces-spec/v0.5/',
           spaces: 'https://host.example/pws/spaces/',
-          features: ['listing', 'collection-management', 'future-token'],
-          signatureAlgorithms: ['EdDSA'],
-          zcapCryptosuites: ['eddsa-jcs-2022']
+          features: ['listing', 'collection-management', 'future-token']
         },
         {
           version: '0.4',
@@ -62,9 +66,44 @@ function exampleDescription(): ServiceDescription {
           features: ['listing']
         }
       ],
+      [AUTHZ_PROFILE_SPEC_ID]: [
+        {
+          version: '0.1',
+          url: 'https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/',
+          signatureAlgorithms: ['EdDSA'],
+          zcapCryptosuites: ['eddsa-jcs-2022'],
+          features: ['did-url-targets']
+        }
+      ],
       'https://w3id.org/encrypted-collections': [{ version: '0.2' }]
     },
     instance: { name: 'web-spaces-server' }
+  }
+}
+
+/**
+ * A minimal service description: the given PWS entries, and the given
+ * authorization profile entries (one v0.1 entry by default).
+ *
+ * @param options {object}
+ * @param options.pws {unknown}   the value under the PWS identifier
+ * @param [options.authz] {unknown}   the value under the authorization
+ *   profile's identifier; `null` omits the key
+ * @returns {object}
+ */
+function describing({
+  pws,
+  authz = [{ version: '0.1' }]
+}: {
+  pws: unknown
+  authz?: unknown
+}): { url: string; specs: Record<string, unknown> } {
+  return {
+    url: SERVICE_URL,
+    specs: {
+      [PWS_SPEC_ID]: pws,
+      ...(authz !== null && { [AUTHZ_PROFILE_SPEC_ID]: authz })
+    }
   }
 }
 
@@ -122,61 +161,57 @@ describe('selectServiceVersion', () => {
     expect(info.version).toBe('0.5')
     expect(info.entry.version).toBe('0.5')
     expect(info.spacesUrl).toBe('https://host.example/pws/spaces/')
-    expect(info.features).toEqual([
+    expect(info.entry.features).toEqual([
       'listing',
       'collection-management',
       'future-token'
     ])
+    expect(info.entries[PWS_SPEC_ID]).toBe(info.entry)
     expect(info.description.url).toBe(SERVICE_URL)
   })
 
   it('carries unknown feature tokens and reads an absent token as unsupported', () => {
     const info = selectServiceVersion(exampleDescription())
-    expect(info.hasFeature('future-token')).toBe(true)
-    expect(info.hasFeature('collection-management')).toBe(true)
-    expect(info.hasFeature('quotas')).toBe(false)
+    const core = (feature: string): boolean =>
+      info.hasFeature({ spec: PWS_SPEC_ID, feature })
+    expect(core('future-token')).toBe(true)
+    expect(core('collection-management')).toBe(true)
+    expect(core('quotas')).toBe(false)
   })
 
   it('reads an absent features array as no features', () => {
-    const info = selectServiceVersion({
-      url: SERVICE_URL,
-      specs: { [PWS_SPEC_ID]: [{ version: '0.5' }] }
-    })
-    expect(info.features).toEqual([])
-    expect(info.hasFeature('listing')).toBe(false)
+    const info = selectServiceVersion(describing({ pws: [{ version: '0.5' }] }))
+    expect(info.hasFeature({ spec: PWS_SPEC_ID, feature: 'listing' })).toBe(
+      false
+    )
   })
 
   it('canonicalizes a spaces URL advertised without its trailing slash', () => {
-    const info = selectServiceVersion({
-      url: SERVICE_URL,
-      specs: {
-        [PWS_SPEC_ID]: [
-          { version: '0.5', spaces: 'https://host.example/pws/spaces' }
-        ]
-      }
-    })
+    const info = selectServiceVersion(
+      describing({
+        pws: [{ version: '0.5', spaces: 'https://host.example/pws/spaces' }]
+      })
+    )
     expect(info.spacesUrl).toBe('https://host.example/pws/spaces/')
   })
 
   it('leaves spacesUrl absent when the entry has no spaces member', () => {
-    const info = selectServiceVersion({
-      url: SERVICE_URL,
-      specs: { [PWS_SPEC_ID]: [{ version: '0.5', features: ['listing'] }] }
-    })
+    const info = selectServiceVersion(
+      describing({ pws: [{ version: '0.5', features: ['listing'] }] })
+    )
     expect(info.spacesUrl).toBe(undefined)
     expect('spacesUrl' in info).toBe(false)
   })
 
   it('ignores an entry without a version', () => {
-    const info = selectServiceVersion({
-      url: SERVICE_URL,
-      specs: {
-        [PWS_SPEC_ID]: [
+    const info = selectServiceVersion(
+      describing({
+        pws: [
           { spaces: 'https://evil.example/spaces/' },
           { version: '0.5', spaces: 'https://host.example/pws/spaces/' }
         ]
-      }
-    })
+      })
+    )
     expect(info.spacesUrl).toBe('https://host.example/pws/spaces/')
   })
 
@@ -187,45 +222,179 @@ describe('selectServiceVersion', () => {
         specs: {
           'https://w3id.org/pws/': [{ version: '0.5' }],
           'http://w3id.org/pws': [{ version: '0.5' }],
-          'https://example.com/other-spec': [{ version: '0.5' }]
+          'https://example.com/other-spec': [{ version: '0.5' }],
+          [AUTHZ_PROFILE_SPEC_ID]: [{ version: '0.1' }]
         }
       })
     expect(attempt).toThrow(IncompatibleServerError)
+    expect(attempt).toThrow(/no version of https:\/\/w3id\.org\/pws this/)
   })
 
   it('refuses a server that lists only versions this client does not speak', () => {
     const attempt = (): unknown =>
-      selectServiceVersion({
-        url: SERVICE_URL,
-        specs: { [PWS_SPEC_ID]: [{ version: '0.4' }, { version: '1.0' }] }
-      })
+      selectServiceVersion(
+        describing({ pws: [{ version: '0.4' }, { version: '1.0' }] })
+      )
     expect(attempt).toThrow(IncompatibleServerError)
     expect(attempt).toThrow(/offered: 0\.4, 1\.0/)
   })
 
+  it('exposes the chosen authorization profile entry and its members', () => {
+    const info = selectServiceVersion(exampleDescription())
+    const profile = info.entries[AUTHZ_PROFILE_SPEC_ID]
+    expect(profile.version).toBe('0.1')
+    expect(profile.signatureAlgorithms).toEqual(['EdDSA'])
+    expect(profile.zcapCryptosuites).toEqual(['eddsa-jcs-2022'])
+    expect(info.entry.signatureAlgorithms).toBe(undefined)
+  })
+
+  it('refuses a server with a core entry but no authorization profile entry', () => {
+    const attempt = (): unknown =>
+      selectServiceVersion(
+        describing({ pws: [{ version: '0.5' }], authz: null })
+      )
+    expect(attempt).toThrow(IncompatibleServerError)
+    expect(attempt).toThrow(
+      /no version of https:\/\/w3id\.org\/pws\/authz-profile this client speaks \(offered: none; supported: 0\.1\)/
+    )
+  })
+
+  it('refuses a server that lists only profile versions this client does not speak', () => {
+    const attempt = (): unknown =>
+      selectServiceVersion(
+        describing({
+          pws: [{ version: '0.5' }],
+          authz: [{ version: '0.2' }, { version: '1.0' }, { features: [] }]
+        })
+      )
+    expect(attempt).toThrow(IncompatibleServerError)
+    expect(attempt).toThrow(/authz-profile .*offered: 0\.2, 1\.0/)
+  })
+
+  it('reads a feature from the chosen entry of the named specification', () => {
+    const didUrlTargets = (description: unknown): boolean =>
+      selectServiceVersion(description).hasFeature({
+        spec: AUTHZ_PROFILE_SPEC_ID,
+        feature: 'did-url-targets'
+      })
+    expect(didUrlTargets(exampleDescription())).toBe(true)
+    expect(didUrlTargets(describing({ pws: [{ version: '0.5' }] }))).toBe(false)
+    expect(
+      didUrlTargets(
+        describing({
+          pws: [{ version: '0.5', features: ['did-url-targets'] }],
+          authz: [{ version: '0.1', features: ['other-token'] }]
+        })
+      )
+    ).toBe(false)
+  })
+
+  it('keeps the tokens of each specification apart', () => {
+    const info = selectServiceVersion(exampleDescription())
+    expect(
+      info.hasFeature({ spec: PWS_SPEC_ID, feature: 'did-url-targets' })
+    ).toBe(false)
+    expect(
+      info.hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'listing' })
+    ).toBe(false)
+  })
+
+  it('reads a feature of a companion specification at a version it speaks', () => {
+    const description = exampleDescription()
+    description.specs[ENCRYPTED_COLLECTIONS_SPEC_ID] = [
+      { version: '0.9', features: ['future-token'] },
+      { version: '0.1', features: ['blinded-index-query'] }
+    ]
+    const info = selectServiceVersion(description)
+    const spec = ENCRYPTED_COLLECTIONS_SPEC_ID
+    expect(info.entries[spec]?.version).toBe('0.1')
+    expect(info.hasFeature({ spec, feature: 'blinded-index-query' })).toBe(true)
+    expect(info.hasFeature({ spec, feature: 'future-token' })).toBe(false)
+    expect(info.hasFeature({ spec, feature: 'listing' })).toBe(false)
+  })
+
+  it.each([
+    CLIENT_ANNEX_SPEC_ID,
+    ENCRYPTED_COLLECTIONS_SPEC_ID,
+    REPLICATION_SPEC_ID,
+    WALLET_PROFILE_SPEC_ID
+  ])('chooses the v0.1 entry of the companion %s', spec => {
+    const description = exampleDescription()
+    description.specs[spec] = [{ version: '0.1', features: ['a-token'] }]
+    const info = selectServiceVersion(description)
+    expect(info.hasFeature({ spec, feature: 'a-token' })).toBe(true)
+  })
+
+  it('accepts a server that lists no companion, or none at a version it speaks', () => {
+    const description = exampleDescription()
+    description.specs[REPLICATION_SPEC_ID] = [
+      { version: '0.9', features: ['listing'] }
+    ]
+    const info = selectServiceVersion(description)
+    expect(REPLICATION_SPEC_ID in info.entries).toBe(false)
+    expect(ENCRYPTED_COLLECTIONS_SPEC_ID in info.entries).toBe(false)
+    for (const spec of [REPLICATION_SPEC_ID, ENCRYPTED_COLLECTIONS_SPEC_ID]) {
+      expect(info.hasFeature({ spec, feature: 'listing' })).toBe(false)
+    }
+  })
+
+  it('answers false for a specification the client does not know', () => {
+    const description = exampleDescription()
+    description.specs['https://example.com/other-spec'] = [
+      { version: '0.1', features: ['listing'] }
+    ]
+    const info = selectServiceVersion(description)
+    for (const spec of [
+      'https://example.com/other-spec',
+      'toString',
+      '__proto__'
+    ]) {
+      expect(info.hasFeature({ spec, feature: 'listing' })).toBe(false)
+    }
+  })
+
+  it.each([
+    ['a string', 'listing'],
+    ['an array with a non-string', ['listing', 7]],
+    ['null', null]
+  ])(
+    'reads a companion entry whose features is %s as absent',
+    (_label, features) => {
+      const description = exampleDescription()
+      description.specs[REPLICATION_SPEC_ID] = [{ version: '0.1', features }]
+      const info = selectServiceVersion(description)
+      expect(REPLICATION_SPEC_ID in info.entries).toBe(false)
+      expect(
+        info.hasFeature({ spec: REPLICATION_SPEC_ID, feature: 'listing' })
+      ).toBe(false)
+    }
+  )
+
   it.each([
     ['a non-object', 'nope'],
     ['null', null],
-    ['a document without url', { specs: { [PWS_SPEC_ID]: [] } }],
+    ['a document without url', { specs: describing({ pws: [] }).specs }],
     ['a document without specs', { url: SERVICE_URL }],
     ['an array specs', { url: SERVICE_URL, specs: [] }],
-    [
-      'a non-array version list',
-      { url: SERVICE_URL, specs: { [PWS_SPEC_ID]: { version: '0.5' } } }
-    ],
+    ['a non-array version list', describing({ pws: { version: '0.5' } })],
     [
       'a relative spaces URL',
-      {
-        url: SERVICE_URL,
-        specs: { [PWS_SPEC_ID]: [{ version: '0.5', spaces: '/spaces/' }] }
-      }
+      describing({ pws: [{ version: '0.5', spaces: '/spaces/' }] })
     ],
     [
       'a non-array features member',
-      {
-        url: SERVICE_URL,
-        specs: { [PWS_SPEC_ID]: [{ version: '0.5', features: 'listing' }] }
-      }
+      describing({ pws: [{ version: '0.5', features: 'listing' }] })
+    ],
+    [
+      'a non-array profile version list',
+      describing({ pws: [{ version: '0.5' }], authz: { version: '0.1' } })
+    ],
+    [
+      'a profile features member that is not an array of strings',
+      describing({
+        pws: [{ version: '0.5' }],
+        authz: [{ version: '0.1', features: ['did-url-targets', 7] }]
+      })
     ]
   ])('refuses %s with IncompatibleServerError', (_label, description) => {
     expect(() => selectServiceVersion(description)).toThrow(
@@ -394,7 +563,8 @@ function descriptionWith({
     specs: {
       [PWS_SPEC_ID]: [
         spaces === null ? { version: '0.5' } : { version: '0.5', spaces }
-      ]
+      ],
+      [AUTHZ_PROFILE_SPEC_ID]: [{ version: '0.1' }]
     }
   }
 }
@@ -542,7 +712,10 @@ describe('the description is checked against the base', () => {
     const { pws } = client({
       serviceDescription: {
         url: SERVICE_URL,
-        specs: { [PWS_SPEC_ID]: [{ version: '0.4' }] }
+        specs: {
+          [PWS_SPEC_ID]: [{ version: '0.4' }],
+          [AUTHZ_PROFILE_SPEC_ID]: [{ version: '0.1' }]
+        }
       }
     })
     await expect(pws.service()).rejects.toThrow(IncompatibleServerError)

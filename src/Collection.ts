@@ -1944,7 +1944,8 @@ export class Collection {
    * page.
    *
    * Requires the server to advertise the `changes-query` feature server-wide
-   * (`client.service().features`); a server without it answers `501`. On an
+   * (`client.service()`, then `hasFeature({ spec: PWS_SPEC_ID, feature:
+   * 'changes-query' })`); a server without it answers `501`. On an
    * encrypted collection the documents' `data` / `custom` are the scheme's
    * opaque envelopes (an EDV encrypted document under the v1 `edv` scheme) --
    * this method does not decrypt them, unlike `get()`.
@@ -2347,9 +2348,9 @@ export class Collection {
    *
    * The descriptor names where the collection is stored; it advertises no
    * optional affordances. Server-wide affordance tokens live in the service
-   * description (`client.service().features`). (Client-side encryption is
-   * neither -- it is a per-collection client concern gated on the client's
-   * keys.)
+   * description (read through `client.service().hasFeature(...)`).
+   * (Client-side encryption is neither -- it is a per-collection client
+   * concern gated on the client's keys.)
    *
    * @returns {Promise<BackendDescriptor | null>}
    */

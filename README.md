@@ -272,13 +272,25 @@ must equal `{base}service`, and its `spaces` member, when present, must equal
 caller-supplied `serviceDescription`. A client built by `forSpace` has no base
 and is not checked. `createSpace()` and `listSpaces()` address `{base}spaces/`.
 
-From the document the client selects the PWS specification version it speaks.
-This client speaks only v0.5. It ignores `specs` keys other than
-`https://w3id.org/pws` and entries without a `version`. If no entry names v0.5,
-or the document is malformed, every signed request rejects with
-`IncompatibleServerError` before anything is signed. A server whose responses
-carry no `service` link predates v0.5 and is refused the same way. The client
-does not fall back to the v0.4 layout.
+From the document the client selects a version under two `specs` keys. Under
+`https://w3id.org/pws` it speaks only v0.5. Under the zCap authorization
+profile, `https://w3id.org/pws/authz-profile`, it speaks only v0.1. The profile
+describes the credential this client already builds, an Ed25519 `did:key`
+capability invocation with a `Digest` header. See
+[Performing Authorized API Calls](https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#performing-authorized-api-calls)
+and
+[Request Body Integrity](https://w3c-ccg.github.io/portable-web-spaces-spec/authz-profile/#request-body-integrity-digest-header).
+A companion specification is optional. The client speaks v0.1 of encrypted
+collections, replication, the client annex and the wallet profile, and selects
+that entry when the server lists it. A server that lists none is still spoken
+to, and a companion entry whose `features` is malformed is treated as absent.
+The client ignores other `specs` keys and entries without a `version`. If no
+entry names v0.5, if no authorization profile entry names v0.1, or if the
+document is malformed, every signed request rejects with
+`IncompatibleServerError` before anything is signed. The message names the
+versions the server offered. A server whose responses carry no `service` link
+predates v0.5 and is refused the same way. The client does not fall back to the
+v0.4 layout.
 
 Discovery runs once per client and is shared by every handle. A failure is not
 memoized, so the next request retries. Unsigned public reads (`publicRead`,
@@ -293,16 +305,33 @@ info.version // '0.5'
 info.entry // the chosen `PwsVersionEntry`
 info.description // the whole `ServiceDescription`
 info.spacesUrl // the Spaces Repository URL, or undefined
-info.features // e.g. ['listing', 'collection-management', 'changes-query', ...]
-info.hasFeature('quotas') // false when the token is absent
+info.entries[PWS_SPEC_ID] // the same object as `info.entry`
+info.entries[AUTHZ_PROFILE_SPEC_ID] // an `AuthzProfileVersionEntry`
+info.entry.features // e.g. ['listing', 'collection-management', ...], or undefined
+info.hasFeature({ spec: PWS_SPEC_ID, feature: 'quotas' }) // false when absent
+info.hasFeature({ spec: AUTHZ_PROFILE_SPEC_ID, feature: 'did-url-targets' })
+info.entries[REPLICATION_SPEC_ID] // the chosen companion entry, or undefined
+info.hasFeature({
+  spec: ENCRYPTED_COLLECTIONS_SPEC_ID,
+  feature: 'blinded-index-query'
+})
 
 // Discover again, e.g. before relying on an affordance a host may have dropped.
 await pws.service({ refresh: true })
 ```
 
-`features` is an open token list. A token this client does not know is carried
-along and otherwise ignored, and an absent token means unsupported. The client
-gates no behavior on the document's `instance` member.
+The spec identifier constants (`PWS_SPEC_ID`, `AUTHZ_PROFILE_SPEC_ID`,
+`ENCRYPTED_COLLECTIONS_SPEC_ID`, `CLIENT_ANNEX_SPEC_ID`, `REPLICATION_SPEC_ID`,
+`WALLET_PROFILE_SPEC_ID`) are exported from the main entry. An
+`AuthzProfileVersionEntry` carries `version` and, when the server lists them,
+`signatureAlgorithms`, `zcapCryptosuites` and `features`.
+
+Each `features` list is an open token list. A token this client does not know is
+carried along and otherwise ignored. `hasFeature({ spec, feature })` asks
+whether the chosen entry of `spec` lists `feature`. An absent token means
+unsupported. So does a `spec` the client chose no entry for. That is a companion
+the server does not list at v0.1, or a specification the client does not know.
+The client gates no behavior on the document's `instance` member.
 
 A caller that already holds the document (from a cache, say) can pass it as the
 `serviceDescription` constructor option. The client then selects a version from
@@ -965,7 +994,7 @@ description instead:
 
 ```ts
 const info = await pws.service()
-if (info.hasFeature('changes-query')) {
+if (info.hasFeature({ spec: PWS_SPEC_ID, feature: 'changes-query' })) {
   // the server serves the replication change feed
 }
 ```
@@ -1778,9 +1807,9 @@ A `TargetDereferenceError` is a refused DID URL capability target. It carries no
 
 `IncompatibleServerError` comes from service discovery, not from a response
 status. Any signed method, read methods included, throws it when the server
-speaks no PWS version this client understands (see
-[Service discovery](#service-discovery)). It carries no `status`, so a read
-method does not mistake it for a 404.
+speaks no PWS version or no authorization profile version this client
+understands (see [Service discovery](#service-discovery)). It carries no
+`status`, so a read method does not mistake it for a 404.
 
 ## Contribute
 

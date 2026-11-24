@@ -21,8 +21,12 @@ import type { IDID, ISigner } from '@interop/data-integrity-core'
 
 import type {
   ActionInput,
+  AUTHZ_PROFILE_SPEC_ID,
+  AuthzProfileVersionEntry,
   CollectionGenerator,
-  CollectionMetadata
+  CollectionMetadata,
+  PWS_SPEC_ID,
+  ServiceDescriptionVersionEntry
 } from '@interop/storage-core'
 
 export type { IZcap, IDelegatedZcap, IRootZcap, IDID, ISigner }
@@ -84,7 +88,8 @@ export type {
   WriteStamp,
   ServiceDescription,
   ServiceDescriptionVersionEntry,
-  PwsVersionEntry
+  PwsVersionEntry,
+  AuthzProfileVersionEntry
 } from '@interop/storage-core'
 
 import type {
@@ -254,29 +259,40 @@ export type EncryptionOverride =
 
 /**
  * What service discovery learned about the server (`pws.service()`): the
- * service description as read, and the PWS version entry this client chose
+ * service description as read, and the version entries this client chose
  * from it.
  *
  * - `description` -- the whole document, including `specs` entries for other
  *   specifications and the optional `instance` disclosure. The client gates no
  *   behavior on `instance`.
  * - `version` -- the chosen PWS specification version, such as `"0.5"`.
- * - `entry` -- the chosen version entry.
- * - `spacesUrl` -- the absolute Spaces Repository URL from the entry's
+ * - `entry` -- the chosen PWS version entry.
+ * - `entries` -- the chosen version entry of each specification the client
+ *   selects a version for, keyed by the specification's identifier. The PWS
+ *   and zCap authorization profile entries are always present. The profile's
+ *   entry carries the `signatureAlgorithms` and `zcapCryptosuites` the server
+ *   accepts, when it lists them. A companion specification (encrypted
+ *   collections, replication, the client annex, the wallet profile) has an
+ *   entry only when the server lists a version of it this client speaks.
+ * - `spacesUrl` -- the absolute Spaces Repository URL from the PWS entry's
  *   `spaces` member, the URL `createSpace` and `listSpaces` address. Absent
  *   when the server does not implement the Spaces Repository.
- * - `features` -- the entry's `features` tokens. The vocabulary is open: a
- *   token this client does not know is carried here and otherwise ignored.
- * - `hasFeature(token)` -- whether the entry advertises `token`. An absent
- *   token (or an absent array) reads as unsupported.
+ * - `hasFeature({ spec, feature })` -- whether the chosen entry of the
+ *   specification `spec` lists the token `feature`. The vocabulary is open. An
+ *   absent token, an absent array, and a `spec` with no chosen entry all read
+ *   as unsupported.
  */
 export interface ServiceInfo {
   description: ServiceDescription
   version: string
   entry: PwsVersionEntry
+  entries: {
+    [PWS_SPEC_ID]: PwsVersionEntry
+    [AUTHZ_PROFILE_SPEC_ID]: AuthzProfileVersionEntry
+    [spec: string]: ServiceDescriptionVersionEntry | undefined
+  }
   spacesUrl?: string
-  features: string[]
-  hasFeature(token: string): boolean
+  hasFeature(options: { spec: string; feature: string }): boolean
 }
 
 /**

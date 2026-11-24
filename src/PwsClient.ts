@@ -361,8 +361,9 @@ export class PwsClient {
   }
 
   /**
-   * Reads the server's service description and selects the PWS version this
-   * client speaks with it. A client built from a base server URL reads
+   * Reads the server's service description and selects the PWS version and
+   * the zCap authorization profile version this client speaks with it. A
+   * client built from a base server URL reads
    * `{base}service` with an unsigned `GET` and checks that the document
    * describes that base (its `url` and `spaces` members agree with the
    * layout); one built by {@link forSpace} follows the `rel="service"` link on
@@ -373,9 +374,10 @@ export class PwsClient {
    *
    * Every signed request waits on this discovery, so a caller rarely needs to
    * call it first. It is the way to read the server-wide affordances:
-   * `features` (an open token list -- e.g. `changes-query` -- where an absent
-   * token means unsupported) and `spacesUrl` (absent when the server has no
-   * Spaces Repository).
+   * `hasFeature({ spec, feature })` (each chosen entry's `features` is an open
+   * token list -- e.g. `changes-query` -- where an absent token means
+   * unsupported) and `spacesUrl` (absent when the server has no Spaces
+   * Repository).
    * Unsigned public reads (`publicRead`, `publicListCollection`, ...) address
    * an absolute URL that may be on another server, and do not wait on it.
    *
