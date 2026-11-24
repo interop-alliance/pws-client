@@ -1765,7 +1765,10 @@ outside it is answered locally. A grant on the Space in DID URL form may write
 Collection metadata, as its https form may.
 
 A handle keeps the https URLs it was built with. After the Space moves, call
-`fromCapability()` again to get a handle at the new location.
+`fromCapability()` again to get a handle at the new location. The built-in
+dereferencer caches each DID URL for five minutes, so a call on the same
+`PwsClient` within that time can still return the old location. A new
+`PwsClient`, or your own `dereferenceTarget`, sees the move at once.
 
 A chain must use one form throughout. The server refuses a chain that mixes an
 https root with a DID URL link, or the reverse, with the masked 404. The client
