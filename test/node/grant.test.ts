@@ -734,6 +734,33 @@ describe('grants from a Space handle with `didUrl`', () => {
       expect(dereferenced).toEqual([])
     })
 
+    it('joins the path with one separator under an alias parent', async () => {
+      // The parent's DID URL has no trailing `/`, and the URL it
+      // dereferences to has one.
+      const { client, lastDelegate } = didUrlClient({
+        aliases: {
+          [`${DID_URL}alias`]: `${SPACE}photos/`,
+          [`${DID_URL}alias/r`]: `${SPACE}photos/r`
+        }
+      })
+      const parent = didFormGrant(`${DID_URL}alias`)
+      await client.grant({
+        ...grantOptions,
+        capability: parent,
+        target: `${SPACE}photos/r`
+      })
+      expect(lastDelegate()?.capability).toBe(parent)
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}alias/r`)
+
+      // The parent's own URL translates to the parent's own DID URL.
+      await client.grant({
+        ...grantOptions,
+        capability: parent,
+        target: `${SPACE}photos/`
+      })
+      expect(lastDelegate()?.invocationTarget).toBe(`${DID_URL}alias`)
+    })
+
     it('refuses a link a longer `PathHandler` maps elsewhere', async () => {
       const { client, lastDelegate } = didUrlClient({
         aliases: { [`${DID_URL}photos/r`]: `${SPACE}private/r` }
