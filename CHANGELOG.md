@@ -1,6 +1,6 @@
 # @interop/pws-client Changelog
 
-## 0.112.0 - TBD
+## 0.112.0 - 2026-11-24
 
 ### Added
 
