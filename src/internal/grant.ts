@@ -383,8 +383,17 @@ async function didUrlLink(
   { base, baseUrl, target }: { base: string; baseUrl: string; target: string }
 ): Promise<string> {
   const wanted = target.startsWith('did:') ? undefined : target
-  const didTarget =
-    wanted === undefined ? target : `${base}${wanted.slice(baseUrl.length)}`
+  // `base` and `baseUrl` need not agree on a trailing `/` (an alias
+  // `.../alias` may dereference to `.../photos/`), so the path beneath
+  // `baseUrl` is joined to `base` with exactly one separator.
+  let didTarget = target
+  if (wanted !== undefined) {
+    const beneath = wanted.slice(baseUrl.length)
+    didTarget =
+      beneath === ''
+        ? base
+        : `${base.replace(/\/$/, '')}/${beneath.replace(/^\//, '')}`
+  }
   const url =
     didTarget === base ? baseUrl : await dereferencedTarget(context, didTarget)
   if (wanted !== undefined && url !== wanted) {
