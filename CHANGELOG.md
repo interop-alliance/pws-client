@@ -22,9 +22,9 @@
 - A `dereferenceTarget` option on the `PwsClient` constructor,
   `PwsClient.fromSigner` and `PwsClient.forSpace`, and the `DereferenceTarget`
   type. The hook is passed to ezcap on every signed request and is called only
-  when the capability's `invocationTarget` is a DID URL. When it is omitted, the
-  client loads `./did-url` with a dynamic `import()` on first need, so a build
-  that passes its own hook keeps the DID library out of its main bundle.
+  when the client meets a DID URL. When it is omitted, the client loads
+  `./did-url` with a dynamic `import()` on first need, so a build that passes
+  its own hook keeps the DID library out of its main bundle.
 - A delegate can use a grant in DID URL form. `fromCapability()` dereferences
   the DID URL of the chain's root to find the Space, and the grant's own DID URL
   to find what the handle addresses. The handles check each request URL against
@@ -49,8 +49,8 @@
 - The `did-url-targets` check asks the server the Space is on. When that is not
   the client's own server, the client discovers it from the Space URL, or from
   the URL a parent capability's target dereferences to (a `HEAD` for the
-  `service` link, then the service description). It keeps the result per origin
-  until `service({ refresh: true })`. A failed discovery is not kept.
+  `service` link, then the service description). It keeps the result per probed
+  URL until `service({ refresh: true })`. A failed discovery is not kept.
 - Re-delegation under a parent capability whose target is a DID URL issues a
   DID-form link. This covers `grant()` on a handle built by `fromCapability()`
   from a DID-form grant, and `pws.grant({ capability, target })`. An https
@@ -72,9 +72,20 @@
   `ENCRYPTED_COLLECTIONS_SPEC_ID`, `CLIENT_ANNEX_SPEC_ID`, `REPLICATION_SPEC_ID`
   and `WALLET_PROFILE_SPEC_ID`, and the `AuthzProfileVersionEntry` type, are
   exported from the main entry.
+- `pws.fromDidUrl(didUrl, { spaceDidUrl?, capability?, encryption? })` opens a
+  Space, Collection or Resource handle on a `did:webvh` DID URL. A DID URL
+  deeper than the Space needs `spaceDidUrl`, the Space's root DID URL. The
+  handle issues DID-form grants. Before each request it dereferences the root
+  DID URL again. If the Space has moved, the request rejects with
+  `TargetDereferenceError` without being sent.
+- `pws.request({ url })` accepts a `did:webvh` DID URL as `url`. It is
+  dereferenced through the `dereferenceTarget` hook, and a `versionId`,
+  `versionNumber` or `versionTime` selector is accepted.
 
 ### Changed
 
+- The `TargetDereferenceError` message for a DID URL says `The DID URL "..."`
+  where it said `The capability target "..."`.
 - `pws.revoke()` dereferences a DID URL chain root to find the Space, so it
   accepts a grant in DID URL form. It used to throw `ValidationError` for one.
   `space.revoke()` is unchanged.

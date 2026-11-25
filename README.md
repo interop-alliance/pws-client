@@ -1733,6 +1733,9 @@ const url = await dereferenceTarget({
 })
 ```
 
+You rarely call the hook by hand. `pws.request()` and `pws.fromDidUrl()` take a
+DID URL directly (see [Addressing by DID URL](#addressing-by-did-url)).
+
 A target with a fragment, with no path, that is not `did:webvh`, whose DID does
 not resolve, or that no `PathHandler` service matches throws
 `TargetDereferenceError`.
@@ -1741,6 +1744,62 @@ So does a result that is not usable as a request URL. The result must be an
 https URL with no query or fragment, or an http URL on a loopback host. It must
 also be in the form a URL parser leaves unchanged, so a path with a dot segment
 or a backslash is refused.
+
+#### Addressing by DID URL
+
+`pws.request({ url })` accepts a `did:webvh` DID URL as `url`. It is
+dereferenced through the `dereferenceTarget` hook, and the request goes to the
+https URL it names. A `versionId`, `versionNumber` or `versionTime` selector is
+accepted there and picks the version of the DID document. The built-in
+dereferencer refuses any other query, and a fragment. A query on a DID URL is
+read as a selector and is not sent to the server, so a request that needs an
+HTTP query takes the https URL. A DID URL that cannot be dereferenced rejects
+with `TargetDereferenceError`.
+
+`pws.fromDidUrl(didUrl, options)` is the async sibling of `fromCapability()`. It
+returns a Space, Collection or Resource handle for a DID URL, by where the URL
+sits within its Space. `spaceAt()` and `collectionAt()` stay synchronous and
+take https URLs only.
+
+```ts
+const spaceDidUrl = 'did:webvh:<scid>:alice.example/'
+
+const space = await pws.fromDidUrl(spaceDidUrl) // a Space
+const cat = await pws.fromDidUrl(`${spaceDidUrl}photos/cat.jpg`, {
+  spaceDidUrl
+}) // a Resource
+```
+
+A DID URL does not say where its Space starts. A DID URL deeper than the Space
+needs `spaceDidUrl`, the Space's root DID URL. It ends in `/` and carries no
+selector and no fragment. Without `spaceDidUrl`, `didUrl` is read as the Space
+itself and must end in `/`. A Collection DID URL passed without `spaceDidUrl`
+yields a Space handle at the Collection's URL, which the server refuses.
+
+`fromDidUrl()` also takes `capability` and `encryption`, as `spaceAt()` does. It
+rejects with `ValidationError` when:
+
+- `didUrl` is not a DID URL, or carries a selector or a fragment. Selectors are
+  accepted by `request()` only.
+- `didUrl` is not at or beneath `spaceDidUrl`.
+- `didUrl` names a reserved sub-resource.
+- A DID URL dereferences to a URL outside the Space, or to one that is not in
+  canonical form. A Collection DID URL must end in `/`.
+
+A DID URL that cannot be dereferenced rejects with `TargetDereferenceError`.
+
+The handle and the handles beneath it carry the Space's root DID URL as
+`didUrl`. So `grant()` issues DID-form grants exactly as
+`spaceAt(url, { didUrl })` does, with the same `did-url-targets` check. A bound
+capability still wins.
+
+The handle keeps the https URLs it resolved. Before every request, it
+dereferences the Space's root DID URL again. If the result is no longer the
+handle's Space URL, the request rejects with `TargetDereferenceError`, and
+nothing is sent. This holds for reads and idempotent deletes too. The handle
+does not re-locate itself. Call `fromDidUrl()` again for a handle at the new
+location. The five-minute cache of the built-in dereferencer applies, so
+requests keep going to the old location until it expires.
 
 #### Holding a DID-form grant
 
@@ -1883,10 +1942,12 @@ After a move, call `space.revoke(zcap)` on a handle at the Space's new URL.
 ### The manual-request escape hatch
 
 `pws.request(...)` mirrors ezcap's generic `request()` for hand-built calls. It
-takes an absolute `url`. As a deliberate escape hatch it returns the raw
-`HttpResponse` and throws raw ezcap/ky errors -- it does not apply the
-null-on-404 or typed-error conveniences. It still waits on service discovery, so
-against an incompatible server it rejects with `IncompatibleServerError`.
+takes an absolute `url`, which may be a `did:webvh` DID URL (see
+[Addressing by DID URL](#addressing-by-did-url)). As a deliberate escape hatch
+it returns the raw `HttpResponse` and throws raw ezcap/ky errors -- it does not
+apply the null-on-404 or typed-error conveniences. It still waits on service
+discovery, so against an incompatible server it rejects with
+`IncompatibleServerError`.
 
 ```ts
 const response = await pws.request({ url: space.url, method: 'GET' })
@@ -1941,8 +2002,10 @@ target the Space URL, which the server would answer with the masked 404. It
 carries that 404 as its `status` and is thrown before the `PUT` is sent. See
 [Who may write Collection metadata](#who-may-write-collection-metadata).
 
-A `TargetDereferenceError` is a refused DID URL capability target. It carries no
-`status`, and the underlying error is on `cause`. See
+A `TargetDereferenceError` is a refused DID URL: a capability target, or a URL
+passed to `request()` or `fromDidUrl()`. It also answers a request from a handle
+opened with `fromDidUrl()` once its Space has moved. It carries no `status`, and
+the underlying error is on `cause`. See
 [DID URL capability targets](#did-url-capability-targets-did-url).
 
 `IncompatibleServerError` comes from service discovery, not from a response

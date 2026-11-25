@@ -1,6 +1,6 @@
 # PWS Client Roadmap (open items)
 
-nextAvailableId: 186
+nextAvailableId: 188
 
 <!-- roadmap-order:index:start -->
 
@@ -68,6 +68,7 @@ Ready:
 - WCL-178 [M] `pws.revoke()` of a DID-form grant goes to the old server after
   the Space moves
 - WCL-184 [M] A handle on another server is gated on the client's own server
+- WCL-187 [M] A query on a DID URL given to `pws.request()` is not sent
 - WCL-185 [L] The cache of other servers' service descriptions has no scoped
   refresh
 - WCL-59 [L] `addRecipient` treats an existing entry for the incoming kid as
@@ -109,6 +110,8 @@ Ready:
 
 Waiting on another repo:
 
+- WCL-186 [M] Read the revocation advertisement, and export the revocation URL
+  builder (after WSS-283)
 - WCL-144 [M] Follow the replication companion: the server DID on the core
   entry, and unrecognized stall reasons (after WSS-238)
 - WCL-152 [L] Document and test the `replica-refused` delete refusals (after
@@ -118,7 +121,6 @@ Waiting on another repo:
 
 Ready:
 
-- WCL-179 [M] Address a Space, Collection or Resource by its DID URL
 - WCL-124 [L] Read a policy tombstone (`?include=deleted`)
 - WCL-154 [L] Add `Resource.grant()` so every handle depth can delegate
 
@@ -1162,6 +1164,46 @@ server one is healthy. A server one that predates v0.5 is not refused by the
 gate. The `did-url-targets` check already asks the server at the URL, through
 `context.serviceAt(url)`.
 
+### WCL-187: [M] A query on a DID URL given to `pws.request()` is not sent
+
+- status: todo
+- priority: medium
+- labels: webvh, api, correctness
+- discovered-from: WCL-179 review (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/PwsClient.ts` (`request`), `src/did-url.ts`,
+    README.md
+- acceptance:
+  - [ ] The maintainer decides how a DID URL given to `pws.request()` carries an
+        HTTP query such as `?limit=2`
+  - [ ] A request never goes out without a query parameter the caller wrote on
+        the DID URL. It is sent, or the call rejects before anything is signed,
+        whatever `dereferenceTarget` hook the client holds
+  - [ ] A selector (`versionId`, `versionNumber`, `versionTime`) still picks the
+        version of the DID document and is not sent
+  - [ ] A test covers a listing with `limit` through a DID URL, with the
+        built-in dereferencer and with a caller's hook
+
+Context: `pws.request({ url })` hands the whole DID URL to the
+`dereferenceTarget` hook, so its query is read as DID URL selectors. The result
+of the hook may carry no query (`checkDereferencedTarget` of `@interop/ezcap`),
+and the request goes to that result. So a query is consumed by the dereference
+and never reaches the server.
+
+The built-in dereferencer rejects a parameter it does not know, with
+`TargetDereferenceError`. A caller's hook that ignores unknown parameters sends
+the request without them. `pws.request({ url: '<did>/photos/?limit=2' })` then
+returns the unpaginated listing, with no error.
+
+A caller can dereference by hand today and add the query to the https URL.
+
+Options to weigh. The client could split the query itself: the three selectors
+go to the hook, and the rest is appended to the dereferenced URL. That makes the
+set of selector names a client-side list. Or `RequestInput` could take the HTTP
+query apart from `url`. Or the client could refuse any non-selector parameter on
+a DID URL before it calls the hook, which keeps the query out but makes the
+refusal independent of the hook.
+
 ### WCL-185: [L] The cache of other servers' service descriptions has no scoped refresh
 
 - status: todo
@@ -1598,6 +1640,32 @@ the `/meta` validator, and neither validator is ever answered for the other. The
 independence question is a spec decision, so it is filed here rather than
 settled in a test.
 
+### WCL-186: [M] [after WSS-283] Read the revocation advertisement, and export the revocation URL builder
+
+- status: todo
+- priority: medium
+- labels: service-description, revocation, paths
+- discovered-from: web-spaces-server WSS-283 (2026-11-24), by way of
+  pws-conformance-suite PWSCS-13, which built the revocation URL by hand
+- blocked-by: WSS-283
+- touches:
+  - portable-web-spaces-spec WASS-137: the profile text for the advertisement
+  - pws-conformance-suite PWSCS-41: imports the exported builder
+- acceptance:
+  - [ ] `spaceRevocationUrl` is exported from `@interop/pws-client/paths`
+  - [ ] Discovery exposes whether the server advertises revocation, read from
+        the form WSS-283 and WASS-137 settle
+  - [ ] `space.revoke()` and `pws.revoke()` answer a typed error, before any
+        request, on a server that does not advertise it, or the decision to send
+        anyway is recorded
+  - [ ] Tests cover a server that advertises revocation and one that does not
+
+`space.revoke()` posts to a URL the client builds from the layout and learns
+from the answer whether the server has the endpoint. A 404 there reads the same
+as a masked denial. The URL builder is internal, so a caller that needs the raw
+URL has to build it again. The export does not depend on the advertisement and
+can ship first.
+
 ### WCL-175: [M] Check the authorization profile entry's signature members against what the client signs with
 
 - status: todo
@@ -1838,64 +1906,6 @@ live in the wallet and the server stores opaque JWEs. Everything shipped on that
 front (both encrypted-collections increments, key epochs, the blinded `/query`
 binding, chunked encrypted blobs, the encryption-descriptor store seam) is
 recorded in the CHANGELOG, not here.
-
-### WCL-179: [M] Address a Space, Collection or Resource by its DID URL
-
-- status: todo
-- priority: medium
-- labels: webvh, portability, api
-- discovered-from: maintainer question after WCL-174 (2026-11-24)
-- touches:
-  - pws-client (this repo): `src/PwsClient.ts` (`request`, `spaceAt`,
-    `collectionAt`), `src/internal/request.ts`, `src/did-url.ts`, README.md,
-    ARCHITECTURE.md
-- acceptance:
-  - [ ] A caller holding only a DID URL, such as
-        `did:webvh:<scid>:alice.example/photos/cat.jpg`, can read and write what
-        it names without dereferencing it by hand
-  - [ ] `pws.request({ url })` accepts a DID URL as `url`, dereferences it
-        through the `dereferenceTarget` hook, and sends the request to the https
-        URL it names
-  - [ ] A handle can be opened on a DID URL. Which call does it is the
-        maintainer's decision, since `spaceAt()` and `collectionAt()` are
-        synchronous and do no I/O, and a dereference is a fetch
-  - [ ] A DID URL that cannot be dereferenced rejects with
-        `TargetDereferenceError`, and one with a fragment is refused
-  - [ ] Whether a selector such as `versionId` is accepted on the URL is decided
-        and documented
-  - [ ] A request from a handle opened on a DID URL, made after the Space moves,
-        rejects with `TargetDereferenceError` on a read and on an idempotent
-        delete, as a handle built on a DID-form grant does
-  - [ ] A test against web-spaces-server reads and writes through a DID URL
-
-Context: the client understands a DID URL in two places only. One is the
-`invocationTarget` of a capability, which `fromCapability()` and `send()`
-dereference. The other is the `didUrl` option of a Space handle, which changes
-what `grant()` signs. Every call that addresses something directly takes an
-https URL. `pws.request({ url })` hands `url` to the signer and to `fetch`, so a
-`did:` URL fails there. `resource.get()` takes no URL, and a handle's address is
-always derived from the https Space URL.
-
-A caller can do the step by hand today. `createTargetDereferencer()` on the
-`./did-url` entry maps a DID URL to its https URL, and the result goes to
-`request`, `spaceAt` or `collectionAt`.
-
-A handle opened this way keeps the https URL it resolved when it was built, so
-it goes out of date when the Space moves. WCL-177 settled that case for a handle
-built on a DID-form grant. The handle does not re-locate itself. A request from
-it rejects with `TargetDereferenceError`, and the caller builds a new handle.
-The same answer applies here.
-
-The WCL-177 check does not cover this item as it stands. It lives in `send()`
-(`checkRootLocation`), runs only when a request falls outside the capability's
-target, and reads the DID URL from the capability's chain root. A handle opened
-on a DID URL may carry no capability, and its requests under the controller's
-own root capability never reach that branch. So the handle has to keep the DID
-URL it was opened on, and `send()` has to compare the request URL with what that
-DID URL dereferences to now.
-
-A Space handle opened on its root DID URL could also set `didUrl` for its
-grants, which is worth deciding in the same pass.
 
 ### WCL-124: [L] Read a policy tombstone (`?include=deleted`)
 

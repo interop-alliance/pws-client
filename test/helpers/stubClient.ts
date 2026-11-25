@@ -8,7 +8,11 @@
  * throws the error the test wants `mapError` to see.
  */
 import type { HttpResponse } from '@interop/http-client'
-import type { IZcap, ServiceDescription } from '../../src/index.js'
+import type {
+  DereferenceTarget,
+  IZcap,
+  ServiceDescription
+} from '../../src/index.js'
 import {
   AUTHZ_PROFILE_SPEC_ID,
   PWS_SPEC_ID,
@@ -132,10 +136,12 @@ export interface RequestArgs {
  *
  * @param request {function}   `(args: RequestArgs) => HttpResponse` (may
  *   throw, or return a promise)
+ * @param [dereferenceTarget] {DereferenceTarget}   the client's hook
  * @returns {PwsClient}
  */
 export function clientWithStub(
-  request: (args: RequestArgs) => HttpResponse | Promise<HttpResponse>
+  request: (args: RequestArgs) => HttpResponse | Promise<HttpResponse>,
+  dereferenceTarget?: DereferenceTarget
 ): PwsClient {
   const zcapClient = {
     invocationSigner: { id: 'did:example:alice#key-1' },
@@ -144,7 +150,8 @@ export function clientWithStub(
   return new PwsClient({
     baseServerUrl: baseServerUrlFor(),
     zcapClient,
-    serviceDescription: serviceDescriptionFor()
+    serviceDescription: serviceDescriptionFor(),
+    dereferenceTarget
   })
 }
 

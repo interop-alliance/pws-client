@@ -5820,3 +5820,74 @@ discovered from the URL itself, with an unsigned `HEAD` for the `service` link
 and a `GET` of the description. The result is memoized per probed URL, since one
 origin can host several servers. A failed discovery is not kept. Three gaps
 found in review are WCL-183, WCL-184 and WCL-185.
+
+### WCL-179: [M] Address a Space, Collection or Resource by its DID URL
+
+- status: done (2026-11-24)
+- priority: medium
+- labels: webvh, portability, api
+- discovered-from: maintainer question after WCL-174 (2026-11-24)
+- touches:
+  - pws-client (this repo): shipped. `src/PwsClient.ts` (`request`, the new
+    `fromDidUrl`), `src/internal/request.ts` (`checkOpenedLocation`),
+    `src/did-url.ts` (message wording), README.md, ARCHITECTURE.md. `spaceAt`
+    and `collectionAt` are unchanged
+- acceptance:
+  - [x] A caller holding only a DID URL, such as
+        `did:webvh:<scid>:alice.example/photos/cat.jpg`, can read and write what
+        it names without dereferencing it by hand
+  - [x] `pws.request({ url })` accepts a DID URL as `url`, dereferences it
+        through the `dereferenceTarget` hook, and sends the request to the https
+        URL it names
+  - [x] A handle can be opened on a DID URL. Which call does it is the
+        maintainer's decision, since `spaceAt()` and `collectionAt()` are
+        synchronous and do no I/O, and a dereference is a fetch
+  - [x] A DID URL that cannot be dereferenced rejects with
+        `TargetDereferenceError`, and one with a fragment is refused
+  - [x] Whether a selector such as `versionId` is accepted on the URL is decided
+        and documented
+  - [x] A request from a handle opened on a DID URL, made after the Space moves,
+        rejects with `TargetDereferenceError` on a read and on an idempotent
+        delete, as a handle built on a DID-form grant does
+  - [x] A test against web-spaces-server reads and writes through a DID URL
+
+Context: the client understands a DID URL in two places only. One is the
+`invocationTarget` of a capability, which `fromCapability()` and `send()`
+dereference. The other is the `didUrl` option of a Space handle, which changes
+what `grant()` signs. Every call that addresses something directly takes an
+https URL. `pws.request({ url })` hands `url` to the signer and to `fetch`, so a
+`did:` URL fails there. `resource.get()` takes no URL, and a handle's address is
+always derived from the https Space URL.
+
+A caller can do the step by hand today. `createTargetDereferencer()` on the
+`./did-url` entry maps a DID URL to its https URL, and the result goes to
+`request`, `spaceAt` or `collectionAt`.
+
+A handle opened this way keeps the https URL it resolved when it was built, so
+it goes out of date when the Space moves. WCL-177 settled that case for a handle
+built on a DID-form grant. The handle does not re-locate itself. A request from
+it rejects with `TargetDereferenceError`, and the caller builds a new handle.
+The same answer applies here.
+
+The WCL-177 check does not cover this item as it stands. It lives in `send()`
+(`checkRootLocation`), runs only when a request falls outside the capability's
+target, and reads the DID URL from the capability's chain root. A handle opened
+on a DID URL may carry no capability, and its requests under the controller's
+own root capability never reach that branch. So the handle has to keep the DID
+URL it was opened on, and `send()` has to compare the request URL with what that
+DID URL dereferences to now.
+
+A Space handle opened on its root DID URL could also set `didUrl` for its
+grants, which is worth deciding in the same pass.
+
+Settled by the maintainer on 2026-11-24. The call is `pws.fromDidUrl()`, an
+async sibling of `fromCapability()`. The Space's root DID URL is always
+explicit: a DID URL deeper than the Space needs `spaceDidUrl`. A selector is
+accepted by `pws.request()` only. The handle carries the root DID URL as
+`didUrl`, so its grants are DID-form.
+
+Landed in the working tree on 2026-11-24. The handle's context carries the root
+DID URL and the Space URL it dereferenced to. `send()` dereferences the root
+again before every request and compares the two Space URLs, so a resource id
+with a dot segment is not mistaken for a moved Space. A query on a DID URL given
+to `pws.request()` is read as selectors and is not sent.

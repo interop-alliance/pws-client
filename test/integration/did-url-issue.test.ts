@@ -36,6 +36,7 @@ import {
   PwsClient,
   Resource,
   Space,
+  TargetDereferenceError,
   ValidationError
 } from '../../src/index.js'
 import type {
@@ -67,6 +68,10 @@ describe('a controller issuing DID-form grants (live servers)', () => {
   let alice: PwsClient
   let space: Space
   let photosGrant: IDelegatedZcap
+  /**
+   * A Collection handle opened on a DID URL while the Space is on server one.
+   */
+  let openedBeforeMove: Collection
 
   /**
    * The user's log, as its host serves it now.
@@ -105,22 +110,23 @@ describe('a controller issuing DID-form grants (live servers)', () => {
    * @param options.baseServerUrl {string}
    * @param options.signer {ISigner}
    * @param [options.serviceDescription] {ServiceDescription}
+   * @param [options.cached] {boolean}   false for a client that reads the
+   *   log again on every dereference, as one does once its cache expires
    * @returns {PwsClient}
    */
   function clientOn({
     baseServerUrl,
     signer,
-    serviceDescription
+    serviceDescription,
+    cached = true
   }: {
     baseServerUrl: string
     signer: ISigner
     serviceDescription?: ServiceDescription
+    cached?: boolean
   }): PwsClient {
-    return PwsClient.fromSigner({
-      baseServerUrl,
-      signer,
-      serviceDescription,
-      dereferenceTarget: createTargetDereferencer({
+    const dereferencer = (): ReturnType<typeof createTargetDereferencer> =>
+      createTargetDereferencer({
         fetch: async (input: string) => {
           try {
             return new Response(servedLog(input), { status: 200 })
@@ -129,6 +135,13 @@ describe('a controller issuing DID-form grants (live servers)', () => {
           }
         }
       })
+    return PwsClient.fromSigner({
+      baseServerUrl,
+      signer,
+      serviceDescription,
+      dereferenceTarget: cached
+        ? dereferencer()
+        : async options => dereferencer()(options)
     })
   }
 
@@ -431,6 +444,50 @@ describe('a controller issuing DID-form grants (live servers)', () => {
     expect(await space.collection('albums').get('a-9')).toBeNull()
   })
 
+  it('the controller reads and writes through a DID URL', async () => {
+    const client = clientOn({
+      baseServerUrl: one.baseServerUrl,
+      signer: aliceSigner,
+      cached: false
+    })
+    const written = await client.request({
+      url: `${didUrl}photos/doc-5`,
+      method: 'PUT',
+      json: { photo: 5 }
+    })
+    expect(written.status).toBeLessThan(300)
+    const read = await client.request({ url: `${didUrl}photos/doc-5` })
+    expect(read.data).toEqual({ photo: 5 })
+
+    const doc = await client.fromDidUrl(`${didUrl}photos/doc-5`, {
+      spaceDidUrl: didUrl
+    })
+    expect(doc).toBeInstanceOf(Resource)
+    expect(doc.url).toBe(`${space.url}photos/doc-5`)
+    expect(await (doc as Resource).get()).toEqual({ photo: 5 })
+
+    const opened = await client.fromDidUrl(didUrl)
+    expect(opened).toBeInstanceOf(Space)
+    expect(opened.url).toBe(space.url)
+    const photos = (opened as Space).collection('photos')
+    await photos.put('doc-6', { photo: 6 })
+    expect(await space.collection('photos').get('doc-6')).toEqual({ photo: 6 })
+
+    // The handle issues its grants in DID URL form.
+    const grant = await photos.grant({
+      to: bobSigner.id.split('#')[0] as string,
+      actions: ['GET'],
+      expires
+    })
+    expect(grant.parentCapability).toBe(rootCapabilityId(didUrl))
+    expect(grant.invocationTarget).toBe(`${didUrl}photos/`)
+
+    openedBeforeMove = (await client.fromDidUrl(`${didUrl}photos/`, {
+      spaceDidUrl: didUrl
+    })) as Collection
+    expect(await openedBeforeMove.get('doc-1')).toEqual({ photo: 1 })
+  })
+
   it('the unchanged grant works after the Space moves to a second server', async () => {
     const aliceOnTwo = clientOn({
       baseServerUrl: two.baseServerUrl,
@@ -470,5 +527,23 @@ describe('a controller issuing DID-form grants (live servers)', () => {
     expect(grant.parentCapability).toBe(rootCapabilityId(didUrl))
     const albums = (await bob.fromCapability(grant)) as Collection
     expect(await albums.get('a-1')).toEqual({ album: 1 })
+  })
+
+  it('a handle opened on a DID URL before the move is refused after it', async () => {
+    const read = openedBeforeMove.get('doc-1')
+    await expect(read).rejects.toBeInstanceOf(TargetDereferenceError)
+    await expect(read).rejects.toThrow(/fromDidUrl\(\)/)
+    await expect(
+      openedBeforeMove.resource('doc-1').delete()
+    ).rejects.toBeInstanceOf(TargetDereferenceError)
+    // Nothing was deleted at the old location.
+    expect(await space.collection('photos').get('doc-1')).toEqual({ photo: 1 })
+
+    const reopened = (await clientOn({
+      baseServerUrl: two.baseServerUrl,
+      signer: aliceSigner
+    }).fromDidUrl(`${didUrl}photos/`, { spaceDidUrl: didUrl })) as Collection
+    expect(reopened.url.startsWith(two.baseServerUrl)).toBe(true)
+    expect(await reopened.get('doc-1')).toEqual({ photo: 1 })
   })
 })

@@ -229,7 +229,7 @@ its export list, so the two entries cannot drift.
 **no network I/O**; requests happen only when a method is called.
 
 All handles share one `ClientContext` by reference (`src/internal/request.ts`):
-`{ zcapClient, controllerDid, encryption?, service, serviceAt, dereferenceTarget }`.
+`{ zcapClient, controllerDid, encryption?, service, serviceAt, dereferenceTarget, openedOn? }`.
 The context holds no base server URL. The client does, as `baseServerUrl`. Each
 handle carries the absolute URL it addresses: `Space.url`, and `Collection.url`
 and `Resource.url` derived beneath the Space URL the handle was opened on
@@ -240,7 +240,10 @@ grant in DID URL form reads it (see invariant 5 below). `controllerDid` is a
 lazy getter over the wrapped client's invocation signer, so a client that holds
 only a delegation signer can still build handles and `grant()`; it throws only
 where it is read (`createSpace`'s controller default and `rootCapability`'s
-client-side controller). Per-handle state on top of that:
+client-side controller). `openedOn` is the Space's root DID URL and the Space
+URL it dereferenced to. Only the context of a handle opened with `fromDidUrl()`
+has it, and `send()` reads it (see Lifecycle of an authenticated request).
+Per-handle state on top of that:
 
 - A bound `capability` (delegated zcap) flows from parent to child as the
   default (`options.capability ?? this.#capability`). A per-handle `encryption`
@@ -253,6 +256,18 @@ client-side controller). Per-handle state on top of that:
   children a resolver thunk so they share the parent's memoized codec (and its
   `reset()`). A standalone `Resource` resolves its own. Codecs stay per-handle:
   a handle may carry an encryption override.
+- `PwsClient.fromDidUrl(didUrl, options)` is the async sibling for a DID URL
+  that no capability names. It dereferences `didUrl`, and the Space's root DID
+  URL when `options.spaceDidUrl` gives one, through `dereferencedTarget`. It
+  builds the handle with the same `handleBeneath` function `fromCapability`
+  uses. The handle's `ClientContext` comes from `contextOpenedOn` in
+  `internal/request.ts`. It is a per-handle object that inherits from the
+  client's context with `Object.create`, so the lazy `controllerDid` getter is
+  not read. It adds `openedOn`, the Space's root DID URL with its Space URL, and
+  child handles pass that context on. The handle also carries the root DID URL
+  as `didUrl`. `spaceAt()` and `collectionAt()` stay synchronous and https-only.
+  The client's own context has no `openedOn`, so handles from `spaceAt()` are
+  unaffected.
 - `PwsClient.fromCapability(zcap, options)` is async. It reads the Space off the
   capability's delegation chain root (`chainRootTarget`, then `spaceUrlAtRoot`,
   the two halves of `spaceUrlOf`). Both the root's target and the capability's
@@ -356,6 +371,14 @@ dereferenced rejects with `TargetDereferenceError` whatever the 404
 translations. This is what makes codec discovery under a resource-scoped
 capability fail closed with `EncryptionError` instead of a generic transport
 error.
+
+When the context has `openedOn`, `send()` first runs `checkOpenedLocation`. It
+dereferences the Space's root DID URL again and compares the result with the
+handle's Space URL. When they differ, the request rejects with
+`TargetDereferenceError` and nothing is sent, on reads and idempotent deletes
+too. Every URL of the handle lies under its Space URL, so the request URL itself
+is not parsed. A handle from `fromDidUrl()` keeps the https URLs it resolved and
+does not re-locate itself. The caller opens a new handle.
 
 For a chain rooted at a DID URL, a request outside the target first goes through
 `checkRootLocation`, which dereferences the root too. Every URL of a handle lies
@@ -1304,17 +1327,18 @@ it, and otherwise cover the client-side concepts this file names.
   runtime state is the separate replica status (`replicaStatus`). Avoid: sync
   peer, subscription, mirror.
 - **`ClientContext`** -- the single
-  `{ zcapClient, controllerDid, encryption?, service, dereferenceTarget }`
+  `{ zcapClient, controllerDid, encryption?, service, serviceAt, dereferenceTarget, openedOn? }`
   record every handle shares by reference (`src/internal/request.ts`). It holds
   no base server URL. See The handle model.
 - **DID URL target** -- a capability `invocationTarget` that is a `did:webvh`
   DID URL, such as `did:webvh:<scid>:alice.example/photos/cat.jpg`, rather than
-  an https URL. A fragment is refused. Avoid: DID target, DID-form URL. See
-  Layering.
-- **Root DID URL** -- the `didUrl` option of `space()` and `spaceAt()`: the DID
-  URL of one Space, ending in `/`, with no selector and no fragment. A grant
-  issued from that handle is rooted in it. Avoid: space DID, DID root. See
-  Invariants, item 5.
+  an https URL. The same DID URL may also be the `url` of `request()` or the
+  argument of `fromDidUrl()`. A fragment is refused. Avoid: DID target, DID-form
+  URL. See Layering.
+- **Root DID URL** -- the `didUrl` option of `space()` and `spaceAt()`, and the
+  `spaceDidUrl` option of `fromDidUrl()`: the DID URL of one Space, ending in
+  `/`, with no selector and no fragment. A grant issued from that handle is
+  rooted in it. Avoid: space DID, DID root. See Invariants, item 5.
 - **Target dereferencer** -- the `dereferenceTarget` hook, typed
   `DereferenceTarget`: `({ invocationTarget }) => Promise<string>`, mapping a
   DID URL target to the https URL it names. The same name and shape as the hooks

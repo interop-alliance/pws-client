@@ -17,6 +17,7 @@ import {
   Collection,
   Resource,
   ValidationError,
+  TargetDereferenceError,
   AuthRequiredError,
   NotSupportedError,
   PwsServerError
@@ -715,5 +716,203 @@ describe('a client fixed on a Space (forSpace)', () => {
     expect(() => client.space('s')).toThrow(NotSupportedError)
     await expect(client.createSpace()).rejects.toThrow(NotSupportedError)
     await expect(client.listSpaces()).rejects.toThrow(NotSupportedError)
+  })
+})
+
+describe('a DID URL addressed directly', () => {
+  const DID = 'did:webvh:QmScid:alice.example'
+  const spaceUrl = spaceUrlFor('s')
+
+  /**
+   * A client whose hook maps `DID` + path to `mapping.root` + path, and
+   * whose signed requests are recorded and answered with `{ ok: true }`.
+   *
+   * @param [fail] {number}   an HTTP status every request fails with
+   * @returns {object} { client, calls, mapping, dereferenced }
+   */
+  function didClient(fail?: number): {
+    client: PwsClient
+    calls: RequestArgs[]
+    mapping: { root: string }
+    dereferenced: string[]
+  } {
+    const calls: RequestArgs[] = []
+    const mapping = { root: spaceUrl }
+    const dereferenced: string[] = []
+    const client = clientWithStub(
+      args => {
+        calls.push(args)
+        if (fail !== undefined) {
+          throw { status: fail, response: { status: fail } }
+        }
+        return jsonResponse({
+          data: { ok: true },
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      },
+      async ({ invocationTarget }) => {
+        dereferenced.push(invocationTarget)
+        if (!invocationTarget.startsWith(`${DID}/`)) {
+          throw new Error('unknown DID')
+        }
+        const path = invocationTarget.slice(DID.length + 1)
+        return mapping.root + path.replace(/\?.*$/, '')
+      }
+    )
+    return { client, calls, mapping, dereferenced }
+  }
+
+  it('pws.request() sends to the https URL a DID URL names', async () => {
+    const { client, calls } = didClient()
+    await client.request({ url: `${DID}/photos/cat.jpg`, method: 'put' })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.url).toBe(`${spaceUrl}photos/cat.jpg`)
+    expect(calls[0]?.method).toBe('PUT')
+  })
+
+  it('pws.request() hands a selector to the hook', async () => {
+    const { client, calls, dereferenced } = didClient()
+    await client.request({ url: `${DID}/photos/cat.jpg?versionId=1-Qm` })
+    expect(dereferenced).toEqual([`${DID}/photos/cat.jpg?versionId=1-Qm`])
+    expect(calls[0]?.url).toBe(`${spaceUrl}photos/cat.jpg`)
+  })
+
+  it('pws.request() rejects a DID URL that cannot be dereferenced', async () => {
+    const { client, calls } = didClient()
+    await expect(
+      client.request({ url: 'did:webvh:QmOther:bob.example/photos/' })
+    ).rejects.toBeInstanceOf(TargetDereferenceError)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('fromDidUrl() opens a Space, Collection or Resource handle', async () => {
+    const { client } = didClient()
+    const spaceDidUrl = `${DID}/`
+
+    const space = await client.fromDidUrl(spaceDidUrl)
+    expect(space).toBeInstanceOf(Space)
+    expect(space.url).toBe(spaceUrl)
+
+    const collection = await client.fromDidUrl(`${DID}/photos/`, {
+      spaceDidUrl
+    })
+    expect(collection).toBeInstanceOf(Collection)
+    expect(collection.url).toBe(`${spaceUrl}photos/`)
+
+    const resource = await client.fromDidUrl(`${DID}/photos/cat.jpg`, {
+      spaceDidUrl
+    })
+    expect(resource).toBeInstanceOf(Resource)
+    expect(resource.url).toBe(`${spaceUrl}photos/cat.jpg`)
+  })
+
+  it('fromDidUrl() refuses what cannot name a handle, with no dereference', async () => {
+    const { client, dereferenced } = didClient()
+    const spaceDidUrl = `${DID}/`
+    for (const [didUrl, options] of [
+      [`${spaceUrl}photos/`, {}],
+      [`${DID}/photos/?versionId=1-Qm`, { spaceDidUrl }],
+      [`${DID}/photos/cat.jpg#frag`, { spaceDidUrl }],
+      // Deeper than a Space, with no root DID URL to place it under.
+      [`${DID}/photos/cat.jpg`, {}],
+      [`${DID}/photos/`, { spaceDidUrl: DID }],
+      [`${DID}/photos/`, { spaceDidUrl: `${DID}/?versionId=1-Qm` }],
+      [`${DID}/photos/`, { spaceDidUrl: 'did:webvh:QmOther:bob.example/' }]
+    ] as const) {
+      await expect(client.fromDidUrl(didUrl, options)).rejects.toBeInstanceOf(
+        ValidationError
+      )
+    }
+    expect(dereferenced).toEqual([])
+  })
+
+  it('fromDidUrl() refuses a sub-resource and a non-canonical URL', async () => {
+    const { client } = didClient()
+    const spaceDidUrl = `${DID}/`
+    await expect(
+      client.fromDidUrl(`${DID}/photos/cat.jpg/meta`, { spaceDidUrl })
+    ).rejects.toThrow(/reserved sub-resource/)
+    // A Collection is addressed with its final slash.
+    await expect(
+      client.fromDidUrl(`${DID}/photos/sub/`, { spaceDidUrl })
+    ).rejects.toThrow(/canonical form/)
+  })
+
+  it('fromDidUrl() refuses a root DID URL that names no canonical Space URL', async () => {
+    // The root maps to the Space URL without its final slash.
+    const bare = spaceUrl.slice(0, -1)
+    const client = clientWithStub(
+      () => jsonResponse(),
+      async ({ invocationTarget }) =>
+        invocationTarget === `${DID}/`
+          ? bare
+          : spaceUrl + invocationTarget.slice(DID.length + 1)
+    )
+    const spaceDidUrl = `${DID}/`
+    await expect(client.fromDidUrl(spaceDidUrl)).rejects.toThrow(
+      /not a Space URL in canonical form/
+    )
+    await expect(
+      client.fromDidUrl(`${DID}/photos/`, { spaceDidUrl })
+    ).rejects.toThrow(/not a Space URL in canonical form/)
+  })
+
+  it('fromDidUrl() rejects a DID URL that cannot be dereferenced', async () => {
+    const { client } = didClient()
+    await expect(
+      client.fromDidUrl('did:webvh:QmOther:bob.example/')
+    ).rejects.toBeInstanceOf(TargetDereferenceError)
+  })
+
+  it('a handle opened on a DID URL sends to the dereferenced URL', async () => {
+    const { client, calls } = didClient()
+    const resource = (await client.fromDidUrl(`${DID}/photos/cat.jpg`, {
+      spaceDidUrl: `${DID}/`,
+      encryption: 'plaintext'
+    })) as Resource
+    expect(await resource.get()).toEqual({ ok: true })
+    expect(calls.at(-1)?.url).toBe(`${spaceUrl}photos/cat.jpg`)
+  })
+
+  it('rejects a read and a delete once the Space has moved', async () => {
+    // Every request would be answered 404, which a read reports as `null`
+    // and an idempotent delete as success.
+    const { client, calls, mapping } = didClient(404)
+    const space = (await client.fromDidUrl(`${DID}/`, {
+      encryption: 'plaintext'
+    })) as Space
+    const photos = space.collection('photos')
+    expect(await photos.get('cat.jpg')).toBeNull()
+    const sent = calls.length
+    expect(sent).toBeGreaterThan(0)
+
+    mapping.root = 'https://other.example/space/s/'
+    const read = photos.get('cat.jpg')
+    await expect(read).rejects.toBeInstanceOf(TargetDereferenceError)
+    await expect(read).rejects.toThrow(/fromDidUrl\(\)/)
+    await expect(photos.resource('cat.jpg').delete()).rejects.toBeInstanceOf(
+      TargetDereferenceError
+    )
+    expect(calls).toHaveLength(sent)
+
+    // A new handle addresses the new location.
+    const reopened = await client.fromDidUrl(`${DID}/`)
+    expect(reopened.url).toBe('https://other.example/space/s/')
+  })
+
+  it('sends a request for an id with a dot segment', async () => {
+    const { client, calls } = didClient()
+    const space = (await client.fromDidUrl(`${DID}/`, {
+      encryption: 'plaintext'
+    })) as Space
+    expect(await space.collection('photos').get('a/../b')).toEqual({ ok: true })
+    expect(calls.at(-1)?.url).toBe(`${spaceUrl}photos/a%2F..%2Fb`)
+  })
+
+  it('a handle opened with spaceAt() is not checked against a DID URL', async () => {
+    const { client, dereferenced } = didClient()
+    await client.spaceAt(spaceUrl).collection('photos').get('cat.jpg')
+    expect(dereferenced).toEqual([])
   })
 })
