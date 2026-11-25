@@ -55,6 +55,13 @@ export interface ClientContext {
   controllerDid: string
   encryption?: EncryptionProvider
   service: () => Promise<ServiceInfo>
+  /**
+   * What service discovery learned about the server that answers `url`. That
+   * is `service()` for a URL on the client's own server. A URL on another
+   * server is discovered from the URL itself, with two unsigned requests,
+   * and the result is memoized per URL.
+   */
+  serviceAt: (url: string) => Promise<ServiceInfo>
   dereferenceTarget: DereferenceTarget
 }
 

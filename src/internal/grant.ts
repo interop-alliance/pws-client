@@ -148,8 +148,8 @@ export function checkedSpaceDidUrl(didUrl: string): string {
  * Space.
  *
  * Three checks run first, in this order, and nothing is signed when one
- * fails. The server must advertise `did-url-targets`, since a server without
- * it answers such a grant with the masked `not-found`. `didUrl` must
+ * fails. The Space's server must advertise `did-url-targets`, since a server
+ * without it answers such a grant with the masked `not-found`. `didUrl` must
  * dereference to exactly the Space's canonical URL, the rule the server
  * applies to the root. The link's DID URL must dereference to the https URL
  * the grant was asked for. A longer `PathHandler` of the DID document may map
@@ -182,7 +182,7 @@ async function didUrlRooted(
     target
   }: { didUrl: string; spaceUrl: string; target: string }
 ): Promise<{ parent: string; target: string }> {
-  await requireDidUrlTargets(context)
+  await requireDidUrlTargets(context, spaceUrl)
   checkNoSelector(target)
   const named = target.startsWith('did:')
   if (named && !target.startsWith(didUrl)) {
@@ -222,6 +222,9 @@ async function didUrlRooted(
  * `target` beneath the parent's is delegated as given, once it dereferences
  * to a URL the parent covers. Nothing is signed when a check fails.
  *
+ * The server that must advertise `did-url-targets` is the one the parent's
+ * target dereferences to, so that check runs after the dereference.
+ *
  * A selector is refused on the target, with one exception. Under a parent
  * whose DID URL carries a selector, a DID URL target has to carry the same
  * one, and an https target cannot be translated.
@@ -244,7 +247,6 @@ async function didUrlAttenuated(
   context: ClientContext,
   { capability, target }: { capability: IZcap; target: string }
 ): Promise<string> {
-  await requireDidUrlTargets(context)
   const base = capability.invocationTarget
   const named = target.startsWith('did:')
   // A link keeps the selector of its parent, so a DID URL target under a
@@ -275,6 +277,7 @@ async function didUrlAttenuated(
     )
   }
   const baseUrl = await dereferencedTarget(context, base)
+  await requireDidUrlTargets(context, baseUrl)
   // An https target is held to the server's rule as well: a URL in
   // canonical form, at or beneath what the parent covers.
   if (!named && !isCanonicalBeneath({ url: target, baseUrl })) {
@@ -289,15 +292,22 @@ async function didUrlAttenuated(
 
 /**
  * Refuses a server that does not accept a capability in DID URL form. Such a
- * server answers the grant with the masked `not-found`.
+ * server answers the grant with the masked `not-found`. The server asked is
+ * the one that answers `url`. That is not always the one this client was
+ * configured for, since a delegate may hold a grant on a Space at another
+ * server.
  *
  * @param context {ClientContext}
+ * @param url {string}   the Space's URL, or a URL beneath it
  * @returns {Promise<void>}
  * @throws {NotSupportedError}   when the server does not advertise
  *   `did-url-targets`
  */
-async function requireDidUrlTargets(context: ClientContext): Promise<void> {
-  const info = await context.service()
+async function requireDidUrlTargets(
+  context: ClientContext,
+  url: string
+): Promise<void> {
+  const info = await context.serviceAt(url)
   if (
     !info.hasFeature({
       spec: AUTHZ_PROFILE_SPEC_ID,

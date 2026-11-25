@@ -229,15 +229,17 @@ its export list, so the two entries cannot drift.
 **no network I/O**; requests happen only when a method is called.
 
 All handles share one `ClientContext` by reference (`src/internal/request.ts`):
-`{ zcapClient, controllerDid, encryption?, service, dereferenceTarget }`. The
-context holds no base server URL. The client does, as `baseServerUrl`. Each
+`{ zcapClient, controllerDid, encryption?, service, serviceAt, dereferenceTarget }`.
+The context holds no base server URL. The client does, as `baseServerUrl`. Each
 handle carries the absolute URL it addresses: `Space.url`, and `Collection.url`
 and `Resource.url` derived beneath the Space URL the handle was opened on
 (`spaceUrl` is also a field of `Collection` and `Resource`). `service` is the
-client's memoized service discovery (see Service discovery). `controllerDid` is
-a lazy getter over the wrapped client's invocation signer, so a client that
-holds only a delegation signer can still build handles and `grant()`; it throws
-only where it is read (`createSpace`'s controller default and `rootCapability`'s
+client's memoized service discovery (see Service discovery). `serviceAt(url)` is
+the discovery of the server that answers `url`, which may be another server. A
+grant in DID URL form reads it (see invariant 5 below). `controllerDid` is a
+lazy getter over the wrapped client's invocation signer, so a client that holds
+only a delegation signer can still build handles and `grant()`; it throws only
+where it is read (`createSpace`'s controller default and `rootCapability`'s
 client-side controller). Per-handle state on top of that:
 
 - A bound `capability` (delegated zcap) flows from parent to child as the
@@ -1182,7 +1184,7 @@ create.
    `urn:zcap:root:<encoded didUrl>`, and the link targets `didUrl` plus the
    handle's path. `didUrl` is checked once, by the Space constructor, and passed
    down to the Collection and Resource handles. Three checks run before signing,
-   in this order. The server must list `did-url-targets`, `didUrl` must
+   in this order. The Space's server must list `did-url-targets`, `didUrl` must
    dereference to exactly the Space URL, and the link's DID URL must dereference
    to the https URL the grant asked for. A parent capability wins, so `didUrl`
    does not apply to a re-delegation. Under a DID-form parent,
@@ -1191,7 +1193,11 @@ create.
    target as given. It then checks the result by dereferencing, so the link is
    never https under a DID-form parent. When the server lacks `did-url-targets`,
    the client throws `NotSupportedError`. It does not fall back to an https
-   grant. `PwsClient.revoke` dereferences a DID URL chain root first.
+   grant. The server asked is the one the Space is on, through the context's
+   `serviceAt(url)`. That is `service()` for a URL on the client's own server. A
+   URL elsewhere is discovered from the URL itself and memoized per URL, since a
+   delegate may hold a grant on a Space at a server its client was not
+   configured for. `PwsClient.revoke` dereferences a DID URL chain root first.
 6. **`@interop/http-client` pre-consumes JSON bodies** into `.data`, which is
    why body handling funnels through `internal/content.ts` helpers and why
    `getText`/`getBytes` are not byte-exact for JSON content types.

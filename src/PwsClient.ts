@@ -305,6 +305,14 @@ export class PwsClient {
     return createTargetDereferencer()
   })
 
+  /**
+   * Service discovery for the servers other than this client's own, keyed by
+   * the URL that was probed. One origin can host several servers at different
+   * paths, so the origin does not identify one. A delegate may hold a grant on
+   * a Space at a server its client was not configured for.
+   */
+  readonly #servicesElsewhere = new Map<string, Memo<ServiceInfo>>()
+
   readonly #service = new Memo<ServiceInfo>(async () => {
     let info: ServiceInfo
     if (this.#serviceDescription !== undefined) {
@@ -390,7 +398,8 @@ export class PwsClient {
    * @param [options.refresh] {boolean}   discard the memoized result (and any
    *   constructor-supplied `serviceDescription`) and discover again, for a
    *   caller about to rely on an affordance the server may have stopped
-   *   advertising
+   *   advertising. It also drops what was discovered about other servers
+   *   for a grant in DID URL form
    * @returns {Promise<ServiceInfo>}
    * @throws {IncompatibleServerError}   when the probed response carries no
    *   `service` link (the server predates v0.5), the document is malformed,
@@ -401,8 +410,41 @@ export class PwsClient {
     if (options.refresh) {
       this.#serviceDescription = undefined
       this.#service.reset()
+      this.#servicesElsewhere.clear()
     }
     return this.#service.get()
+  }
+
+  /**
+   * What service discovery learned about the server that answers `url`.
+   * A URL beneath this client's base server URL, or beneath its fixed Space,
+   * is answered by {@link service}. Any other URL is probed for its `service`
+   * link, and the result is memoized under that URL. A failed discovery is
+   * not kept.
+   *
+   * @param url {string}   a Space URL, or a URL beneath one
+   * @returns {Promise<ServiceInfo>}
+   * @throws {IncompatibleServerError}   as {@link service} does, for the
+   *   server that answers `url`
+   */
+  async #serviceAt(url: string): Promise<ServiceInfo> {
+    if (url.startsWith(this.baseServerUrl ?? (this.spaceUrl as string))) {
+      return this.service()
+    }
+    let memo = this.#servicesElsewhere.get(url)
+    if (memo === undefined) {
+      memo = new Memo(async () => discoverService({ url }))
+      this.#servicesElsewhere.set(url, memo)
+    }
+    try {
+      return await memo.get()
+    } catch (err) {
+      // Keep no entry for a URL that was never discovered.
+      if (this.#servicesElsewhere.get(url) === memo) {
+        this.#servicesElsewhere.delete(url)
+      }
+      throw err
+    }
   }
 
   /**
@@ -466,6 +508,7 @@ export class PwsClient {
         },
         encryption: this.encryption,
         service: () => this.service(),
+        serviceAt: url => this.#serviceAt(url),
         dereferenceTarget: this.#dereferenceTarget
       }
     }

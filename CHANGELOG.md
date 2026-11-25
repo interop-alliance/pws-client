@@ -46,6 +46,11 @@
   dereferences to the URL the grant was asked for (else `ValidationError`). An
   explicit `target` may be a DID URL at or beneath `didUrl`. `didUrl` does not
   apply to a re-delegation.
+- The `did-url-targets` check asks the server the Space is on. When that is not
+  the client's own server, the client discovers it from the Space URL, or from
+  the URL a parent capability's target dereferences to (a `HEAD` for the
+  `service` link, then the service description). It keeps the result per origin
+  until `service({ refresh: true })`. A failed discovery is not kept.
 - Re-delegation under a parent capability whose target is a DID URL issues a
   DID-form link. This covers `grant()` on a handle built by `fromCapability()`
   from a DID-form grant, and `pws.grant({ capability, target })`. An https
