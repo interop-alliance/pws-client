@@ -39,9 +39,10 @@ import type {
  * the controller DID of its signer, the optional encryption provider that
  * supplies an encrypting codec for the collections the client holds keys
  * for, the memoized service discovery every signed request waits on, and the
- * hook that dereferences a capability's DID URL target. It is called only
- * for a capability whose target is one, by `dereferencedTarget` here and by
- * ezcap under `pws.request()`.
+ * hook that dereferences a DID URL. It is called only for a DID URL, by
+ * `dereferencedTarget` here and by ezcap under `pws.request()`. That covers
+ * a capability's target, a DID URL a caller addresses directly, and
+ * `openedOn` before each request of a handle that carries it.
  *
  * `controllerDid` is a lazy read, not a stored string: `PwsClient` backs it
  * with a getter so that building a context (and therefore a handle) never
@@ -63,6 +64,32 @@ export interface ClientContext {
    */
   serviceAt: (url: string) => Promise<ServiceInfo>
   dereferenceTarget: DereferenceTarget
+  /**
+   * The root DID URL of the Space and the Space URL it dereferenced to, on
+   * the context of a handle opened with `fromDidUrl()` and of the handles
+   * beneath it. `send()` dereferences `didUrl` before every request and
+   * compares the result with `spaceUrl` (see `checkOpenedLocation`). The
+   * client's own context carries none.
+   */
+  openedOn?: { didUrl: string; spaceUrl: string }
+}
+
+/**
+ * The context of a handle opened on a DID URL: `context` plus `openedOn`.
+ * The result inherits from `context` and is not a copy of it, since a copy
+ * would read the lazy `controllerDid` getter.
+ *
+ * @param context {ClientContext}   the client's context
+ * @param openedOn {object}   the Space's root DID URL and its Space URL
+ * @returns {ClientContext}
+ */
+export function contextOpenedOn(
+  context: ClientContext,
+  openedOn: NonNullable<ClientContext['openedOn']>
+): ClientContext {
+  return Object.create(context, {
+    openedOn: { value: openedOn, enumerable: true }
+  }) as ClientContext
 }
 
 /**
@@ -98,10 +125,12 @@ export function actionForMethod(method: string): string {
  * The https URL a capability's invocation target names. An https target is
  * returned as it is, with no call to the hook. A DID URL target goes through
  * the context's `dereferenceTarget` hook, and the result passes the check
- * ezcap applies to it at signing.
+ * ezcap applies to it at signing. A DID URL a caller addresses directly
+ * (`pws.request()`, `fromDidUrl()`) is mapped the same way.
  *
  * @param context {ClientContext}
- * @param invocationTarget {string}   the capability's `invocationTarget`
+ * @param invocationTarget {string}   the capability's `invocationTarget`, or
+ *   another URL to map
  * @returns {Promise<string>}
  * @throws {TargetDereferenceError}   when the hook fails, or its result is
  *   not a URL a request can be sent to
@@ -124,8 +153,8 @@ export async function dereferencedTarget(
       throw err
     }
     throw new TargetDereferenceError(
-      `The capability target "${invocationTarget}" could not be ` +
-        `dereferenced: ${errorMessage(err)}`,
+      `The DID URL "${invocationTarget}" could not be dereferenced: ` +
+        errorMessage(err),
       { cause: err }
     )
   }
@@ -317,6 +346,41 @@ export async function checkRootLocation(
 }
 
 /**
+ * Rejects a request from a handle opened on a DID URL once that handle no
+ * longer addresses the Space. The handle keeps the https URLs it resolved
+ * when it was built. So the Space's root DID URL is dereferenced again, and
+ * the request is refused when the result is no longer the handle's Space
+ * URL. Sent to the old location, a read would resolve `null` and an
+ * idempotent delete would report success.
+ *
+ * Every URL of the handle lies under its Space URL, so the two Space URLs
+ * are compared and the request URL is not parsed.
+ *
+ * @param context {ClientContext}
+ * @param url {string}   the request URL, for the error
+ * @param openedOn {object}   the context's `openedOn`
+ * @returns {Promise<void>}
+ * @throws {TargetDereferenceError}   when the root DID URL dereferences to
+ *   another URL now, or cannot be dereferenced
+ */
+async function checkOpenedLocation(
+  context: ClientContext,
+  url: string,
+  { didUrl, spaceUrl }: NonNullable<ClientContext['openedOn']>
+): Promise<void> {
+  const rootUrl = await dereferencedTarget(context, didUrl)
+  if (rootUrl !== spaceUrl) {
+    throw new TargetDereferenceError(
+      `The Space's DID URL "${didUrl}" dereferences to "${rootUrl}" now, ` +
+        `and this handle addresses "${spaceUrl}". The request was not ` +
+        'sent. If the Space has moved, call `fromDidUrl()` again for a ' +
+        'handle at its current location.',
+      { requestUrl: url }
+    )
+  }
+}
+
+/**
  * Signs and sends a request, applying the typed-error mapping. When `read` is
  * set, a 404 resolves to `null` (MongoDB `findOne` semantics); otherwise every
  * non-2xx maps to a `PwsError` subclass.
@@ -340,6 +404,9 @@ export async function checkRootLocation(
  * dereferenced target lies outside the URL the root dereferences to. A handle
  * built before the Space moved is refused this way.
  *
+ * A handle opened with `fromDidUrl()` is checked before anything else, on
+ * every request (see `checkOpenedLocation`).
+ *
  * @param context {ClientContext}
  * @param input {SendInput}
  * @returns {Promise<HttpResponse | null>}
@@ -349,6 +416,9 @@ export async function send(
   input: SendInput
 ): Promise<HttpResponse | null> {
   const { capability } = input
+  if (context.openedOn !== undefined) {
+    await checkOpenedLocation(context, input.url, context.openedOn)
+  }
   let baseInvocationTarget: string | undefined
   // A capability with no target (a stand-in a caller passes through) is left
   // for the signer to judge.

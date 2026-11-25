@@ -133,7 +133,7 @@ export function checkedSpaceDidUrl(didUrl: string): string {
     /[?#]/.test(didUrl)
   ) {
     throw new ValidationError(
-      `The Space's \`didUrl\` "${didUrl}" must be a DID URL that ends ` +
+      `The Space's root DID URL "${didUrl}" must be a DID URL that ends ` +
         'in `/` and carries no selector and no fragment, such as ' +
         '"did:webvh:<scid>:alice.example/".'
     )

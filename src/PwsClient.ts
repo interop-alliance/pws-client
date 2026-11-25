@@ -39,6 +39,7 @@ import {
 } from './internal/layout.js'
 import type { ClientContext } from './internal/request.js'
 import {
+  contextOpenedOn,
   dereferencedTarget,
   send,
   rawRequest,
@@ -54,7 +55,7 @@ import {
   walkPagesOrEmpty
 } from './internal/pagination.js'
 import type { PageWalk } from './internal/pagination.js'
-import { delegateGrant } from './internal/grant.js'
+import { checkedSpaceDidUrl, delegateGrant } from './internal/grant.js'
 import { submitRevocation } from './internal/revoke.js'
 import { chainRootTarget, spaceUrlAtRoot } from './internal/rootCapability.js'
 import { Memo } from './internal/memo.js'
@@ -89,6 +90,79 @@ import type {
   ServiceInfo,
   SpaceListing
 } from './types.js'
+
+/**
+ * Builds the handle for an absolute `target` URL at or beneath a Space: the
+ * Space itself, one of its Collections, or a Resource.
+ *
+ * @param options {object}
+ * @param options.context {ClientContext}
+ * @param options.spaceUrl {string}   the Space URL
+ * @param options.target {string}     the https URL to open a handle on
+ * @param options.named {string}      `target` as the caller named it, for
+ *   the error messages
+ * @param options.rootedIn {string}   how the Space was found, for the error
+ *   messages
+ * @param [options.capability] {IZcap}
+ * @param [options.encryption] {EncryptionOverride}
+ * @param [options.didUrl] {string}   the Space's root DID URL
+ * @returns {Space | Collection | Resource}
+ * @throws {ValidationError}   when `target` is not at or beneath the Space,
+ *   or addresses a reserved sub-resource
+ */
+function handleBeneath({
+  context,
+  spaceUrl,
+  target,
+  named,
+  rootedIn,
+  capability,
+  encryption,
+  didUrl
+}: {
+  context: ClientContext
+  spaceUrl: string
+  target: string
+  named: string
+  rootedIn: string
+  capability?: IZcap
+  encryption?: EncryptionOverride
+  didUrl?: string
+}): Space | Collection | Resource {
+  // `parseSpaceTarget` owns the grammar beneath a Space: it percent-decodes
+  // each segment (the builders re-encode every id) and classifies the full
+  // segment list, so a sub-resource target (`{s}policy`, `{s}{c}/{r}/meta`,
+  // ...) is refused rather than silently truncated to the nearest
+  // containment handle, whose derived URLs would mismatch the capability's
+  // invocation target.
+  const parsed = parseSpaceTarget({ spaceUrl, target })
+  if (parsed === null) {
+    throw new ValidationError(
+      `Cannot derive a handle from ${named}: it does not address anything ` +
+        `at or beneath the Space "${spaceUrl}" ${rootedIn}.`
+    )
+  }
+  if (parsed.kind === 'sub-resource') {
+    throw new ValidationError(
+      `${named} addresses a reserved ` +
+        'sub-resource, which has no navigational handle. Invoke it via the ' +
+        'owning handle instead (e.g. `space.getPolicy()` / ' +
+        '`resource.meta()`), or use the `pws.request()` escape hatch.'
+    )
+  }
+  const shared = { context, spaceUrl, capability, encryption, didUrl }
+  if (parsed.kind === 'resource') {
+    return new Resource({
+      ...shared,
+      collectionId: parsed.collectionId,
+      resourceId: parsed.resourceId
+    })
+  }
+  if (parsed.kind === 'collection') {
+    return new Collection({ ...shared, collectionId: parsed.collectionId })
+  }
+  return new Space(shared)
+}
 
 /**
  * The module-private key under which {@link PwsClient.forSpace} hands the
@@ -139,10 +213,12 @@ export class PwsClient {
    * @param [options.dereferenceTarget] {DereferenceTarget}   maps a
    *   capability's DID URL invocation target to the https URL it
    *   dereferences to, for a caller with its own DID resolver. It is passed
-   *   to ezcap on every signed request, and called only for a capability
-   *   whose target is a DID URL. Omitted, the client loads the built-in
-   *   dereferencer of the `@interop/pws-client/did-url` entry the first time
-   *   one is needed.
+   *   to ezcap on every signed request, and called only when the client
+   *   meets a DID URL. That covers a capability's target, a grant in DID URL
+   *   form, the `url` of {@link request}, {@link fromDidUrl}, and each
+   *   request of a handle `fromDidUrl()` opened. Omitted, the client loads
+   *   the built-in dereferencer of the `@interop/pws-client/did-url` entry
+   *   the first time one is needed.
    * @throws {ValidationError}   when `baseServerUrl` is not an absolute
    *   http(s) URL, or carries a query, fragment, or userinfo
    */
@@ -893,49 +969,15 @@ export class PwsClient {
       target === zcap.invocationTarget
         ? `"${target}"`
         : `"${zcap.invocationTarget}" (dereferenced to "${target}")`
-    // `parseSpaceTarget` owns the grammar beneath a Space: it percent-decodes
-    // each segment (the builders re-encode every id) and classifies the full
-    // segment list, so a sub-resource target (`{s}policy`, `{s}{c}/{r}/meta`,
-    // ...) is refused rather than silently truncated to the nearest
-    // containment handle, whose derived URLs would mismatch the capability's
-    // invocation target.
-    const parsed = parseSpaceTarget({ spaceUrl, target })
-    if (parsed === null) {
-      throw new ValidationError(
-        `Cannot derive a handle from invocationTarget ${named}: it does ` +
-          `not address anything at or beneath the Space "${spaceUrl}" the ` +
-          'capability is rooted in.'
-      )
-    }
-    if (parsed.kind === 'sub-resource') {
-      throw new ValidationError(
-        `invocationTarget ${named} addresses a reserved ` +
-          'sub-resource, which has no navigational handle. Invoke it via the ' +
-          'owning handle instead (e.g. `space.getPolicy()` / ' +
-          '`resource.meta()`), or use the `pws.request()` escape hatch.'
-      )
-    }
-    let handle: Space | Collection | Resource
-    if (parsed.kind === 'resource') {
-      handle = new Resource({
-        context,
-        spaceUrl,
-        collectionId: parsed.collectionId,
-        resourceId: parsed.resourceId,
-        capability: zcap,
-        encryption
-      })
-    } else if (parsed.kind === 'collection') {
-      handle = new Collection({
-        context,
-        spaceUrl,
-        collectionId: parsed.collectionId,
-        capability: zcap,
-        encryption
-      })
-    } else {
-      handle = new Space({ context, spaceUrl, capability: zcap, encryption })
-    }
+    const handle = handleBeneath({
+      context,
+      spaceUrl,
+      target,
+      named: `invocationTarget ${named}`,
+      rootedIn: 'the capability is rooted in',
+      capability: zcap,
+      encryption
+    })
     // `send` matches every request URL against the capability's target by
     // string prefix, so a target in a non-canonical serialization (upper-case
     // host, explicit default port) would let the handle be built and then
@@ -950,6 +992,111 @@ export class PwsClient {
       throw new ValidationError(
         `invocationTarget ${named} is not in canonical form: the handle ` +
           `would address "${handle.url}", which the capability does not cover.`
+      )
+    }
+    return handle
+  }
+
+  /**
+   * Opens a handle on a DID URL, such as
+   * `did:webvh:<scid>:alice.example/photos/cat.jpg`: a Space, Collection or
+   * Resource handle, by where the URL sits within its Space. The URL is
+   * dereferenced through the `dereferenceTarget` hook, which fetches the
+   * DID's history log unless it holds a cached copy, and the handle addresses
+   * the https URL it names today.
+   *
+   * A DID URL does not say where its Space starts. So a URL deeper than the
+   * Space needs `spaceDidUrl`, the Space's root DID URL, and without it
+   * `didUrl` is read as the Space itself. A Collection's DID URL given
+   * without `spaceDidUrl` therefore yields a Space handle at the Collection's
+   * URL, and the server refuses its requests.
+   *
+   * The handle, and the handles beneath it, issue their grants in DID URL
+   * form, as a handle built by `spaceAt(url, { didUrl })` does.
+   *
+   * The handle keeps the https URLs it resolved. Before each request the
+   * Space's root DID URL is dereferenced again. Once the Space has moved, a
+   * request rejects with `TargetDereferenceError` and nothing is sent. Call
+   * this method again for a handle at the new location.
+   *
+   * A selector such as `versionId` is refused here. `pws.request()` accepts
+   * one.
+   *
+   * @param didUrl {string}
+   * @param options {object}
+   * @param [options.spaceDidUrl] {string}   the Space's root DID URL, such as
+   *   `did:webvh:<scid>:alice.example/`. Required unless `didUrl` names the
+   *   Space itself. It ends in `/` and carries no selector and no fragment
+   * @param [options.capability] {IZcap}
+   * @param [options.encryption] {EncryptionOverride}   see {@link spaceAt}
+   * @returns {Promise<Space | Collection | Resource>}
+   * @throws {ValidationError}   when `didUrl` is not a DID URL, carries a
+   *   selector or a fragment, is not at or beneath the Space's root DID URL,
+   *   or names a reserved sub-resource. Also when a DID URL dereferences to
+   *   a URL that is not in canonical form, or to one outside the Space
+   * @throws {TargetDereferenceError}   when a DID URL cannot be dereferenced
+   */
+  async fromDidUrl(
+    didUrl: string,
+    {
+      spaceDidUrl,
+      capability,
+      encryption
+    }: HandleOptions & { spaceDidUrl?: string } = {}
+  ): Promise<Space | Collection | Resource> {
+    if (!didUrl.startsWith('did:') || /[?#]/.test(didUrl)) {
+      throw new ValidationError(
+        `"${didUrl}" must be a DID URL that carries no selector and no ` +
+          'fragment, such as "did:webvh:<scid>:alice.example/photos/".'
+      )
+    }
+    if (spaceDidUrl === undefined && !didUrl.endsWith('/')) {
+      throw new ValidationError(
+        `"${didUrl}" does not name a Space, whose DID URL ends in \`/\`. ` +
+          "Pass the Space's root DID URL as `spaceDidUrl`."
+      )
+    }
+    const rootDidUrl = checkedSpaceDidUrl(spaceDidUrl ?? didUrl)
+    if (!didUrl.startsWith(rootDidUrl)) {
+      throw new ValidationError(
+        `"${didUrl}" is not at or beneath the Space's root DID URL ` +
+          `"${rootDidUrl}".`
+      )
+    }
+    const spaceUrl = await dereferencedTarget(this.#context, rootDidUrl)
+    // The server accepts a root DID URL that dereferences to exactly the
+    // Space URL. A root that names the Space in another form is refused,
+    // whatever the depth of `didUrl`.
+    if (canonicalSpaceUrl(spaceUrl) !== spaceUrl) {
+      throw new ValidationError(
+        `The Space's root DID URL "${rootDidUrl}" dereferences to ` +
+          `"${spaceUrl}", which is not a Space URL in canonical form.`
+      )
+    }
+    const target =
+      didUrl === rootDidUrl
+        ? spaceUrl
+        : await dereferencedTarget(this.#context, didUrl)
+    const handle = handleBeneath({
+      // The handle and the handles beneath it send with this context, so
+      // `send()` checks each request against the Space's current location.
+      context: contextOpenedOn(this.#context, { didUrl: rootDidUrl, spaceUrl }),
+      spaceUrl,
+      target,
+      named: `DID URL "${didUrl}" (dereferenced to "${target}")`,
+      rootedIn: `its root DID URL "${rootDidUrl}" dereferences to`,
+      capability,
+      encryption,
+      didUrl: rootDidUrl
+    })
+    // The handle derives its URL from the Space URL and the decoded ids. A
+    // dereferenced URL in another form (a Collection with no final `/`, an
+    // id encoded differently) would leave it addressing something else.
+    if (handle.url !== target) {
+      throw new ValidationError(
+        `The DID URL "${didUrl}" dereferences to "${target}", which is not ` +
+          `in canonical form: the handle would address "${handle.url}" ` +
+          'instead.'
       )
     }
     return handle
@@ -1028,10 +1175,22 @@ export class PwsClient {
    * Like every signed request it waits on {@link service} first, and rejects
    * with its `IncompatibleServerError` before signing anything.
    *
+   * `url` may be a DID URL, such as
+   * `did:webvh:<scid>:alice.example/photos/cat.jpg`. It is dereferenced
+   * through the `dereferenceTarget` hook, and the request goes to the https
+   * URL it names. A selector such as `versionId` picks the version of the DID
+   * document. The built-in dereferencer refuses any other query, and a
+   * fragment. A query on a DID URL is read as a selector and is not sent to
+   * the server, so a request that needs an HTTP query takes the https URL.
+   *
    * @param options {RequestInput}
    * @returns {Promise<HttpResponse>}
+   * @throws {TargetDereferenceError}   when `url` is a DID URL that cannot be
+   *   dereferenced
    */
   async request(options: RequestInput): Promise<HttpResponse> {
-    return rawRequest(this.#context, options)
+    const context = this.#context
+    const url = await dereferencedTarget(context, options.url)
+    return rawRequest(context, { ...options, url })
   }
 }

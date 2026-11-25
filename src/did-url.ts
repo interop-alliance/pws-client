@@ -114,15 +114,13 @@ async function mapDidUrl({
   fetch?: FetchLike
 }): Promise<string> {
   if (!target.startsWith('did:webvh:')) {
-    throw new TargetDereferenceError(
-      `The capability target "${target}" is not a did:webvh DID URL.`
-    )
+    throw new TargetDereferenceError(`"${target}" is not a did:webvh DID URL.`)
   }
   // `dereference` would carry a fragment over to the URL, and a request URL
   // has none. So a fragment is refused, an empty one included.
   if (target.includes('#')) {
     throw new TargetDereferenceError(
-      `The capability target "${target}" carries a fragment.`
+      `The DID URL "${target}" carries a fragment.`
     )
   }
   // `dereference` parses the DID URL before it fetches anything, so a target
@@ -142,8 +140,7 @@ async function mapDidUrl({
     return url
   } catch (err) {
     throw new TargetDereferenceError(
-      `The capability target "${target}" could not be dereferenced: ` +
-        errorMessage(err),
+      `The DID URL "${target}" could not be dereferenced: ` + errorMessage(err),
       { cause: err }
     )
   }
