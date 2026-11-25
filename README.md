@@ -265,6 +265,20 @@ response, whatever its status, then reads the linked document with an unsigned
 `GET`. The spec fixes no path for the document on a fixed-Space server, so that
 client assumes none.
 
+Discovery stays on the origin of the Space URL. A `HEAD` that was redirected to
+another origin is refused with `IncompatibleServerError`, and the error does not
+report what that origin answered. A link to another origin is refused the same
+way, and no `GET` is sent. The `GET` of the service description does not follow
+a redirect.
+
+These rules do not make it safe to run the client against URLs from an untrusted
+party on a host that can reach private addresses. A Space URL, or the URL a
+grant in DID URL form dereferences to, can itself name an internal host, or a
+public name that resolves to a private address. The client cannot tell. A
+redirected `HEAD` is also still sent before it is refused. A server-side agent
+that accepts capabilities from untrusted parties needs egress controls of its
+own.
+
 A client with a base checks that the document describes that base. Its `url`
 must equal `{base}service`, and its `spaces` member, when present, must equal
 `{base}spaces/`. Otherwise every signed request rejects with
@@ -1879,7 +1893,10 @@ dereferences to. A delegate's client may be configured for another server. The
 client then discovers the Space's server with two unsigned requests, a `HEAD` of
 the dereferenced URL for its `service` link and a `GET` of the service
 description. It keeps the result for that URL, so later grants under the same
-parent send nothing more. `pws.service({ refresh: true })` drops it.
+parent send nothing more. `pws.service({ refresh: true })` drops it. The
+dereferenced URL comes from the DID document of whoever issued the parent, so
+the origin rules of [Service discovery](#service-discovery) apply to these two
+requests, and so does its note on egress controls.
 
 #### Issuing a DID-form grant
 

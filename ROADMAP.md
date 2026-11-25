@@ -23,7 +23,6 @@ Ready:
 - WCL-56 [M] The write epoch goes stale with no signal on any write path
 - WCL-96 [M] `resourceDescriptorStore.read()` reads a masked 404 as "no
   descriptor yet"
-- WCL-183 [M] Discovery of another server follows any `service` link target
 - WCL-60 [L] `pws.v` is taken from the unauthenticated descriptor, and
   `constants.ts` documents the opposite
 - WCL-95 [L] `PwsTransport` hardening -- feature gate, response validation, and
@@ -412,32 +411,6 @@ adopting. The cheapest fix is to translate a create-path 412 that persists into
 the unreadable-host refusal.
 
 discovered-from: whole-codebase review, 2026-09-11.
-
-### WCL-183: [M] Discovery of another server follows any `service` link target
-
-- status: todo
-- priority: medium
-- labels: zcap, webvh, discovery, security
-- discovered-from: WCL-180 review (2026-11-24)
-- touches:
-  - pws-client (this repo): `src/internal/service.ts` (`discoverService`),
-    `src/PwsClient.ts` (`#serviceAt`), README.md
-- acceptance:
-  - [ ] `discoverService` refuses a `service` link target the client should not
-        fetch. Which rule applies is the maintainer's decision. The options seen
-        so far are the rule a dereferenced target passes (https, or http on a
-        loopback host) and the same origin as the probed URL
-  - [ ] The rule holds for a `forSpace` client's own discovery, or the item
-        states why that route is exempt
-  - [ ] A test covers a probe whose `Link` header names a URL the rule refuses
-
-Context: a grant in DID URL form makes the client discover the server the
-grant's target dereferences to. That URL comes from the DID document of whoever
-issued the capability. `discoverService` then sends an unsigned `GET` to
-whatever the probed host's `Link: rel="service"` header names, with no check of
-its scheme or origin. A server-side agent that re-delegates under a capability
-from an untrusted party can so be made to `GET` an internal URL. Before WCL-180
-`grant()` sent nothing to the dereferenced host.
 
 ### WCL-60: [L] `pws.v` is taken from the unauthenticated descriptor, and `constants.ts` documents the opposite
 

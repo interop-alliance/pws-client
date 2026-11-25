@@ -318,11 +318,19 @@ is `PwsClient.forSpace({ spaceUrl })`, for a server that is a single fixed Space
 with no id and no base. `discoverService` first sends an unsigned `HEAD` to the
 Space URL and follows the `Link: <...>; rel="service"` header on the response,
 then calls `readServiceDescription` on the linked URL. The spec fixes no path
-for the document on such a server, so that client assumes none. The document is
-parsed as storage-core's `ServiceDescription`. The advertised `spaces` URL is a
-container, so `selectServiceVersion` supplies its trailing slash when the
-description omits it (`canonicalContainerUrl`): the bare form only
-308-redirects, which a signed request cannot follow.
+for the document on such a server, so that client assumes none. Discovery stays
+on the origin of the probed URL. A probe redirected to another origin is refused
+before its status or headers are read, the linked URL must be on the same
+origin, and `readServiceDescription` does not follow a redirect. The probed URL
+can come from an untrusted party (the DID document behind a grant in DID URL
+form). These rules keep its server from directing the `GET` to another address,
+and from learning what an internal address answers. The redirected `HEAD` itself
+is still sent, and the probed URL may name an internal host directly, so a
+server-side agent still needs egress controls. The document is parsed as
+storage-core's `ServiceDescription`. The advertised `spaces` URL is a container,
+so `selectServiceVersion` supplies its trailing slash when the description omits
+it (`canonicalContainerUrl`): the bare form only 308-redirects, which a signed
+request cannot follow.
 
 `selectServiceVersion` applies the spec's client rules. It selects under two
 `specs` keys, compared as opaque strings. Under `https://w3id.org/pws` it picks
@@ -395,12 +403,14 @@ target, so the root is not dereferenced again.
 Failure classes:
 
 - `IncompatibleServerError` -- no `service` link on the probe response (a server
-  that predates v0.5; the client does not fall back to v0.4), a non-2xx or
-  non-JSON document, a document without `url` or `specs`, no understood version,
-  or a malformed `spaces` / `features` on the chosen entry. On a client with a
-  base, also a document that fails the consistency check below. `send()`'s
-  null-on-404 read translation applies only to raw transport errors, so a
-  discovery refusal still rejects instead of reading as `null`.
+  that predates v0.5; the client does not fall back to v0.4), a probe redirected
+  to another origin, a `service` link on another origin than the probed URL, a
+  redirect from the service URL, a non-2xx or non-JSON document, a document
+  without `url` or `specs`, no understood version, or a malformed `spaces` /
+  `features` on the chosen entry. On a client with a base, also a document that
+  fails the consistency check below. `send()`'s null-on-404 read translation
+  applies only to raw transport errors, so a discovery refusal still rejects
+  instead of reading as `null`.
 - The mapped transport error -- a network failure, or a 5xx/429 that comes
   without the link. These say nothing about the protocol.
 

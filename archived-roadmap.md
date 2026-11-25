@@ -5891,3 +5891,38 @@ DID URL and the Space URL it dereferenced to. `send()` dereferences the root
 again before every request and compares the two Space URLs, so a resource id
 with a dot segment is not mistaken for a moved Space. A query on a DID URL given
 to `pws.request()` is read as selectors and is not sent.
+
+### WCL-183: [M] Discovery of another server follows any `service` link target
+
+- status: done (2026-11-24)
+- priority: medium
+- labels: zcap, webvh, discovery, security
+- discovered-from: WCL-180 review (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/internal/service.ts` (`discoverService`),
+    `src/PwsClient.ts` (`#serviceAt`), README.md -- shipped: the check lives in
+    `discoverService`, so `#serviceAt` needed no change
+- acceptance:
+  - [x] `discoverService` refuses a `service` link target the client should not
+        fetch. Which rule applies is the maintainer's decision. The options seen
+        so far are the rule a dereferenced target passes (https, or http on a
+        loopback host) and the same origin as the probed URL
+  - [x] The rule holds for a `forSpace` client's own discovery, or the item
+        states why that route is exempt
+  - [x] A test covers a probe whose `Link` header names a URL the rule refuses
+
+Context: a grant in DID URL form makes the client discover the server the
+grant's target dereferences to. That URL comes from the DID document of whoever
+issued the capability. `discoverService` then sends an unsigned `GET` to
+whatever the probed host's `Link: rel="service"` header names, with no check of
+its scheme or origin. A server-side agent that re-delegates under a capability
+from an untrusted party can so be made to `GET` an internal URL. Before WCL-180
+`grant()` sent nothing to the dereferenced host.
+
+Settled by the maintainer on 2026-11-24: the rule is same origin as the probed
+URL, and the `GET` of the service description does not follow a redirect. The
+rule lives in `discoverService` and `readServiceDescription`, so it holds for a
+`forSpace` client's own discovery too. The `HEAD` probe still follows redirects,
+because the bare form of a Space URL answers 308. A probe that ends on another
+origin is refused before its status is read, so the error does not report what
+that origin answered.

@@ -394,7 +394,8 @@ function refuse({
 
 /**
  * Reads the service description at `serviceUrl` with an unsigned `GET` and
- * selects the version to speak.
+ * selects the version to speak. The `GET` does not follow a redirect, so the
+ * document is read from the URL named and from no other.
  *
  * A network failure, and a rate limit or temporary outage (429, 502, 503,
  * 504), reject with the mapped transport error, since they say nothing about
@@ -404,7 +405,8 @@ function refuse({
  * @param options.serviceUrl {string}   the service description's URL
  * @returns {Promise<ServiceInfo>}
  * @throws {IncompatibleServerError}   when the document cannot be read or
- *   parsed, or version selection refuses it (see {@link selectServiceVersion})
+ *   parsed, `serviceUrl` answers with a redirect, or version selection
+ *   refuses it (see {@link selectServiceVersion})
  */
 export async function readServiceDescription({
   serviceUrl
@@ -413,8 +415,21 @@ export async function readServiceDescription({
 }): Promise<ServiceInfo> {
   const response = await fetchMapped(serviceUrl, {
     method: 'GET',
-    headers: { accept: 'application/json' }
+    headers: { accept: 'application/json' },
+    redirect: 'manual'
   })
+  // A browser reports a redirect it did not follow as an opaque response
+  // with status 0.
+  const redirected =
+    response.type === 'opaqueredirect' ||
+    (response.status >= 300 && response.status < 400)
+  if (redirected) {
+    throw new IncompatibleServerError(
+      `The service description at "${serviceUrl}" answered with a ` +
+        'redirect, which this client does not follow.',
+      { requestUrl: serviceUrl }
+    )
+  }
   if (!response.ok) {
     refuse({
       status: response.status,
@@ -444,6 +459,12 @@ export async function readServiceDescription({
  * client that holds no base server URL, such as one opened on a single fixed
  * Space.
  *
+ * The probe may be redirected within the origin of `url`, and the linked
+ * document must be on that origin too. The probed URL may come from an
+ * untrusted party, such as the DID document of whoever issued a capability.
+ * Its server could otherwise direct the `GET` to any address the client can
+ * reach, or learn the status such an address answers a redirected probe with.
+ *
  * A network failure, and a rate limit or temporary outage (429, 502, 503,
  * 504) that comes without the link, reject with the mapped transport error,
  * since they say nothing about the protocol the server speaks.
@@ -453,8 +474,9 @@ export async function readServiceDescription({
  *   Space URL
  * @returns {Promise<ServiceInfo>}
  * @throws {IncompatibleServerError}   when the response carries no `service`
- *   link, the linked document cannot be read or parsed, or version selection
- *   refuses it (see {@link selectServiceVersion})
+ *   link, the probe was redirected to another origin, the link names another
+ *   origin, the linked document cannot be read or parsed, or version
+ *   selection refuses it (see {@link selectServiceVersion})
  */
 export async function discoverService({
   url
@@ -462,9 +484,20 @@ export async function discoverService({
   url: string
 }): Promise<ServiceInfo> {
   const probe = await fetchMapped(url, { method: 'HEAD' })
+  const probedUrl = probe.url || url
+  // Checked before the status or the headers are read, so the answer of a
+  // host the probe was redirected to is not reported.
+  if (new URL(probedUrl).origin !== new URL(url).origin) {
+    throw new IncompatibleServerError(
+      `The probe of "${url}" was redirected to "${probedUrl}", which is on ` +
+        'another origin. This client does not discover a server through a ' +
+        'redirect to another origin.',
+      { requestUrl: url }
+    )
+  }
   const serviceUrl = serviceLinkTarget({
     header: probe.headers.get('link'),
-    baseUrl: probe.url || url
+    baseUrl: probedUrl
   })
   if (serviceUrl === undefined) {
     refuse({
@@ -475,6 +508,15 @@ export async function discoverService({
         'rel="service" link, so the server predates PWS v0.5, which this ' +
         'client requires.'
     })
+  }
+  if (new URL(serviceUrl).origin !== new URL(probedUrl).origin) {
+    throw new IncompatibleServerError(
+      `The response from "${url}" names the service description ` +
+        `"${serviceUrl}", which is on another origin than "${probedUrl}". ` +
+        'This client reads a linked service description only from the ' +
+        'origin it probed.',
+      { requestUrl: url }
+    )
   }
   return readServiceDescription({ serviceUrl })
 }

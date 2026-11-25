@@ -41,6 +41,7 @@ const SPACES_URL = 'https://host.example/pws/spaces/'
 const BASE_URL = 'https://host.example/pws/'
 const SERVICE_URL = 'https://host.example/pws/service'
 const ALICE_URL = 'https://alice.example/'
+const ALICE_SERVICE_URL = 'https://alice.example/service'
 
 /**
  * A service description in the shape of the spec's example: a v0.5 and a v0.4
@@ -425,24 +426,28 @@ interface FetchCall {
 
 /**
  * Stubs the global `fetch`: a `HEAD` of any URL answers the probe (a status
- * and an optional `Link` header), and a `GET` of the service URL answers the
- * service description `body`.
+ * and an optional `Link` header), and a `GET` of either service URL answers
+ * the service description `body`.
  *
  * @param options {object}
  * @param [options.probeStatus] {number}   the `HEAD` status, default 404
  * @param [options.link] {string | null}   the `Link` header, `null` for none
+ * @param [options.probeUrl] {string}   the URL the `HEAD` response reports,
+ *   as after a followed redirect
  * @param [options.body] {string}   the service description response body
  * @param [options.serviceStatus] {number}   the service `GET` status
  * @returns {FetchCall[]}   the recorded calls
  */
 function stubDiscovery({
   probeStatus = 404,
-  link = `<${SERVICE_URL}>; rel="service"`,
+  link = `<${ALICE_SERVICE_URL}>; rel="service"`,
+  probeUrl,
   body = JSON.stringify(exampleDescription()),
   serviceStatus = 200
 }: {
   probeStatus?: number
   link?: string | null
+  probeUrl?: string
   body?: string
   serviceStatus?: number
 } = {}): FetchCall[] {
@@ -455,12 +460,16 @@ function stubDiscovery({
       headers: (init.headers ?? {}) as Record<string, string>
     })
     if (method === 'HEAD') {
-      return new Response(null, {
+      const probe = new Response(null, {
         status: probeStatus,
         headers: link === null ? {} : { link }
       })
+      if (probeUrl !== undefined) {
+        Object.defineProperty(probe, 'url', { value: probeUrl })
+      }
+      return probe
     }
-    if (url === SERVICE_URL) {
+    if (url === SERVICE_URL || url === ALICE_SERVICE_URL) {
       return new Response(body, {
         status: serviceStatus,
         headers: { 'content-type': 'application/json' }
@@ -582,6 +591,21 @@ describe('readServiceDescription', () => {
     expect(calls.map(call => `${call.method} ${call.url}`)).toEqual([
       `GET ${SERVICE_URL}`
     ])
+  })
+
+  it('asks fetch not to follow a redirect, and refuses one', async () => {
+    const inits: RequestInit[] = []
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit = {}) => {
+      inits.push(init)
+      return new Response(null, {
+        status: 307,
+        headers: { location: 'http://127.0.0.1:8080/admin' }
+      })
+    })
+    await expect(
+      readServiceDescription({ serviceUrl: SERVICE_URL })
+    ).rejects.toThrow(IncompatibleServerError)
+    expect(inits.map(init => init.redirect)).toEqual(['manual'])
   })
 
   it('is exported from the core entry', () => {
@@ -740,7 +764,7 @@ describe('PwsClient.forSpace()', () => {
     expect(info.version).toBe('0.5')
     expect(calls.map(call => `${call.method} ${call.url}`)).toEqual([
       `HEAD ${ALICE_URL}`,
-      `GET ${SERVICE_URL}`
+      `GET ${ALICE_SERVICE_URL}`
     ])
     const headerNames = calls.flatMap(call =>
       Object.keys(call.headers).map(name => name.toLowerCase())
@@ -843,6 +867,73 @@ describe('PwsClient.service() on a client fixed on a Space (forSpace)', () => {
     await expect(spaceClient().pws.service()).rejects.toThrow(
       IncompatibleServerError
     )
+  })
+
+  it.each([
+    ['another host', 'https://internal.example/admin'],
+    ['another port', 'https://alice.example:8443/service'],
+    ['another scheme', 'http://alice.example/service'],
+    ['a loopback address', 'http://127.0.0.1:8080/admin']
+  ])('refuses a service link on %s, and sends no GET', async (_, target) => {
+    const calls = stubDiscovery({ link: `<${target}>; rel="service"` })
+    const failure = spaceClient().pws.service()
+    await expect(failure).rejects.toThrow(IncompatibleServerError)
+    await expect(failure).rejects.toThrow(target)
+    expect(calls.map(call => call.method)).toEqual(['HEAD'])
+  })
+
+  it('refuses a probe redirected to another origin, without its status', async () => {
+    const internalUrl = 'http://127.0.0.1:8080/admin'
+    const calls = stubDiscovery({
+      probeUrl: internalUrl,
+      probeStatus: 403,
+      link: `<http://127.0.0.1:8080/service>; rel="service"`
+    })
+    const failure = spaceClient().pws.service()
+    await expect(failure).rejects.toThrow(IncompatibleServerError)
+    await expect(failure).rejects.toThrow(internalUrl)
+    await expect(failure).rejects.not.toThrow('403')
+    expect(calls.map(call => call.method)).toEqual(['HEAD'])
+  })
+
+  it('reports a redirected probe the same way whatever it answered', async () => {
+    const messages: string[] = []
+    for (const probeStatus of [200, 404, 503]) {
+      stubDiscovery({
+        probeUrl: 'http://127.0.0.1:8080/admin',
+        probeStatus,
+        link: null
+      })
+      const err = await spaceClient()
+        .pws.service()
+        .catch((caught: unknown) => caught)
+      expect(err).toBeInstanceOf(IncompatibleServerError)
+      messages.push((err as Error).message)
+    }
+    expect(new Set(messages).size).toBe(1)
+  })
+
+  it('follows a probe redirected within the origin', async () => {
+    const calls = stubDiscovery({
+      probeUrl: 'https://alice.example/space/',
+      link: '<../service>; rel="service"'
+    })
+    expect((await spaceClient().pws.service()).version).toBe('0.5')
+    expect(calls.at(-1)?.url).toBe(ALICE_SERVICE_URL)
+  })
+
+  it('follows a relative service link', async () => {
+    const calls = stubDiscovery({ link: '</service>; rel="service"' })
+    expect((await spaceClient().pws.service()).version).toBe('0.5')
+    expect(calls.at(-1)?.url).toBe(ALICE_SERVICE_URL)
+  })
+
+  it('does not follow a redirect from the service link target', async () => {
+    const calls = stubDiscovery({ serviceStatus: 302, body: '' })
+    const failure = spaceClient().pws.service()
+    await expect(failure).rejects.toThrow(IncompatibleServerError)
+    await expect(failure).rejects.toThrow('redirect')
+    expect(calls).toHaveLength(2)
   })
 
   it('reports a server fault without the link as transient, and retries', async () => {

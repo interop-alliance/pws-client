@@ -105,6 +105,12 @@
   `feature`. It answers `false` for a `spec` with no chosen entry, which is a
   companion the server does not list at a version the client speaks, or a
   specification the client does not know.
+- **BREAKING**: `discoverService` refuses a probe that was redirected to another
+  origin, and a `rel="service"` link that names another origin than the probed
+  URL. It sends no `GET` in either case. `readServiceDescription` does not
+  follow a redirect. Both reject with `IncompatibleServerError`. This covers
+  `forSpace` clients and the discovery of another server for a grant in DID URL
+  form.
 - **BREAKING**: `ServiceInfo.features` is removed. Read the tokens from
   `info.entry.features` or `info.entries[...].features`. Each is `undefined`
   when the server lists none, where `info.features` was an empty array.
