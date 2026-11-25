@@ -1805,7 +1805,8 @@ before signing. A mismatch throws `ValidationError`.
 
 The client refuses before signing in these cases.
 
-- The server does not list `did-url-targets`. This throws `NotSupportedError`.
+- The server the granted Space is on does not list `did-url-targets`. This
+  throws `NotSupportedError`.
 - The target is outside the parent, carries a query or a fragment the parent's
   DID URL does not carry, or is an https URL under a parent whose DID URL
   carries a selector. These throw `ValidationError`.
@@ -1813,6 +1814,13 @@ The client refuses before signing in these cases.
 
 `pws.grant({ capability })` with no `target` keeps the parent's target and runs
 none of these checks.
+
+The server asked for `did-url-targets` is the one the parent's target
+dereferences to. A delegate's client may be configured for another server. The
+client then discovers the Space's server with two unsigned requests, a `HEAD` of
+the dereferenced URL for its `service` link and a `GET` of the service
+description. It keeps the result for that URL, so later grants under the same
+parent send nothing more. `pws.service({ refresh: true })` drops it.
 
 #### Issuing a DID-form grant
 
@@ -1842,7 +1850,9 @@ Before it signs, the client runs three checks in this order.
 
 1. The server lists `did-url-targets` on its authorization profile entry. If it
    does not, `grant()` throws `NotSupportedError` naming the token. It does not
-   issue an https grant in its place.
+   issue an https grant in its place. The server asked is the one the Space is
+   on. For a handle from `pws.spaceAt()` on another server, the client discovers
+   that server from the Space URL.
 2. `didUrl` dereferences, through the `dereferenceTarget` hook, to exactly the
    Space's URL. Otherwise `ValidationError`.
 3. The link's DID URL dereferences to the https URL the grant was asked for. A

@@ -335,6 +335,37 @@ describe('a controller issuing DID-form grants (live servers)', () => {
     ).rejects.toBeInstanceOf(ValidationError)
   })
 
+  it('a delegate whose client is configured for another server re-delegates', async () => {
+    // Bob's client is on server two, and its copy of that server's
+    // description lacks the token. The Space is on server one, which decides.
+    const { description } = await clientOn({
+      baseServerUrl: two.baseServerUrl,
+      signer: bobSigner
+    }).service()
+    const withoutToken = structuredClone(description)
+    for (const entry of withoutToken.specs[AUTHZ_PROFILE_SPEC_ID] ?? []) {
+      delete (entry as { features?: string[] }).features
+    }
+    const bob = clientOn({
+      baseServerUrl: two.baseServerUrl,
+      signer: bobSigner,
+      serviceDescription: withoutToken
+    })
+    const carol = clientOn({
+      baseServerUrl: one.baseServerUrl,
+      signer: carolSigner
+    })
+    const photos = (await bob.fromCapability(photosGrant)) as Collection
+    expect(photos.url.startsWith(one.baseServerUrl)).toBe(true)
+
+    const docGrant = await photos
+      .resource('doc-1')
+      .grant({ to: carol.controllerDid, actions: ['GET'], expires })
+    expect(docGrant.invocationTarget).toBe(`${didUrl}photos/doc-1`)
+    const doc = (await carol.fromCapability(docGrant)) as Resource
+    expect(await doc.get()).toEqual({ photo: 1 })
+  })
+
   it('a chain that mixes the two forms is refused', async () => {
     const bob = clientOn({
       baseServerUrl: one.baseServerUrl,

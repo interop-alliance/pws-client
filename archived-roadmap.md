@@ -5786,3 +5786,37 @@ the parent's is delegated as given. This covers the three handle `grant()`
 methods and `pws.grant({ capability, target })`. A server without
 `did-url-targets` is refused with `NotSupportedError`. Three gaps found in
 review are WCL-180, WCL-181 and WCL-182.
+
+### WCL-180: [M] The `did-url-targets` check reads the client's own server
+
+- status: done (2026-11-24)
+- priority: medium
+- labels: zcap, webvh, portability, correctness
+- discovered-from: WCL-176 review (2026-11-24)
+- touches:
+  - pws-client (this repo): `src/internal/grant.ts` (`requireDidUrlTargets`),
+    `src/PwsClient.ts` (`#serviceAt`), `src/internal/request.ts`
+    (`ClientContext.serviceAt`), README.md, ARCHITECTURE.md (shipped here)
+- acceptance:
+  - [x] A re-delegation under a DID-form parent is checked against the server
+        the parent's target dereferences to, or the README states that the
+        client's configured server decides. Which of the two is the maintainer's
+        decision
+  - [x] A test covers a client configured for one server holding a grant on a
+        Space at another
+
+Context: `requireDidUrlTargets` reads `context.service()`, the discovery of the
+client's `baseServerUrl`. A delegate's client may be configured for a server
+other than the one the granted Space lives on. A re-delegation with a `target`
+under a DID-form parent was offline signing before WCL-176. It now throws
+`NotSupportedError` naming the client's own server when that server does not
+list the feature, even if the Space's server does.
+
+Decision (2026-11-24): the Space's server decides, on both grant paths. A
+re-delegation asks the server the parent's target dereferences to, and a grant
+from a handle with `didUrl` asks the server the Space URL is on. A URL beneath
+the client's own base server URL is answered by `service()`. Any other URL is
+discovered from the URL itself, with an unsigned `HEAD` for the `service` link
+and a `GET` of the description. The result is memoized per probed URL, since one
+origin can host several servers. A failed discovery is not kept. Three gaps
+found in review are WCL-183, WCL-184 and WCL-185.

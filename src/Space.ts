@@ -1026,16 +1026,18 @@ export class Space {
    * A handle built with `didUrl` issues the grant in DID URL form, so it
    * keeps working when the Space moves to another provider. The chain roots
    * in `urn:zcap:root:<encoded didUrl>`, and the target is `didUrl` plus the
-   * path within the Space. Before signing, the client checks that the server
-   * advertises `did-url-targets` and that `didUrl` dereferences to this
-   * Space. It does not issue an https grant in its place. `didUrl` does not
-   * apply to a re-delegation (a `capability`, given or bound).
+   * path within the Space. Before signing, the client checks that the
+   * Space's server advertises `did-url-targets` and that `didUrl`
+   * dereferences to this Space. It does not issue an https grant in its
+   * place. `didUrl` does not apply to a re-delegation (a `capability`, given
+   * or bound).
    *
    * A re-delegation under a capability in DID URL form, such as the one a
    * handle from `fromCapability()` is bound to, is issued in DID URL form
    * too. The target is the parent's DID URL plus the path beneath it. Before
-   * signing, the client checks that the server advertises `did-url-targets`
-   * and that the link's DID URL dereferences to the URL the grant asked for.
+   * signing, the client checks that the server the granted Space is on
+   * advertises `did-url-targets` and that the link's DID URL dereferences to
+   * the URL the grant asked for.
    *
    * @param options {GrantOptions}
    * @returns {Promise<IDelegatedZcap>}

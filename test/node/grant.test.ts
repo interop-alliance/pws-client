@@ -8,10 +8,11 @@
  * actions case-sensitively against `'GET'`). A stub `ZcapClient` captures the
  * delegate args, so no signer or server is involved.
  */
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 
 import {
   AUTHZ_PROFILE_SPEC_ID,
+  IncompatibleServerError,
   NotSupportedError,
   TargetDereferenceError,
   ValidationError,
@@ -23,6 +24,7 @@ import { rootCapabilityId } from '../../src/paths/index.js'
 import {
   clientWithRequestSpy,
   serviceDescriptionFor,
+  serviceUrlFor,
   baseServerUrlFor,
   spaceUrlFor
 } from '../helpers/stubClient.js'
@@ -857,6 +859,185 @@ describe('grants from a Space handle with `didUrl`', () => {
         NotSupportedError
       )
       expect(lastDelegate()).toBeUndefined()
+    })
+  })
+
+  describe('a Space on a server the client is not configured for', () => {
+    const ELSEWHERE = 'https://elsewhere.example'
+    const ELSEWHERE_SPACE = spaceUrlFor('s', ELSEWHERE)
+    const ELSEWHERE_DID_URL = 'did:webvh:QmElsewhere:bob.example/'
+    const aliases = {
+      [ELSEWHERE_DID_URL]: ELSEWHERE_SPACE,
+      [`${ELSEWHERE_DID_URL}photos/`]: `${ELSEWHERE_SPACE}photos/`,
+      [`${ELSEWHERE_DID_URL}photos/r`]: `${ELSEWHERE_SPACE}photos/r`
+    }
+    const parent = {
+      id: 'urn:uuid:parent',
+      controller: 'did:example:alice',
+      parentCapability: rootCapabilityId(ELSEWHERE_DID_URL),
+      invocationTarget: `${ELSEWHERE_DID_URL}photos/`,
+      allowedAction: ['GET']
+    } as unknown as IZcap
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    /**
+     * Stubs the global `fetch` as the server at `ELSEWHERE`. A `HEAD` of any
+     * URL beneath it carries the `service` link. A `GET` of the service URL
+     * answers its description.
+     *
+     * @param options {object}
+     * @param options.advertised {boolean}   whether that server lists
+     *   `did-url-targets`
+     * @param [options.unlinked] {string}   a URL beneath it whose `HEAD`
+     *   answers 404 with no `service` link
+     * @returns {string[]}   the recorded calls, as `METHOD url`
+     */
+    function stubElsewhere({
+      advertised,
+      unlinked
+    }: {
+      advertised: boolean
+      unlinked?: string
+    }): string[] {
+      const calls: string[] = []
+      const description = serviceDescriptionFor(ELSEWHERE)
+      if (advertised) {
+        for (const entry of description.specs[AUTHZ_PROFILE_SPEC_ID] ?? []) {
+          entry.features = ['did-url-targets']
+        }
+      }
+      vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+        const method = init.method ?? 'GET'
+        calls.push(`${method} ${url}`)
+        if (method === 'HEAD' && url === unlinked) {
+          return new Response(null, { status: 404 })
+        }
+        if (method === 'HEAD' && url.startsWith(`${ELSEWHERE}/`)) {
+          return new Response(null, {
+            status: 401,
+            headers: { link: `<${serviceUrlFor(ELSEWHERE)}>; rel="service"` }
+          })
+        }
+        if (method === 'GET' && url === serviceUrlFor(ELSEWHERE)) {
+          return new Response(JSON.stringify(description), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        }
+        throw new Error(`unexpected fetch ${method} ${url}`)
+      })
+      return calls
+    }
+
+    it("re-delegates when that server lists the token and the client's own does not", async () => {
+      const calls = stubElsewhere({ advertised: true })
+      const { client, lastDelegate } = didUrlClient({
+        advertised: false,
+        aliases
+      })
+      const photos = (await client.fromCapability(parent)) as Collection
+      await photos.grant(grantOptions)
+      expect(lastDelegate()?.invocationTarget).toBe(
+        `${ELSEWHERE_DID_URL}photos/`
+      )
+      await photos.resource('r').grant(grantOptions)
+      expect(lastDelegate()?.invocationTarget).toBe(
+        `${ELSEWHERE_DID_URL}photos/r`
+      )
+      // One discovery serves both grants.
+      expect(calls).toEqual([
+        `HEAD ${ELSEWHERE_SPACE}photos/`,
+        `GET ${serviceUrlFor(ELSEWHERE)}`
+      ])
+    })
+
+    it('refuses a re-delegation when that server does not list the token', async () => {
+      stubElsewhere({ advertised: false })
+      const { client, lastDelegate } = didUrlClient({ aliases })
+      const photos = (await client.fromCapability(parent)) as Collection
+      const refusal = photos.grant(grantOptions)
+      await expect(refusal).rejects.toBeInstanceOf(NotSupportedError)
+      await expect(refusal).rejects.toThrow(serviceUrlFor(ELSEWHERE))
+      expect(lastDelegate()).toBeUndefined()
+    })
+
+    it('checks that server for a grant issued from `spaceAt` with `didUrl`', async () => {
+      const calls = stubElsewhere({ advertised: true })
+      const { client, lastDelegate } = didUrlClient({
+        advertised: false,
+        aliases
+      })
+      const space = client.spaceAt(ELSEWHERE_SPACE, {
+        didUrl: ELSEWHERE_DID_URL
+      })
+      await space.collection('photos').grant(grantOptions)
+      expect(lastDelegate()?.capability).toBe(
+        rootCapabilityId(ELSEWHERE_DID_URL)
+      )
+      expect(lastDelegate()?.invocationTarget).toBe(
+        `${ELSEWHERE_DID_URL}photos/`
+      )
+      expect(calls[0]).toBe(`HEAD ${ELSEWHERE_SPACE}`)
+    })
+
+    it('refuses to issue from `spaceAt` when that server does not list the token', async () => {
+      stubElsewhere({ advertised: false })
+      const { client, lastDelegate, dereferenced } = didUrlClient({ aliases })
+      const space = client.spaceAt(ELSEWHERE_SPACE, {
+        didUrl: ELSEWHERE_DID_URL
+      })
+      await expect(space.grant(grantOptions)).rejects.toBeInstanceOf(
+        NotSupportedError
+      )
+      expect(dereferenced).toEqual([])
+      expect(lastDelegate()).toBeUndefined()
+    })
+
+    it('probes the URL it is given after a discovery that failed', async () => {
+      const stray = `${ELSEWHERE}/blog/`
+      const calls = stubElsewhere({ advertised: true, unlinked: stray })
+      const { client, lastDelegate } = didUrlClient({
+        advertised: false,
+        aliases
+      })
+      await expect(
+        client
+          .spaceAt(stray, { didUrl: 'did:webvh:QmStray:bob.example/' })
+          .grant(grantOptions)
+      ).rejects.toBeInstanceOf(IncompatibleServerError)
+      expect(lastDelegate()).toBeUndefined()
+
+      await client
+        .spaceAt(ELSEWHERE_SPACE, { didUrl: ELSEWHERE_DID_URL })
+        .grant(grantOptions)
+      expect(lastDelegate()?.invocationTarget).toBe(ELSEWHERE_DID_URL)
+      expect(calls).toEqual([
+        `HEAD ${stray}`,
+        `HEAD ${ELSEWHERE_SPACE}`,
+        `GET ${serviceUrlFor(ELSEWHERE)}`
+      ])
+    })
+
+    it('discovers that server again after `service({ refresh: true })`', async () => {
+      const calls = stubElsewhere({ advertised: true })
+      const { client } = didUrlClient({ advertised: false, aliases })
+      const space = client.spaceAt(ELSEWHERE_SPACE, {
+        didUrl: ELSEWHERE_DID_URL
+      })
+      await space.grant(grantOptions)
+      await space.grant(grantOptions)
+      expect(calls).toHaveLength(2)
+      // The refresh also discovers the client's own server, which this stub
+      // does not answer.
+      await expect(client.service({ refresh: true })).rejects.toThrow()
+      await space.grant(grantOptions)
+      expect(calls.filter(call => call === `HEAD ${ELSEWHERE_SPACE}`)).toEqual([
+        `HEAD ${ELSEWHERE_SPACE}`,
+        `HEAD ${ELSEWHERE_SPACE}`
+      ])
     })
   })
 
